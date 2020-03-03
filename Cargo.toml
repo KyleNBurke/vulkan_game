@@ -4,8 +4,6 @@ version = "0.1.0"
 authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [dependencies]
 ash = "0.29.0"
 
