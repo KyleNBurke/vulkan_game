@@ -20,11 +20,7 @@ pub struct Renderer {
 	framebuffers: Vec<vk::Framebuffer>,
 	command_pool: vk::CommandPool,
 	command_buffers: Vec<vk::CommandBuffer>,
-	image_available_semaphores: Vec<vk::Semaphore>,
-	render_finished_semaphores: Vec<vk::Semaphore>,
-	parallel_frame_fences: Vec<vk::Fence>,
-	swapchain_frame_fences: Vec<vk::Fence>,
-	current_frame: usize
+	sync_objects: SyncObjects
 }
 
 struct DebugUtils {
@@ -54,6 +50,14 @@ struct Swapchain {
 struct Pipeline {
 	handle: vk::Pipeline,
 	layout: vk::PipelineLayout
+}
+
+struct SyncObjects {
+	current_frame_in_flight: usize,
+	image_available_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+	render_finished_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
+	frame_in_flight_fences: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
+	frame_fences: Vec<vk::Fence>
 }
 
 impl Renderer {
@@ -108,10 +112,7 @@ impl Renderer {
 			&swapchain.extent,
 			&pipeline.handle);
 		
-		let (image_available_semaphores,
-			render_finished_semaphores,
-			parallel_frame_fences,
-			swapchain_frame_fences) = Self::create_sync_objects(&logical_device, swapchain.images.len());
+		let sync_objects = Self::create_sync_objects(&logical_device, swapchain.images.len());
 		
 		Renderer {
 			entry,
@@ -134,11 +135,7 @@ impl Renderer {
 			framebuffers,
 			command_pool,
 			command_buffers,
-			image_available_semaphores,
-			render_finished_semaphores,
-			parallel_frame_fences,
-			swapchain_frame_fences,
-			current_frame: 0
+			sync_objects
 		}
 	}
 
@@ -610,37 +607,43 @@ impl Renderer {
 		command_buffers
 	}
 
-	fn create_sync_objects(device: &ash::Device, swapchain_image_count: usize) -> (Vec<vk::Semaphore>, Vec<vk::Semaphore>, Vec<vk::Fence>, Vec<vk::Fence>) {
+	fn create_sync_objects(device: &ash::Device, swapchain_image_count: usize) -> SyncObjects {
 		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
 		let fence_create_info = vk::FenceCreateInfo::builder()
 			.flags(vk::FenceCreateFlags::SIGNALED);
 
-		let mut image_available_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
-		let mut render_finished_semaphores = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
-		let mut parallel_frame_fences = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+		let mut image_available_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
+		let mut render_finished_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
+		let mut frame_in_flight_fences: [vk::Fence; MAX_FRAMES_IN_FLIGHT] = Default::default();
 
-		for _ in 0..MAX_FRAMES_IN_FLIGHT {
-			image_available_semaphores.push(unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() });
-			render_finished_semaphores.push(unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() });
-			parallel_frame_fences.push(unsafe { device.create_fence(&fence_create_info, None).unwrap() });
+		for i in 0..MAX_FRAMES_IN_FLIGHT {
+			image_available_semaphores[i] = unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() };
+			render_finished_semaphores[i] = unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() };
+			frame_in_flight_fences[i] = unsafe { device.create_fence(&fence_create_info, None).unwrap() };
 		}
 
-		let mut swapchain_frame_fences = Vec::with_capacity(swapchain_image_count);
+		let mut frame_fences = Vec::with_capacity(swapchain_image_count);
 
 		for _ in 0..swapchain_image_count {
-			swapchain_frame_fences.push(vk::Fence::null());
+			frame_fences.push(vk::Fence::null());
 		}
 
-		(image_available_semaphores, render_finished_semaphores, parallel_frame_fences, swapchain_frame_fences)
+		SyncObjects {
+			current_frame_in_flight: 0,
+			image_available_semaphores,
+			render_finished_semaphores,
+			frame_in_flight_fences,
+			frame_fences,
+		}
 	}
 
 	pub fn render(&mut self) {
-		let current_frame_fence = self.parallel_frame_fences[self.current_frame];
-		let current_frame_fences = [current_frame_fence];
+		let current_frame_in_flight_fence = self.sync_objects.frame_in_flight_fences[self.sync_objects.current_frame_in_flight];
+		let current_frame_in_flight_fence_array = [current_frame_in_flight_fence];
 
-		unsafe { self.logical_device.wait_for_fences(&current_frame_fences, true, std::u64::MAX).unwrap() };
+		unsafe { self.logical_device.wait_for_fences(&current_frame_in_flight_fence_array, true, std::u64::MAX).unwrap() };
 				
-		let current_image_available_semaphore = self.image_available_semaphores[self.current_frame];
+		let current_image_available_semaphore = self.sync_objects.image_available_semaphores[self.sync_objects.current_frame_in_flight];
 
 		let image_index = unsafe {
 			self.swapchain.extension.acquire_next_image(self.swapchain.handle,
@@ -650,16 +653,16 @@ impl Renderer {
 			).unwrap().0
 		};
 
-		let swapchain_frame_fence = self.swapchain_frame_fences[image_index as usize];
+		let current_frame_fence = self.sync_objects.frame_fences[image_index as usize];
 
-		if swapchain_frame_fence != vk::Fence::null() {
-			let swapchain_frame_fences = [swapchain_frame_fence];
-			unsafe { self.logical_device.wait_for_fences(&swapchain_frame_fences, true, std::u64::MAX).unwrap() };
+		if current_frame_fence != vk::Fence::null() {
+			let current_frame_fence_array = [current_frame_fence];
+			unsafe { self.logical_device.wait_for_fences(&current_frame_fence_array, true, std::u64::MAX).unwrap() };
 		}
 
-		self.swapchain_frame_fences[image_index as usize] = current_frame_fence;
+		self.sync_objects.frame_fences[image_index as usize] = current_frame_in_flight_fence; 
 		
-		let current_render_finished_semaphore = self.render_finished_semaphores[self.current_frame];
+		let current_render_finished_semaphore = self.sync_objects.render_finished_semaphores[self.sync_objects.current_frame_in_flight];
 		let wait_semaphores = [current_image_available_semaphore];
 		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
 		let command_buffers = [self.command_buffers[image_index as usize]];
@@ -673,8 +676,8 @@ impl Renderer {
 		let submit_infos = [submit_info.build()];
 
 		unsafe {
-			self.logical_device.reset_fences(&current_frame_fences).unwrap();
-			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, current_frame_fence).unwrap();
+			self.logical_device.reset_fences(&current_frame_in_flight_fence_array).unwrap();
+			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, current_frame_in_flight_fence).unwrap();
 		}
 
 		let swapchains = [self.swapchain.handle];
@@ -687,7 +690,7 @@ impl Renderer {
 		
 		unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info).unwrap() };
 
-		self.current_frame = (self.current_frame + 1) % MAX_FRAMES_IN_FLIGHT;
+		self.sync_objects.current_frame_in_flight = (self.sync_objects.current_frame_in_flight + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 }
 
@@ -697,9 +700,9 @@ impl Drop for Renderer {
 			self.logical_device.device_wait_idle().unwrap();
 
 			for i in 0..MAX_FRAMES_IN_FLIGHT {
-				self.logical_device.destroy_fence(self.parallel_frame_fences[i], None);
-				self.logical_device.destroy_semaphore(self.render_finished_semaphores[i], None);
-				self.logical_device.destroy_semaphore(self.image_available_semaphores[i], None);
+				self.logical_device.destroy_fence(self.sync_objects.frame_in_flight_fences[i], None);
+				self.logical_device.destroy_semaphore(self.sync_objects.render_finished_semaphores[i], None);
+				self.logical_device.destroy_semaphore(self.sync_objects.image_available_semaphores[i], None);
 			}
 
 			self.logical_device.destroy_command_pool(self.command_pool, None);
