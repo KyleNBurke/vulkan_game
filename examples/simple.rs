@@ -7,7 +7,7 @@ fn main() {
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
 	let mut window = glfw.create_window(300, 300, "Vulkan", glfw::WindowMode::Windowed).unwrap().0;
 
-	let mut renderer = Renderer::new(&window);
+	let mut renderer = Renderer::new(&glfw, &window);
 
 	while !window.should_close() {
 		glfw.poll_events();

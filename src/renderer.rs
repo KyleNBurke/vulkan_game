@@ -61,21 +61,19 @@ struct SyncObjects {
 }
 
 impl Renderer {
-	pub fn new(window: &glfw::Window) -> Self {
+	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
 		let entry = ash::Entry::new().unwrap();
 
 		let required_layers = [CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
-		let required_layers_c_str: Vec<&CStr> = required_layers.iter().map(|layer| layer.as_c_str()).collect();
+		let required_layers_c_str: Vec<&CStr> = required_layers.iter().map(|l| l.as_c_str()).collect();
 
-		let required_instance_extensions = [
-			CString::new("VK_KHR_surface").unwrap(),
-			CString::new("VK_KHR_win32_surface").unwrap(),
-			CString::new("VK_EXT_debug_utils").unwrap()
-		];
-		let required_instance_extensions_c_str: Vec<&CStr> = required_instance_extensions.iter().map(|extension| extension.as_c_str()).collect();
+		let mut required_instance_extensions = glfw.get_required_instance_extensions().unwrap();
+		required_instance_extensions.push(String::from("VK_EXT_debug_utils"));
+		let required_instance_extensions_c_string: Vec<CString> = required_instance_extensions.iter().map(|e| CString::new(&e[..]).unwrap()).collect();
+		let required_instance_extensions_c_str: Vec<&CStr> = required_instance_extensions_c_string.iter().map(|e| e.as_c_str()).collect();
 
 		let required_device_extensions = [CString::new("VK_KHR_swapchain").unwrap()];
-		let required_device_extensions_c_str: Vec<&CStr> = required_device_extensions.iter().map(|extension| extension.as_c_str()).collect();
+		let required_device_extensions_c_str: Vec<&CStr> = required_device_extensions.iter().map(|e| e.as_c_str()).collect();
 		
 		let instance = Self::create_instance(&entry, &required_layers_c_str, &required_instance_extensions_c_str);
 		let debug_utils = Self::create_debug_utils(&entry, &instance);
