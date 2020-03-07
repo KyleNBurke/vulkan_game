@@ -26,6 +26,6 @@ fn main() {
 			}
 		}
 
-		renderer.render(&window);
+		renderer.render(&mut glfw, &window);
 	}
 }

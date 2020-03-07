@@ -639,7 +639,7 @@ impl Renderer {
 		}
 	}
 
-	pub fn render(&mut self, window: &glfw::Window) {
+	pub fn render(&mut self, glfw: &mut glfw::Glfw, window: &glfw::Window) {
 		let current_frame_in_flight_fence = self.sync_objects.frame_in_flight_fences[self.sync_objects.current_frame_in_flight];
 		let current_frame_in_flight_fence_array = [current_frame_in_flight_fence];
 
@@ -655,7 +655,7 @@ impl Renderer {
 		};
 
 		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
-			self.recreate_swapchain(window);
+			self.handle_framebuffer_resize(glfw, window);
 			return;
 		}
 
@@ -698,20 +698,33 @@ impl Renderer {
 		let result = unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info) };
 
 		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR || result.unwrap() || self.framebuffer_resized {
-			self.framebuffer_resized = false;
-			self.recreate_swapchain(window);
+			self.handle_framebuffer_resize(glfw, window);
 		}
 
 		self.sync_objects.current_frame_in_flight = (self.sync_objects.current_frame_in_flight + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	fn recreate_swapchain(&mut self, window: &glfw::Window) {
+	fn handle_framebuffer_resize(&mut self, glfw: &mut glfw::Glfw, window: &glfw::Window) {
+		let (mut framebuffer_width, mut framebuffer_height) = window.get_framebuffer_size();
+		let mut invalid_size = false;
+
+		while framebuffer_width == 0 || framebuffer_height == 0 {
+			invalid_size = true;
+			glfw.wait_events();
+			let (new_width, new_height) = window.get_framebuffer_size();
+			framebuffer_width = new_width;
+			framebuffer_height = new_height;
+		}
+
+		if invalid_size {
+			return;
+		}
+
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
 			self.cleanup_swapchain();
 		}
 
-		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
 		let swapchain = Self::create_swapchain(&self.instance,
 			&self.physical_device,
 			&self.logical_device,
@@ -738,6 +751,7 @@ impl Renderer {
 		self.pipeline = pipeline;
 		self.framebuffers = framebuffers;
 		self.command_buffers = command_buffers;
+		self.framebuffer_resized = false;
 	}
 
 	unsafe fn cleanup_swapchain(&mut self) {
@@ -758,7 +772,7 @@ impl Renderer {
 	}
 }
 
-impl<'a> Drop for Renderer {
+impl Drop for Renderer {
 	fn drop(&mut self) {
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
