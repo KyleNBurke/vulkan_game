@@ -6,7 +6,6 @@ use std::os::raw::{c_void, c_char};
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
 pub struct Renderer {
-	entry: ash::Entry,
 	instance: ash::Instance,
 	debug_utils: DebugUtils,
 	surface: Surface,
@@ -20,7 +19,8 @@ pub struct Renderer {
 	framebuffers: Vec<vk::Framebuffer>,
 	command_pool: vk::CommandPool,
 	command_buffers: Vec<vk::CommandBuffer>,
-	sync_objects: SyncObjects
+	sync_objects: SyncObjects,
+	pub framebuffer_resized: bool
 }
 
 struct DebugUtils {
@@ -90,12 +90,15 @@ impl Renderer {
 			graphics_queue_family,
 			present_queue_family);
 		
+		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
 		let swapchain = Self::create_swapchain(&instance,
 			&physical_device,
 			&logical_device,
 			&surface,
 			graphics_queue_family,
-			present_queue_family);
+			present_queue_family,
+			framebuffer_width as u32,
+			framebuffer_height as u32);
 		
 		let render_pass = Self::create_render_pass(&logical_device, &swapchain.format);
 		let pipeline = Self::create_pipeline(&logical_device, &swapchain.extent, &render_pass);
@@ -113,7 +116,6 @@ impl Renderer {
 		let sync_objects = Self::create_sync_objects(&logical_device, swapchain.images.len());
 		
 		Renderer {
-			entry,
 			instance,
 			debug_utils,
 			surface,
@@ -133,7 +135,8 @@ impl Renderer {
 			framebuffers,
 			command_pool,
 			command_buffers,
-			sync_objects
+			sync_objects,
+			framebuffer_resized: false
 		}
 	}
 
@@ -238,18 +241,19 @@ impl Renderer {
 					}
 				}
 
-				//should this go first in this loop?
+				let mut required_extensions_found = true;
 				let extension_properties = unsafe { instance.enumerate_device_extension_properties(device).unwrap() };
 				for req_ext in required_extensions {
 					if extension_properties.iter().find(|ext| &unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) } == req_ext).is_none() {
-						continue;
+						required_extensions_found = false;
+						break;
 					}
 				}
 
 				let formats = unsafe { surface.extension.get_physical_device_surface_formats(device, surface.handle).unwrap() };
 				let present_modes = unsafe { surface.extension.get_physical_device_surface_present_modes(device, surface.handle).unwrap() };
 
-				if graphics_queue_family.is_some() && present_queue_family.is_some() && formats.len() != 0 && present_modes.len() != 0 {
+				if graphics_queue_family.is_some() && present_queue_family.is_some() && required_extensions_found && formats.len() != 0 && present_modes.len() != 0 {
 					return (device, graphics_queue_family.unwrap() as u32, present_queue_family.unwrap() as u32)
 				}
 			}
@@ -300,7 +304,9 @@ impl Renderer {
 		logical_device: &ash::Device,
 		surface: &Surface,
 		graphics_queue_family: u32,
-		present_queue_family: u32) -> Swapchain
+		present_queue_family: u32,
+		framebuffer_width: u32,
+		framebuffer_height: u32) -> Swapchain
 	{
 		let formats = unsafe { surface.extension.get_physical_device_surface_formats(*physical_device, surface.handle).unwrap() };
 		let format = formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
@@ -313,11 +319,9 @@ impl Renderer {
 		let capabilities = unsafe { surface.extension.get_physical_device_surface_capabilities(*physical_device, surface.handle).unwrap() };
 		let mut extent = capabilities.current_extent;
 		if capabilities.current_extent.width == std::u32::MAX {
-			let actual_extent_width = 300;
-			let actual_extent_height = 300;
 			extent = vk::Extent2D::builder()
-				.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, actual_extent_width)))
-				.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, actual_extent_height)))
+				.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, framebuffer_width)))
+				.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, framebuffer_height)))
 				.build();
 		}
 
@@ -635,7 +639,7 @@ impl Renderer {
 		}
 	}
 
-	pub fn render(&mut self) {
+	pub fn render(&mut self, window: &glfw::Window) {
 		let current_frame_in_flight_fence = self.sync_objects.frame_in_flight_fences[self.sync_objects.current_frame_in_flight];
 		let current_frame_in_flight_fence_array = [current_frame_in_flight_fence];
 
@@ -643,14 +647,19 @@ impl Renderer {
 				
 		let current_image_available_semaphore = self.sync_objects.image_available_semaphores[self.sync_objects.current_frame_in_flight];
 
-		let image_index = unsafe {
+		let result = unsafe {
 			self.swapchain.extension.acquire_next_image(self.swapchain.handle,
 				std::u64::MAX,
 				current_image_available_semaphore,
-				vk::Fence::null()
-			).unwrap().0
+				vk::Fence::null())
 		};
 
+		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
+			self.recreate_swapchain(window);
+			return;
+		}
+
+		let image_index = result.unwrap().0;
 		let current_frame_fence = self.sync_objects.frame_fences[image_index as usize];
 
 		if current_frame_fence != vk::Fence::null() {
@@ -686,16 +695,74 @@ impl Renderer {
 			.swapchains(&swapchains)
 			.image_indices(&image_indices);
 		
-		unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info).unwrap() };
+		let result = unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info) };
+
+		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR || result.unwrap() || self.framebuffer_resized {
+			self.framebuffer_resized = false;
+			self.recreate_swapchain(window);
+		}
 
 		self.sync_objects.current_frame_in_flight = (self.sync_objects.current_frame_in_flight + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
+
+	fn recreate_swapchain(&mut self, window: &glfw::Window) {
+		unsafe {
+			self.logical_device.device_wait_idle().unwrap();
+			self.cleanup_swapchain();
+		}
+
+		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
+		let swapchain = Self::create_swapchain(&self.instance,
+			&self.physical_device,
+			&self.logical_device,
+			&self.surface,
+			self.graphics_queue_family.index,
+			self.present_queue_family.index,
+			framebuffer_width as u32,
+			framebuffer_height as u32);
+		
+		let render_pass = Self::create_render_pass(&self.logical_device, &swapchain.format);
+		let pipeline = Self::create_pipeline(&self.logical_device, &swapchain.extent, &render_pass);
+		let framebuffers = Self::create_framebuffers(&self.logical_device, &swapchain.image_views, &swapchain.extent, &render_pass);
+
+		let command_buffers = Self::create_command_buffers(&self.logical_device,
+			framebuffers.len() as u32,
+			&self.command_pool,
+			&render_pass,
+			&framebuffers,
+			&swapchain.extent,
+			&pipeline.handle);
+		
+		self.swapchain = swapchain;
+		self.render_pass = render_pass;
+		self.pipeline = pipeline;
+		self.framebuffers = framebuffers;
+		self.command_buffers = command_buffers;
+	}
+
+	unsafe fn cleanup_swapchain(&mut self) {
+		for framebuffer in &self.framebuffers {
+			self.logical_device.destroy_framebuffer(*framebuffer, None);
+		}
+
+		self.logical_device.free_command_buffers(self.command_pool, &self.command_buffers);
+		self.logical_device.destroy_pipeline(self.pipeline.handle, None);
+		self.logical_device.destroy_pipeline_layout(self.pipeline.layout, None);
+		self.logical_device.destroy_render_pass(self.render_pass, None);
+
+		for image_view in &self.swapchain.image_views {
+			self.logical_device.destroy_image_view(*image_view, None);
+		}
+		
+		self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
+	}
 }
 
-impl Drop for Renderer {
+impl<'a> Drop for Renderer {
 	fn drop(&mut self) {
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
+			self.cleanup_swapchain();
 
 			for i in 0..MAX_FRAMES_IN_FLIGHT {
 				self.logical_device.destroy_fence(self.sync_objects.frame_in_flight_fences[i], None);
@@ -703,21 +770,7 @@ impl Drop for Renderer {
 				self.logical_device.destroy_semaphore(self.sync_objects.image_available_semaphores[i], None);
 			}
 
-			self.logical_device.destroy_command_pool(self.command_pool, None);
-
-			for framebuffer in &self.framebuffers {
-				self.logical_device.destroy_framebuffer(*framebuffer, None);
-			}
-
-			self.logical_device.destroy_pipeline(self.pipeline.handle, None);
-			self.logical_device.destroy_pipeline_layout(self.pipeline.layout, None);
-			self.logical_device.destroy_render_pass(self.render_pass, None);
-
-			for image_view in &self.swapchain.image_views {
-				self.logical_device.destroy_image_view(*image_view, None);
-			}
-			
-			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
+			self.logical_device.destroy_command_pool(self.command_pool, None);			
 			self.logical_device.destroy_device(None);
 			self.surface.extension.destroy_surface(self.surface.handle, None);
 			self.debug_utils.extension.destroy_debug_utils_messenger(self.debug_utils.messenger_handle, None);
