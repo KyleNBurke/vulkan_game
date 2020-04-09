@@ -3,7 +3,22 @@ use glfw::Context;
 use std::ffi::{CString, CStr};
 use std::os::raw::{c_void, c_char};
 
+const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
+const REQUIRED_INSTANCE_EXTENSIONS: &[&str] = &["VK_EXT_debug_utils"];
+const REQUIRED_DEVICE_EXTENSIONS: &[&str] = &["VK_KHR_swapchain"];
+
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
+unsafe extern "system" fn debug_message_callback(
+	_message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
+	_message_type: vk::DebugUtilsMessageTypeFlagsEXT,
+	p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
+	_p_user_data: *mut c_void) -> vk::Bool32
+{
+	let message = CStr::from_ptr((*p_callback_data).p_message).to_str().unwrap();
+	println!("{}\n", message);
+	vk::FALSE
+}
 
 pub struct Renderer {
 	instance: ash::Instance,
@@ -13,14 +28,12 @@ pub struct Renderer {
 	logical_device: ash::Device,
 	graphics_queue_family: QueueFamily,
 	present_queue_family: QueueFamily,
-	swapchain: Swapchain,
+	command_pool: vk::CommandPool,
 	render_pass: vk::RenderPass,
 	pipeline: Pipeline,
-	framebuffers: Vec<vk::Framebuffer>,
-	command_pool: vk::CommandPool,
-	command_buffers: Vec<vk::CommandBuffer>,
-	sync_objects: SyncObjects,
-	pub framebuffer_resized: bool
+	in_flight_frames: Vec<InFlightFrame>,
+	current_in_flight_frame: usize,
+	swapchain: Swapchain
 }
 
 struct DebugUtils {
@@ -30,7 +43,8 @@ struct DebugUtils {
 
 struct Surface {
 	extension: khr::Surface,
-	handle: vk::SurfaceKHR
+	handle: vk::SurfaceKHR,
+	format: vk::SurfaceFormatKHR
 }
 
 struct QueueFamily {
@@ -41,10 +55,15 @@ struct QueueFamily {
 struct Swapchain {
 	extension: khr::Swapchain,
 	handle: vk::SwapchainKHR,
-	format: vk::SurfaceFormatKHR,
 	extent: vk::Extent2D,
-	images: Vec<vk::Image>,
-	image_views: Vec<vk::ImageView>
+	frames: Vec<Frame>
+}
+
+struct Frame {
+	image_view: vk::ImageView,
+	framebuffer: vk::Framebuffer,
+	command_buffer: vk::CommandBuffer,
+	fence: vk::Fence
 }
 
 struct Pipeline {
@@ -52,141 +71,141 @@ struct Pipeline {
 	layout: vk::PipelineLayout
 }
 
-struct SyncObjects {
-	current_frame_in_flight: usize,
-	image_available_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
-	render_finished_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT],
-	frame_in_flight_fences: [vk::Fence; MAX_FRAMES_IN_FLIGHT],
-	frame_fences: Vec<vk::Fence>
+struct InFlightFrame {
+	image_available: vk::Semaphore,
+	render_finished: vk::Semaphore,
+	fence: vk::Fence
 }
 
 impl Renderer {
 	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
 		let entry = ash::Entry::new().unwrap();
 
-		let required_layers = [CString::new("VK_LAYER_KHRONOS_validation").unwrap()];
-		let required_layers_c_str: Vec<&CStr> = required_layers.iter().map(|l| l.as_c_str()).collect();
+		let layers_c_string: Vec<CString> = REQUIRED_LAYERS.iter().map(|&s| CString::new(s).unwrap()).collect();
 
-		let mut required_instance_extensions = glfw.get_required_instance_extensions().unwrap();
-		required_instance_extensions.push(String::from("VK_EXT_debug_utils"));
-		let required_instance_extensions_c_string: Vec<CString> = required_instance_extensions.iter().map(|e| CString::new(&e[..]).unwrap()).collect();
-		let required_instance_extensions_c_str: Vec<&CStr> = required_instance_extensions_c_string.iter().map(|e| e.as_c_str()).collect();
-
-		let required_device_extensions = [CString::new("VK_KHR_swapchain").unwrap()];
-		let required_device_extensions_c_str: Vec<&CStr> = required_device_extensions.iter().map(|e| e.as_c_str()).collect();
+		let glfw_instance_extensions_string = glfw.get_required_instance_extensions().unwrap();
+		let mut glfw_instance_extensions_c_string: Vec<CString> = glfw_instance_extensions_string.iter().map(|s| CString::new(s.as_str()).unwrap()).collect();
+		let mut instance_extensions_c_string: Vec<CString> = REQUIRED_INSTANCE_EXTENSIONS.iter().map(|&s| CString::new(s).unwrap()).collect();
+		instance_extensions_c_string.append(&mut glfw_instance_extensions_c_string);
 		
-		let instance = Self::create_instance(&entry, &required_layers_c_str, &required_instance_extensions_c_str);
+		let device_extensions_c_string: Vec<CString> = REQUIRED_DEVICE_EXTENSIONS.iter().map(|&s| CString::new(s).unwrap()).collect();
+
+		let instance = Self::create_instance(&entry, &layers_c_string, &instance_extensions_c_string);
 		let debug_utils = Self::create_debug_utils(&entry, &instance);
-		let surface = Self::create_surface(&entry, &instance, window);
+		let (surface_extension, surface_handle) = Self::create_surface(&entry, &instance, window);
+
+		let (physical_device, graphics_queue_family_index, present_queue_family_index) = Self::choose_physical_device(
+			&instance,
+			&device_extensions_c_string,
+			&surface_extension,
+			&surface_handle);
 		
-		let (physical_device, graphics_queue_family, present_queue_family) = Self::choose_physical_device(&instance,
-			&required_device_extensions_c_str,
-			&surface);
-		
-		let (logical_device, graphics_queue_handle, present_queue_handle) = Self::create_logical_device(&instance,
-			&required_layers_c_str,
-			&required_device_extensions_c_str,
+		let surface_format = Self::create_surface_format(&surface_extension, &surface_handle, &physical_device);
+
+		let (logical_device, graphics_queue_handle, present_queue_handle) = Self::create_logical_device(
+			&instance,
+			&layers_c_string,
+			&device_extensions_c_string,
 			&physical_device,
-			graphics_queue_family,
-			present_queue_family);
-		
+			graphics_queue_family_index,
+			present_queue_family_index);
+
 		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
-		let swapchain = Self::create_swapchain(&instance,
+		let (swapchain_extension, swapchain_handle, swapchain_extent, swapchain_image_views) = Self::create_swapchain(
+			&instance,
 			&physical_device,
 			&logical_device,
-			&surface,
-			graphics_queue_family,
-			present_queue_family,
+			&surface_extension,
+			&surface_handle,
+			&surface_format,
+			graphics_queue_family_index,
+			present_queue_family_index,
 			framebuffer_width as u32,
 			framebuffer_height as u32);
 		
-		let render_pass = Self::create_render_pass(&logical_device, &swapchain.format);
-		let pipeline = Self::create_pipeline(&logical_device, &swapchain.extent, &render_pass);
-		let framebuffers = Self::create_framebuffers(&logical_device, &swapchain.image_views, &swapchain.extent, &render_pass);
-		let command_pool = Self::create_command_pool(&logical_device, graphics_queue_family);
+		let render_pass = Self::create_render_pass(&logical_device, &surface_format);
+		let pipeline = Self::create_pipeline(&logical_device, &swapchain_extent, &render_pass);
+		let framebuffers = Self::create_framebuffers(&logical_device, &swapchain_image_views, &swapchain_extent, &render_pass);
+		let command_pool = Self::create_command_pool(&logical_device, graphics_queue_family_index);
+		let command_buffers = Self::create_command_buffers(&logical_device, &command_pool, swapchain_image_views.len() as u32);
+		let in_flight_frames = Self::create_in_flight_frames(&logical_device);
 
-		let command_buffers = Self::create_command_buffers(&logical_device,
-			framebuffers.len() as u32,
-			&command_pool,
-			&render_pass,
-			&framebuffers,
-			&swapchain.extent,
-			&pipeline.handle);
-		
-		let sync_objects = Self::create_sync_objects(&logical_device, swapchain.images.len());
-		
+		let mut swapchain_frames: Vec<Frame> = Vec::with_capacity(swapchain_image_views.len());
+		for i in 0..swapchain_image_views.len() {
+			swapchain_frames.push(Frame {
+				image_view: swapchain_image_views[i],
+				framebuffer: framebuffers[i],
+				command_buffer: command_buffers[i],
+				fence: vk::Fence::null()
+			});
+		}
+
 		Renderer {
 			instance,
 			debug_utils,
-			surface,
+			surface: Surface {
+				extension: surface_extension,
+				handle: surface_handle,
+				format: surface_format
+			},
 			physical_device,
 			logical_device,
 			graphics_queue_family: QueueFamily {
-				index: graphics_queue_family,
+				index: graphics_queue_family_index,
 				queue: graphics_queue_handle
 			},
 			present_queue_family: QueueFamily {
-				index: present_queue_family,
+				index: present_queue_family_index,
 				queue: present_queue_handle
 			},
-			swapchain,
+			command_pool,
 			render_pass,
 			pipeline,
-			framebuffers,
-			command_pool,
-			command_buffers,
-			sync_objects,
-			framebuffer_resized: false
+			in_flight_frames,
+			current_in_flight_frame: 0,
+			swapchain: Swapchain {
+				extension: swapchain_extension,
+				handle: swapchain_handle,
+				extent: swapchain_extent,
+				frames: swapchain_frames
+			},
 		}
 	}
 
-	fn create_instance(entry: &ash::Entry, required_layers: &Vec<&CStr>, required_extensions: &Vec<&CStr>) -> ash::Instance {
+	pub fn create_instance(entry: &ash::Entry, layers: &Vec<CString>, instance_extensions: &Vec<CString>) -> ash::Instance {
+		let available_layers = entry.enumerate_instance_layer_properties().unwrap();
+		let mut layers_ptr = Vec::with_capacity(layers.len());
+		for layer in layers {
+			available_layers.iter()
+				.find(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) } == layer.as_c_str())
+				.expect(&format!("Required layer {} not supported", layer.to_str().unwrap()));
+			layers_ptr.push(layer.as_ptr());
+		}
+
+		let available_instance_extensions = entry.enumerate_instance_extension_properties().unwrap();
+		let mut instance_extensions_ptr = Vec::with_capacity(instance_extensions.len());
+		for instance_extension in instance_extensions {
+			available_instance_extensions.iter()
+				.find(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) } == instance_extension.as_c_str())
+				.expect(&format!("Required instance extension {} not supported", instance_extension.to_str().unwrap()));
+			instance_extensions_ptr.push(instance_extension.as_ptr());
+		}
+
 		let engine_name = CString::new("Vulkan Engine").unwrap();
 		let app_info = vk::ApplicationInfo::builder()
 			.engine_name(engine_name.as_c_str())
 			.engine_version(ash::vk_make_version!(1, 0, 0))
 			.api_version(ash::vk_make_version!(1, 2, 0));
 		
-		let mut required_layers_ffi = Vec::with_capacity(required_layers.len());
-		let available_layers = entry.enumerate_instance_layer_properties().unwrap();
-
-		for req_lay in required_layers {
-			available_layers.iter()
-				.find(|&&avail_lay| &unsafe { CStr::from_ptr(avail_lay.layer_name.as_ptr()) } == req_lay)
-				.expect(&format!("Required layer {} not supported", req_lay.to_str().unwrap()));
-			required_layers_ffi.push(req_lay.as_ptr());
-		}
-		
-		let mut required_extensions_ffi = Vec::with_capacity(required_extensions.len());
-		let available_extensions = entry.enumerate_instance_extension_properties().unwrap();
-
-		for req_ext in required_extensions {
-			available_extensions.iter()
-				.find(|&&avail_ext| &unsafe { CStr::from_ptr(avail_ext.extension_name.as_ptr()) } == req_ext)
-				.expect(&format!("Required extension {} not supported", req_ext.to_str().unwrap()));
-			required_extensions_ffi.push(req_ext.as_ptr());
-		}
-
 		let mut debug_messenger_create_info = Self::create_debug_messenger_create_info();
 
 		let create_info = vk::InstanceCreateInfo::builder()
 			.application_info(&app_info)
-			.enabled_extension_names(&required_extensions_ffi)
-			.enabled_layer_names(&required_layers_ffi)
+			.enabled_extension_names(&instance_extensions_ptr)
+			.enabled_layer_names(&layers_ptr)
 			.push_next(&mut debug_messenger_create_info);
 		
 		unsafe { entry.create_instance(&create_info, None).unwrap() }
-	}
-
-	fn create_debug_messenger_create_info() ->  vk::DebugUtilsMessengerCreateInfoEXT {
-		vk::DebugUtilsMessengerCreateInfoEXT::builder()
-			.message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
-				| vk::DebugUtilsMessageSeverityFlagsEXT::ERROR)
-			.message_type(vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
-				| vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
-				| vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
-			.pfn_user_callback(Some(debug_message_callback))
-			.build()
 	}
 
 	fn create_debug_utils(entry: &ash::Entry, instance: &ash::Instance) -> DebugUtils {
@@ -200,123 +219,154 @@ impl Renderer {
 		}
 	}
 
-	fn create_surface(entry: &ash::Entry, instance: &ash::Instance, window: &glfw::Window) -> Surface {
+	fn create_debug_messenger_create_info() ->  vk::DebugUtilsMessengerCreateInfoEXT {
+		vk::DebugUtilsMessengerCreateInfoEXT::builder()
+			.message_severity(vk::DebugUtilsMessageSeverityFlagsEXT::WARNING
+				| vk::DebugUtilsMessageSeverityFlagsEXT::ERROR)
+			.message_type(vk::DebugUtilsMessageTypeFlagsEXT::GENERAL
+				| vk::DebugUtilsMessageTypeFlagsEXT::VALIDATION
+				| vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE)
+			.pfn_user_callback(Some(debug_message_callback))
+			.build()
+	}
+
+	fn create_surface(entry: &ash::Entry, instance: &ash::Instance, window: &glfw::Window) -> (khr::Surface, vk::SurfaceKHR) {
 		let instance_raw = instance.handle().as_raw();
 		let mut surface_raw: u64 = 0;
 		
 		let result = unsafe { glfw::ffi::glfwCreateWindowSurface(instance_raw as usize, window.window_ptr(), std::ptr::null(), &mut surface_raw as *mut u64) };
 		if result != 0 {
-			panic!("Couldn't create window surface");
+			panic!("Could not create window surface");
 		}
-		
-		let extension = khr::Surface::new(entry, instance);
-		let handle = vk::SurfaceKHR::from_raw(surface_raw);
 
-		Surface {
-			extension,
-			handle
-		}
+		(khr::Surface::new(entry, instance), vk::SurfaceKHR::from_raw(surface_raw))
 	}
 
-	fn choose_physical_device(instance: &ash::Instance, required_extensions: &Vec<&CStr>, surface: &Surface)
-		-> (vk::PhysicalDevice, u32, u32)
+	fn choose_physical_device(
+		instance: &ash::Instance,
+		device_extensions: &Vec<CString>,
+		surface_extension: &khr::Surface,
+		surface_handle: &vk::SurfaceKHR) -> (vk::PhysicalDevice, u32, u32)
 	{
 		let devices = unsafe { instance.enumerate_physical_devices().unwrap() };
 
-		for device in devices {
-			let device_properties = unsafe { instance.get_physical_device_properties(device) };
-			let device_features = unsafe { instance.get_physical_device_features(device) };
+		'main: for device in devices {
+			let properties = unsafe { instance.get_physical_device_properties(device) };
+			if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
+				continue;
+			}
+			
+			let features = unsafe { instance.get_physical_device_features(device) };
+			if features.geometry_shader == vk::FALSE {
+				continue;
+			}
 
-			if device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU && device_features.geometry_shader == vk::TRUE {
-				let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(device) };
-				let mut graphics_queue_family = None;
-				let mut present_queue_family = None;
-				for (i, property) in queue_family_properties.iter().enumerate() {
-					if property.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-						graphics_queue_family = Some(i);
-					}
-
-					if unsafe { surface.extension.get_physical_device_surface_support(device, i as u32, surface.handle) } {
-						present_queue_family = Some(i);
-					}
+			let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(device) };
+			let mut graphics_queue_family = None;
+			let mut present_queue_family = None;
+			for (i, property) in queue_family_properties.iter().enumerate() {
+				if property.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+					graphics_queue_family = Some(i);
 				}
 
-				let mut required_extensions_found = true;
-				let extension_properties = unsafe { instance.enumerate_device_extension_properties(device).unwrap() };
-				for req_ext in required_extensions {
-					if extension_properties.iter().find(|ext| &unsafe { CStr::from_ptr(ext.extension_name.as_ptr()) } == req_ext).is_none() {
-						required_extensions_found = false;
-						break;
-					}
-				}
-
-				let formats = unsafe { surface.extension.get_physical_device_surface_formats(device, surface.handle).unwrap() };
-				let present_modes = unsafe { surface.extension.get_physical_device_surface_present_modes(device, surface.handle).unwrap() };
-
-				if graphics_queue_family.is_some() && present_queue_family.is_some() && required_extensions_found && formats.len() != 0 && present_modes.len() != 0 {
-					return (device, graphics_queue_family.unwrap() as u32, present_queue_family.unwrap() as u32)
+				if unsafe { surface_extension.get_physical_device_surface_support(device, i as u32, *surface_handle) } {
+					present_queue_family = Some(i);
 				}
 			}
+
+			if graphics_queue_family.is_none() || present_queue_family.is_none() {
+				continue;
+			}
+
+			let available_device_extensions = unsafe { instance.enumerate_device_extension_properties(device).unwrap() };
+			for device_extension in device_extensions {
+				let extension = available_device_extensions.iter().find(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) } == device_extension.as_c_str());
+				if extension.is_none() {
+					continue 'main;
+				}
+			}
+
+			let formats = unsafe { surface_extension.get_physical_device_surface_formats(device, *surface_handle).unwrap() };
+			if formats.len() == 0 {
+				continue;
+			}
+
+			let present_modes = unsafe { surface_extension.get_physical_device_surface_present_modes(device, *surface_handle).unwrap() };
+			if present_modes.len() == 0 {
+				continue;
+			}
+
+			return (device, graphics_queue_family.unwrap() as u32, present_queue_family.unwrap() as u32);
 		}
 
 		panic!("No suitable physical device found");
 	}
 
+	fn create_surface_format(surface_extension: &khr::Surface, surface_handle: &vk::SurfaceKHR, physical_device: &vk::PhysicalDevice) -> vk::SurfaceFormatKHR {
+		let formats = unsafe { surface_extension.get_physical_device_surface_formats(*physical_device, *surface_handle).unwrap() };
+		let format = formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
+		if format.is_some() { *format.unwrap() } else { formats[0] }
+	}
+
 	fn create_logical_device(
 		instance: &ash::Instance,
-		required_layers: &Vec<&CStr>,
-		required_extensions: &Vec<&CStr>,
+		layers: &Vec<CString>,
+		device_extensions: &Vec<CString>,
 		physical_device: &vk::PhysicalDevice,
-		graphics_queue_family_index: u32,
-		present_queue_family_index: u32) -> (ash::Device, vk::Queue, vk::Queue)
+		graphics_queue_family: u32,
+		present_queue_family: u32) -> (ash::Device, vk::Queue, vk::Queue)
 	{
 		let mut device_queue_create_infos = vec![vk::DeviceQueueCreateInfo::builder()
-			.queue_family_index(graphics_queue_family_index)
+			.queue_family_index(graphics_queue_family)
 			.queue_priorities(&[1.0])
 			.build()];
 
-		if graphics_queue_family_index != present_queue_family_index {
+		if graphics_queue_family != present_queue_family {
 			device_queue_create_infos.push(vk::DeviceQueueCreateInfo::builder()
-				.queue_family_index(present_queue_family_index)
+				.queue_family_index(present_queue_family)
 				.queue_priorities(&[1.0])
 				.build());
 		}
 
-		let required_layers_ffi: Vec<*const c_char> = required_layers.iter().map(|layer| layer.as_ptr()).collect();
-		let required_extensions_ffi: Vec<*const c_char> = required_extensions.iter().map(|extension| extension.as_ptr()).collect();
 		let features = vk::PhysicalDeviceFeatures::builder();
+		let layers_ptr: Vec<*const c_char> = layers.iter().map(|e| e.as_ptr()).collect();
+		let device_extensions_ptr: Vec<*const c_char> = device_extensions.iter().map(|e| e.as_ptr()).collect();
 
 		let device_create_info = vk::DeviceCreateInfo::builder()
 			.queue_create_infos(&device_queue_create_infos)
 			.enabled_features(&features)
-			.enabled_layer_names(&required_layers_ffi)
-			.enabled_extension_names(&required_extensions_ffi);
+			.enabled_layer_names(&layers_ptr)
+			.enabled_extension_names(&device_extensions_ptr);
 		
 		let logical_device = unsafe { instance.create_device(*physical_device, &device_create_info, None).unwrap() };
-		let graphics_queue = unsafe { logical_device.get_device_queue(graphics_queue_family_index, 0) };
-		let present_queue = unsafe { logical_device.get_device_queue(present_queue_family_index, 0) };
+		let graphics_queue = unsafe { logical_device.get_device_queue(graphics_queue_family, 0) };
+		let present_queue = unsafe { logical_device.get_device_queue(present_queue_family, 0) };
 
 		(logical_device, graphics_queue, present_queue)
 	}
 
-	fn create_swapchain(instance: &ash::Instance,
+	fn create_swapchain(
+		instance: &ash::Instance,
 		physical_device: &vk::PhysicalDevice,
 		logical_device: &ash::Device,
-		surface: &Surface,
+		surface_extension: &khr::Surface,
+		surface_handle: &vk::SurfaceKHR,
+		surface_format: &vk::SurfaceFormatKHR,
 		graphics_queue_family: u32,
 		present_queue_family: u32,
 		framebuffer_width: u32,
-		framebuffer_height: u32) -> Swapchain
+		framebuffer_height: u32)
+	-> (
+		khr::Swapchain,
+		vk::SwapchainKHR,
+		vk::Extent2D,
+		Vec<vk::ImageView>)
 	{
-		let formats = unsafe { surface.extension.get_physical_device_surface_formats(*physical_device, surface.handle).unwrap() };
-		let format = formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
-		let format = if format.is_some() { *format.unwrap() } else { formats[0] };
-
-		let present_modes = unsafe { surface.extension.get_physical_device_surface_present_modes(*physical_device, surface.handle).unwrap() };
+		let present_modes = unsafe { surface_extension.get_physical_device_surface_present_modes(*physical_device, *surface_handle).unwrap() };
 		let present_mode = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
 		let present_mode = if present_mode.is_some() { *present_mode.unwrap() } else { present_modes[0] };
 
-		let capabilities = unsafe { surface.extension.get_physical_device_surface_capabilities(*physical_device, surface.handle).unwrap() };
+		let capabilities = unsafe { surface_extension.get_physical_device_surface_capabilities(*physical_device, *surface_handle).unwrap() };
 		let mut extent = capabilities.current_extent;
 		if capabilities.current_extent.width == std::u32::MAX {
 			extent = vk::Extent2D::builder()
@@ -331,10 +381,10 @@ impl Renderer {
 		}
 
 		let mut swapchain_create_info = vk::SwapchainCreateInfoKHR::builder()
-			.surface(surface.handle)
+			.surface(*surface_handle)
 			.min_image_count(image_count)
-			.image_format(format.format)
-			.image_color_space(format.color_space)
+			.image_format(surface_format.format)
+			.image_color_space(surface_format.color_space)
 			.image_extent(extent)
 			.image_array_layers(1)
 			.image_usage(vk::ImageUsageFlags::COLOR_ATTACHMENT)
@@ -362,7 +412,7 @@ impl Renderer {
 			let image_view_create_info = vk::ImageViewCreateInfo::builder()
 				.image(*image)
 				.view_type(vk::ImageViewType::TYPE_2D)
-				.format(format.format)
+				.format(surface_format.format)
 				.components(vk::ComponentMapping::builder()
 			   		.r(vk::ComponentSwizzle::IDENTITY)
 					.g(vk::ComponentSwizzle::IDENTITY)
@@ -380,14 +430,7 @@ impl Renderer {
 			image_views.push(unsafe { logical_device.create_image_view(&image_view_create_info, None).unwrap() });
 		}
 
-		Swapchain {
-			extension,
-			handle,
-			format,
-			extent,
-			images,
-			image_views
-		}
+		(extension, handle, extent, image_views)
 	}
 
 	fn create_render_pass(device: &ash::Device, format: &vk::SurfaceFormatKHR) -> vk::RenderPass {
@@ -537,8 +580,8 @@ impl Renderer {
 	fn create_framebuffers(device: &ash::Device, image_views: &Vec<vk::ImageView>, extent: &vk::Extent2D, render_pass: &vk::RenderPass) -> Vec<vk::Framebuffer> {
 		let mut framebuffers = Vec::with_capacity(image_views.len());
 
-		for image_view in image_views {
-			let attachments = [*image_view];
+		for &image_view in image_views {
+			let attachments = [image_view];
 
 			let create_info = vk::FramebufferCreateInfo::builder()
 				.render_pass(*render_pass)
@@ -560,25 +603,35 @@ impl Renderer {
 		unsafe { device.create_command_pool(&create_info, None).unwrap() }
 	}
 
-	fn create_command_buffers(device: &ash::Device,
-		count: u32,
-		command_pool: &vk::CommandPool,
-		render_pass: &vk::RenderPass,
-		frame_buffers: &Vec<vk::Framebuffer>,
-		extent: &vk::Extent2D,
-		pipeline: &vk::Pipeline) -> Vec<vk::CommandBuffer>
-	{
+	fn create_command_buffers(device: &ash::Device, command_pool: &vk::CommandPool, count: u32) -> Vec<vk::CommandBuffer> {
 		let create_info = vk::CommandBufferAllocateInfo::builder()
 			.command_pool(*command_pool)
 			.level(vk::CommandBufferLevel::PRIMARY)
 			.command_buffer_count(count);
 		
-		let command_buffers = unsafe { device.allocate_command_buffers(&create_info).unwrap() };
-		
-		for (i, command_buffer) in command_buffers.iter().enumerate() {
-			let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
+		unsafe { device.allocate_command_buffers(&create_info).unwrap() }
+	}
 
-			unsafe { device.begin_command_buffer(*command_buffer, &command_buffer_begin_info).unwrap() };
+	fn create_in_flight_frames(device: &ash::Device) -> Vec<InFlightFrame> {
+		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
+		let fence_create_info = vk::FenceCreateInfo::builder()
+			.flags(vk::FenceCreateFlags::SIGNALED);
+
+		let mut frames: Vec<InFlightFrame> = Vec::with_capacity(MAX_FRAMES_IN_FLIGHT);
+		for _ in 0..MAX_FRAMES_IN_FLIGHT {
+			frames.push(InFlightFrame {
+				image_available: unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() },
+				render_finished: unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() },
+				fence: unsafe { device.create_fence(&fence_create_info, None).unwrap() }
+			});
+		}
+
+		frames
+	}
+
+	pub fn submit_static_meshes(&mut self) {
+		for frame in &self.swapchain.frames {
+			let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
 
 			let clear_color = vk::ClearValue {
 				color: vk::ClearColorValue {
@@ -588,186 +641,147 @@ impl Renderer {
 			let clear_colors = [clear_color];
 
 			let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-				.render_pass(*render_pass)
-				.framebuffer(frame_buffers[i])
+				.render_pass(self.render_pass)
+				.framebuffer(frame.framebuffer)
 				.render_area(vk::Rect2D::builder()
 					.offset(vk::Offset2D::builder().x(0).y(0).build())
-					.extent(*extent)
+					.extent(self.swapchain.extent)
 					.build())
 				.clear_values(&clear_colors);
 			
 			unsafe {
-				device.cmd_begin_render_pass(*command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-				device.cmd_bind_pipeline(*command_buffer, vk::PipelineBindPoint::GRAPHICS, *pipeline);
-				device.cmd_draw(*command_buffer, 3, 1, 0, 0);
-				device.cmd_end_render_pass(*command_buffer);
-
-				device.end_command_buffer(*command_buffer).unwrap();
+				self.logical_device.begin_command_buffer(frame.command_buffer, &command_buffer_begin_info).unwrap();
+				self.logical_device.cmd_begin_render_pass(frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+				self.logical_device.cmd_bind_pipeline(frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
+				self.logical_device.cmd_draw(frame.command_buffer, 3, 1, 0, 0);
+				self.logical_device.cmd_end_render_pass(frame.command_buffer);
+				self.logical_device.end_command_buffer(frame.command_buffer).unwrap();
 			}
 		}
-
-		command_buffers
 	}
-
-	fn create_sync_objects(device: &ash::Device, swapchain_image_count: usize) -> SyncObjects {
-		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
-		let fence_create_info = vk::FenceCreateInfo::builder()
-			.flags(vk::FenceCreateFlags::SIGNALED);
-
-		let mut image_available_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
-		let mut render_finished_semaphores: [vk::Semaphore; MAX_FRAMES_IN_FLIGHT] = Default::default();
-		let mut frame_in_flight_fences: [vk::Fence; MAX_FRAMES_IN_FLIGHT] = Default::default();
-
-		for i in 0..MAX_FRAMES_IN_FLIGHT {
-			image_available_semaphores[i] = unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() };
-			render_finished_semaphores[i] = unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() };
-			frame_in_flight_fences[i] = unsafe { device.create_fence(&fence_create_info, None).unwrap() };
-		}
-
-		let mut frame_fences = Vec::with_capacity(swapchain_image_count);
-
-		for _ in 0..swapchain_image_count {
-			frame_fences.push(vk::Fence::null());
-		}
-
-		SyncObjects {
-			current_frame_in_flight: 0,
-			image_available_semaphores,
-			render_finished_semaphores,
-			frame_in_flight_fences,
-			frame_fences,
-		}
-	}
-
-	pub fn render(&mut self, glfw: &mut glfw::Glfw, window: &glfw::Window) {
-		let current_frame_in_flight_fence = self.sync_objects.frame_in_flight_fences[self.sync_objects.current_frame_in_flight];
-		let current_frame_in_flight_fence_array = [current_frame_in_flight_fence];
-
-		unsafe { self.logical_device.wait_for_fences(&current_frame_in_flight_fence_array, true, std::u64::MAX).unwrap() };
-				
-		let current_image_available_semaphore = self.sync_objects.image_available_semaphores[self.sync_objects.current_frame_in_flight];
-
+	
+	pub fn render(&mut self, window: &glfw::Window) {
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+		
+		let fences = [in_flight_frame.fence];
+		unsafe { self.logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
+		
 		let result = unsafe {
 			self.swapchain.extension.acquire_next_image(self.swapchain.handle,
 				std::u64::MAX,
-				current_image_available_semaphore,
+				in_flight_frame.image_available,
 				vk::Fence::null())
 		};
 
-		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
-			self.handle_framebuffer_resize(glfw, window);
-			return;
+		if result.is_err() {
+			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
+				let (width, height) = window.get_framebuffer_size();
+				self.recreate_swapchain(width as u32, height as u32);
+				return;
+			}
+
+			panic!("Could not aquire a swapchain image");
 		}
 
 		let image_index = result.unwrap().0;
-		let current_frame_fence = self.sync_objects.frame_fences[image_index as usize];
+		let swapchain_frame = &mut self.swapchain.frames[image_index as usize];
 
-		if current_frame_fence != vk::Fence::null() {
-			let current_frame_fence_array = [current_frame_fence];
-			unsafe { self.logical_device.wait_for_fences(&current_frame_fence_array, true, std::u64::MAX).unwrap() };
+		if swapchain_frame.fence != vk::Fence::null() {
+			let fences = [swapchain_frame.fence];
+			unsafe { self.logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
 		}
 
-		self.sync_objects.frame_fences[image_index as usize] = current_frame_in_flight_fence; 
-		
-		let current_render_finished_semaphore = self.sync_objects.render_finished_semaphores[self.sync_objects.current_frame_in_flight];
-		let wait_semaphores = [current_image_available_semaphore];
+		swapchain_frame.fence = in_flight_frame.fence;
+		let image_available_semaphores = [in_flight_frame.image_available];
 		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-		let command_buffers = [self.command_buffers[image_index as usize]];
-		let signal_semaphores = [current_render_finished_semaphore];
-
+		let command_buffers = [swapchain_frame.command_buffer];
+		let render_finished_semaphores = [in_flight_frame.render_finished];
 		let submit_info = vk::SubmitInfo::builder()
-			.wait_semaphores(&wait_semaphores)
+			.wait_semaphores(&image_available_semaphores)
 			.wait_dst_stage_mask(&wait_stages)
 			.command_buffers(&command_buffers)
-			.signal_semaphores(&signal_semaphores);
+			.signal_semaphores(&render_finished_semaphores);
 		let submit_infos = [submit_info.build()];
 
 		unsafe {
-			self.logical_device.reset_fences(&current_frame_in_flight_fence_array).unwrap();
-			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, current_frame_in_flight_fence).unwrap();
+			self.logical_device.reset_fences(&fences).unwrap();
+			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, in_flight_frame.fence).unwrap();
 		}
 
 		let swapchains = [self.swapchain.handle];
 		let image_indices = [image_index];
-
 		let present_info = vk::PresentInfoKHR::builder()
-			.wait_semaphores(&signal_semaphores)
+			.wait_semaphores(&render_finished_semaphores)
 			.swapchains(&swapchains)
 			.image_indices(&image_indices);
 		
 		let result = unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info) };
 
-		if result.is_err() && result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR || result.unwrap() || self.framebuffer_resized {
-			self.handle_framebuffer_resize(glfw, window);
+		if result.is_err() {
+			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR || result.unwrap() {
+				let (width, height) = window.get_framebuffer_size();
+				self.recreate_swapchain(width as u32, height as u32);
+			}
+			else {
+				panic!("Could not present swapchain image");
+			}
 		}
 
-		self.sync_objects.current_frame_in_flight = (self.sync_objects.current_frame_in_flight + 1) % MAX_FRAMES_IN_FLIGHT;
+		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % MAX_FRAMES_IN_FLIGHT;
 	}
 
-	fn handle_framebuffer_resize(&mut self, glfw: &mut glfw::Glfw, window: &glfw::Window) {
-		let (mut framebuffer_width, mut framebuffer_height) = window.get_framebuffer_size();
-		let mut invalid_size = false;
-
-		while framebuffer_width == 0 || framebuffer_height == 0 {
-			invalid_size = true;
-			glfw.wait_events();
-			let (new_width, new_height) = window.get_framebuffer_size();
-			framebuffer_width = new_width;
-			framebuffer_height = new_height;
-		}
-
-		if invalid_size {
-			return;
-		}
-
+	pub fn recreate_swapchain(&mut self, width: u32, height: u32) {
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
 			self.cleanup_swapchain();
 		}
 
-		let swapchain = Self::create_swapchain(&self.instance,
+		let (swapchain_extension, swapchain_handle, swapchain_extent, swapchain_image_views) = Self::create_swapchain(
+			&self.instance,
 			&self.physical_device,
 			&self.logical_device,
-			&self.surface,
+			&self.surface.extension,
+			&self.surface.handle,
+			&self.surface.format,
 			self.graphics_queue_family.index,
 			self.present_queue_family.index,
-			framebuffer_width as u32,
-			framebuffer_height as u32);
+			width,
+			height);
 		
-		let render_pass = Self::create_render_pass(&self.logical_device, &swapchain.format);
-		let pipeline = Self::create_pipeline(&self.logical_device, &swapchain.extent, &render_pass);
-		let framebuffers = Self::create_framebuffers(&self.logical_device, &swapchain.image_views, &swapchain.extent, &render_pass);
+		self.pipeline = Self::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass);
+		let framebuffers = Self::create_framebuffers(&self.logical_device, &swapchain_image_views, &swapchain_extent, &self.render_pass);
+		let command_buffers = Self::create_command_buffers(&self.logical_device, &self.command_pool, swapchain_image_views.len() as u32);
 
-		let command_buffers = Self::create_command_buffers(&self.logical_device,
-			framebuffers.len() as u32,
-			&self.command_pool,
-			&render_pass,
-			&framebuffers,
-			&swapchain.extent,
-			&pipeline.handle);
-		
-		self.swapchain = swapchain;
-		self.render_pass = render_pass;
-		self.pipeline = pipeline;
-		self.framebuffers = framebuffers;
-		self.command_buffers = command_buffers;
-		self.framebuffer_resized = false;
+		let mut swapchain_frames: Vec<Frame> = Vec::with_capacity(swapchain_image_views.len());
+		for i in 0..swapchain_image_views.len() {
+			swapchain_frames.push(Frame {
+				image_view: swapchain_image_views[i],
+				framebuffer: framebuffers[i],
+				command_buffer: command_buffers[i],
+				fence: vk::Fence::null()
+			});
+		}
+
+		self.swapchain = Swapchain {
+			extension: swapchain_extension,
+			handle: swapchain_handle,
+			extent: swapchain_extent,
+			frames: swapchain_frames
+		};
 	}
 
 	unsafe fn cleanup_swapchain(&mut self) {
-		for framebuffer in &self.framebuffers {
-			self.logical_device.destroy_framebuffer(*framebuffer, None);
-		}
+		let mut command_buffers: Vec<vk::CommandBuffer> = Vec::with_capacity(self.swapchain.frames.len());
 
-		self.logical_device.free_command_buffers(self.command_pool, &self.command_buffers);
-		self.logical_device.destroy_pipeline(self.pipeline.handle, None);
-		self.logical_device.destroy_pipeline_layout(self.pipeline.layout, None);
-		self.logical_device.destroy_render_pass(self.render_pass, None);
-
-		for image_view in &self.swapchain.image_views {
-			self.logical_device.destroy_image_view(*image_view, None);
+		for frame in &self.swapchain.frames {
+			self.logical_device.destroy_image_view(frame.image_view, None);
+			self.logical_device.destroy_framebuffer(frame.framebuffer, None);
+			command_buffers.push(frame.command_buffer);
 		}
 		
+		self.logical_device.free_command_buffers(self.command_pool, &command_buffers);
+		self.logical_device.destroy_pipeline_layout(self.pipeline.layout, None);
+		self.logical_device.destroy_pipeline(self.pipeline.handle, None);
 		self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 	}
 }
@@ -778,28 +792,18 @@ impl Drop for Renderer {
 			self.logical_device.device_wait_idle().unwrap();
 			self.cleanup_swapchain();
 
-			for i in 0..MAX_FRAMES_IN_FLIGHT {
-				self.logical_device.destroy_fence(self.sync_objects.frame_in_flight_fences[i], None);
-				self.logical_device.destroy_semaphore(self.sync_objects.render_finished_semaphores[i], None);
-				self.logical_device.destroy_semaphore(self.sync_objects.image_available_semaphores[i], None);
+			for frame in &self.in_flight_frames {
+				self.logical_device.destroy_semaphore(frame.image_available, None);
+				self.logical_device.destroy_semaphore(frame.render_finished, None);
+				self.logical_device.destroy_fence(frame.fence, None);
 			}
 
-			self.logical_device.destroy_command_pool(self.command_pool, None);			
+			self.logical_device.destroy_render_pass(self.render_pass, None);
+			self.logical_device.destroy_command_pool(self.command_pool, None);
 			self.logical_device.destroy_device(None);
 			self.surface.extension.destroy_surface(self.surface.handle, None);
 			self.debug_utils.extension.destroy_debug_utils_messenger(self.debug_utils.messenger_handle, None);
 			self.instance.destroy_instance(None);
 		}
 	}
-}
-
-unsafe extern "system" fn debug_message_callback(
-	_message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-	_message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-	p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-	_p_user_data: *mut c_void) -> vk::Bool32
-{
-	let message = CStr::from_ptr((*p_callback_data).p_message).to_str().unwrap();
-	println!("{}\n", message);
-	vk::FALSE
 }
