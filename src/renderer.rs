@@ -194,8 +194,8 @@ impl Renderer {
 		let engine_name = CString::new("Vulkan Engine").unwrap();
 		let app_info = vk::ApplicationInfo::builder()
 			.engine_name(engine_name.as_c_str())
-			.engine_version(ash::vk_make_version!(1, 0, 0))
-			.api_version(ash::vk_make_version!(1, 2, 0));
+			.engine_version(vk::make_version(1, 0, 0))
+			.api_version(vk::make_version(1, 2, 0));
 		
 		let mut debug_messenger_create_info = Self::create_debug_messenger_create_info();
 
@@ -269,7 +269,7 @@ impl Renderer {
 					graphics_queue_family = Some(i);
 				}
 
-				if unsafe { surface_extension.get_physical_device_surface_support(device, i as u32, *surface_handle) } {
+				if unsafe { surface_extension.get_physical_device_surface_support(device, i as u32, *surface_handle).unwrap() } {
 					present_queue_family = Some(i);
 				}
 			}
