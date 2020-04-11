@@ -1,5 +1,5 @@
 [package]
-name = "vulkan_engine"
+name = "vulkan_game"
 version = "0.1.0"
 authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = "2018"

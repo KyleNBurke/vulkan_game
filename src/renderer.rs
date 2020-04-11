@@ -475,7 +475,6 @@ impl Renderer {
 	fn create_pipeline(device: &ash::Device, extent: &vk::Extent2D, render_pass: &vk::RenderPass) -> Pipeline {
 		let mut curr_dir = std::env::current_exe().unwrap();
 		curr_dir.pop();
-		curr_dir.pop();
 
 		let mut vert_file = std::fs::File::open(curr_dir.join("vert.spv").as_path()).unwrap();
 		let mut frag_file = std::fs::File::open(curr_dir.join("frag.spv").as_path()).unwrap();

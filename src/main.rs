@@ -1,6 +1,5 @@
-extern crate vulkan_engine;
-
-use vulkan_engine::Renderer;
+mod renderer;
+use renderer::Renderer;
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
