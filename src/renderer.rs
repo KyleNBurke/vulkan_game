@@ -698,24 +698,66 @@ impl Renderer {
 		}
 
 		let size = meshes.iter().map(|m| m.geometry.get_vertex_data().len()).sum::<usize>() * std::mem::size_of::<f32>();
-		
-		self.vertex_buffer = Self::create_buffer(
+
+		let staging_buffer = Self::create_buffer(
 			&self.instance,
 			&self.physical_device,
 			&self.logical_device,
 			size as u64,
-			vk::BufferUsageFlags::VERTEX_BUFFER,
+			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
-
+		
 		let mut offset = 0;
 		for mesh in meshes {
 			let src = mesh.geometry.get_vertex_data();
 			unsafe {
-				let dst = self.logical_device.map_memory(self.vertex_buffer.memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
+				let dst = self.logical_device.map_memory(staging_buffer.memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
 				std::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut f32, src.len());
-				self.logical_device.unmap_memory(self.vertex_buffer.memory);
+				self.logical_device.unmap_memory(staging_buffer.memory);
 			}
 			offset += (src.len() * std::mem::size_of::<f32>()) as u64;
+		}
+		
+		let vertex_buffer = Self::create_buffer(
+			&self.instance,
+			&self.physical_device,
+			&self.logical_device,
+			size as u64,
+			vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+			vk::MemoryPropertyFlags::DEVICE_LOCAL);
+		
+		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+			.level(vk::CommandBufferLevel::PRIMARY)
+			.command_pool(self.command_pool)
+			.command_buffer_count(1);
+		let command_buffer = unsafe { self.logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap()[0] };
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+		
+		let region = vk::BufferCopy::builder()
+			.size(size as u64);
+		let regions = [region.build()];
+		
+		unsafe {
+			self.logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
+			self.logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, vertex_buffer.handle, &regions);
+			self.logical_device.end_command_buffer(command_buffer).unwrap();
+		}
+
+		self.vertex_buffer = vertex_buffer;
+
+		let command_buffers = [command_buffer];
+		let submit_info = vk::SubmitInfo::builder()
+			.command_buffers(&command_buffers);
+		let submit_infos = [submit_info.build()];
+		
+		unsafe {
+			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, vk::Fence::null()).unwrap();
+			self.logical_device.queue_wait_idle(self.graphics_queue_family.queue).unwrap();
+			self.logical_device.free_command_buffers(self.command_pool, &command_buffers);
+			self.logical_device.destroy_buffer(staging_buffer.handle, None);
+			self.logical_device.free_memory(staging_buffer.memory, None);
 		}
 
 		let clear_color = vk::ClearValue {
@@ -728,12 +770,12 @@ impl Renderer {
 		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
 
 		let mut render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-		.render_pass(self.render_pass)
-		.render_area(vk::Rect2D::builder()
-			.offset(vk::Offset2D::builder().x(0).y(0).build())
-			.extent(self.swapchain.extent)
-			.build())
-		.clear_values(&clear_colors);
+			.render_pass(self.render_pass)
+			.render_area(vk::Rect2D::builder()
+				.offset(vk::Offset2D::builder().x(0).y(0).build())
+				.extent(self.swapchain.extent)
+				.build())
+			.clear_values(&clear_colors);
 
 		for frame in &self.swapchain.frames {
 			render_pass_begin_info = render_pass_begin_info.framebuffer(frame.framebuffer);
