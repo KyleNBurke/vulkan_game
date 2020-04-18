@@ -2,6 +2,7 @@ use ash::{vk, version::EntryV1_0, version::InstanceV1_0, version::DeviceV1_0, ex
 use glfw::Context;
 use std::ffi::{CString, CStr};
 use std::os::raw::{c_void, c_char};
+use crate::Mesh;
 
 const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 const REQUIRED_INSTANCE_EXTENSIONS: &[&str] = &["VK_EXT_debug_utils"];
@@ -33,7 +34,8 @@ pub struct Renderer {
 	pipeline: Pipeline,
 	in_flight_frames: Vec<InFlightFrame>,
 	current_in_flight_frame: usize,
-	swapchain: Swapchain
+	swapchain: Swapchain,
+	vertex_buffer: Buffer
 }
 
 struct DebugUtils {
@@ -75,6 +77,11 @@ struct InFlightFrame {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
 	fence: vk::Fence
+}
+
+struct Buffer {
+	handle: vk::Buffer,
+	memory: vk::DeviceMemory
 }
 
 impl Renderer {
@@ -169,6 +176,10 @@ impl Renderer {
 				extent: swapchain_extent,
 				frames: swapchain_frames
 			},
+			vertex_buffer: Buffer {
+				handle: vk::Buffer::null(),
+				memory: vk::DeviceMemory::null()
+			}
 		}
 	}
 
@@ -500,7 +511,22 @@ impl Renderer {
 		
 		let stages = [vert_stage_create_info.build(), frag_stage_create_info.build()];
 
-		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder();
+		let vert_input_binding_description = vk::VertexInputBindingDescription::builder()
+			.binding(0)
+			.stride(12)
+			.input_rate(vk::VertexInputRate::VERTEX);
+		let vert_input_binding_descriptions = [vert_input_binding_description.build()];
+		
+		let vert_input_attribute_description_position = vk::VertexInputAttributeDescription::builder()	
+			.binding(0)
+			.location(0)
+			.format(vk::Format::R32G32B32_SFLOAT)
+			.offset(0);
+		let vert_input_attribute_descriptions = [vert_input_attribute_description_position.build()];
+
+		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&vert_input_binding_descriptions)
+			.vertex_attribute_descriptions(&vert_input_attribute_descriptions);
 
 		let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
 			.topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -597,7 +623,8 @@ impl Renderer {
 
 	fn create_command_pool(device: &ash::Device, graphics_queue_family: u32) -> vk::CommandPool {
 		let create_info = vk::CommandPoolCreateInfo::builder()
-			.queue_family_index(graphics_queue_family);
+			.queue_family_index(graphics_queue_family)
+			.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
 		unsafe { device.create_command_pool(&create_info, None).unwrap() }
 	}
@@ -628,31 +655,90 @@ impl Renderer {
 		frames
 	}
 
-	pub fn submit_static_meshes(&mut self) {
+	pub fn submit_static_meshes(&mut self, meshes: &Vec<Mesh>) {
+		unsafe {
+			self.logical_device.device_wait_idle().unwrap();
+			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
+			self.logical_device.free_memory(self.vertex_buffer.memory, None);
+		}
+
+		let size = meshes.iter().map(|m| m.geometry.get_vertex_data().len()).sum::<usize>() * std::mem::size_of::<f32>();
+		let buffer_create_info = vk::BufferCreateInfo::builder()
+			.size(size as u64)
+			.usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+			.sharing_mode(vk::SharingMode::EXCLUSIVE);
+		
+		let buffer_handle = unsafe { self.logical_device.create_buffer(&buffer_create_info, None).unwrap() };
+		let memory_requirements = unsafe { self.logical_device.get_buffer_memory_requirements(buffer_handle) };
+		let memory_properties = unsafe { self.instance.get_physical_device_memory_properties(self.physical_device) };
+		
+		let memory_type_index = (0..memory_properties.memory_types.len())
+			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 &&
+				memory_properties.memory_types[i].property_flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT))
+			.expect("Could not find suitable memory type");
+		
+		let memory_allocate_info = vk::MemoryAllocateInfo::builder()
+			.allocation_size(memory_requirements.size)
+			.memory_type_index(memory_type_index as u32);
+
+		let buffer_memory = unsafe { self.logical_device.allocate_memory(&memory_allocate_info, None).unwrap() };
+		unsafe { self.logical_device.bind_buffer_memory(buffer_handle, buffer_memory, 0).unwrap() };
+
+		let mut offset = 0;
+		for mesh in meshes {
+			let src = mesh.geometry.get_vertex_data();
+			unsafe {
+				let dst = self.logical_device.map_memory(buffer_memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
+				std::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut f32, src.len());
+				self.logical_device.unmap_memory(buffer_memory)
+			}
+			offset += (src.len() * std::mem::size_of::<f32>()) as u64;
+		}
+
+		self.vertex_buffer = Buffer {
+			handle: buffer_handle,
+			memory: buffer_memory
+		};
+
+		let clear_color = vk::ClearValue {
+			color: vk::ClearColorValue {
+				float32: [0.0, 0.0, 0.0, 1.0]
+			}
+		};
+		let clear_colors = [clear_color];
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
+
+		let mut render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+		.render_pass(self.render_pass)
+		.render_area(vk::Rect2D::builder()
+			.offset(vk::Offset2D::builder().x(0).y(0).build())
+			.extent(self.swapchain.extent)
+			.build())
+		.clear_values(&clear_colors);
+
 		for frame in &self.swapchain.frames {
-			let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
-
-			let clear_color = vk::ClearValue {
-				color: vk::ClearColorValue {
-					float32: [0.0, 0.0, 0.0, 1.0]
-				}
-			};
-			let clear_colors = [clear_color];
-
-			let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-				.render_pass(self.render_pass)
-				.framebuffer(frame.framebuffer)
-				.render_area(vk::Rect2D::builder()
-					.offset(vk::Offset2D::builder().x(0).y(0).build())
-					.extent(self.swapchain.extent)
-					.build())
-				.clear_values(&clear_colors);
+			render_pass_begin_info = render_pass_begin_info.framebuffer(frame.framebuffer);
 			
 			unsafe {
 				self.logical_device.begin_command_buffer(frame.command_buffer, &command_buffer_begin_info).unwrap();
 				self.logical_device.cmd_begin_render_pass(frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
 				self.logical_device.cmd_bind_pipeline(frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
-				self.logical_device.cmd_draw(frame.command_buffer, 3, 1, 0, 0);
+			}
+			
+			let mut offset = 0;
+			for mesh in meshes {
+				let vertex_data = mesh.geometry.get_vertex_data();
+				let buffers = [buffer_handle];
+				let offsets = [offset];
+				unsafe {
+					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
+					self.logical_device.cmd_draw(frame.command_buffer, vertex_data.len() as u32 / 3, 1, 0, 0);
+				}
+				offset += (vertex_data.len() * std::mem::size_of::<f32>()) as u64;
+			}
+
+			unsafe {
 				self.logical_device.cmd_end_render_pass(frame.command_buffer);
 				self.logical_device.end_command_buffer(frame.command_buffer).unwrap();
 			}
@@ -797,6 +883,8 @@ impl Drop for Renderer {
 				self.logical_device.destroy_fence(frame.fence, None);
 			}
 
+			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
+			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 			self.logical_device.destroy_render_pass(self.render_pass, None);
 			self.logical_device.destroy_command_pool(self.command_pool, None);
 			self.logical_device.destroy_device(None);

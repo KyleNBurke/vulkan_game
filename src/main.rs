@@ -1,6 +1,12 @@
 mod renderer;
 use renderer::Renderer;
 
+mod mesh;
+use mesh::Mesh;
+
+mod geometry;
+use geometry::Geometry;
+
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
@@ -9,7 +15,8 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
-	renderer.submit_static_meshes();
+	let meshes = vec![Mesh{ geometry: Geometry::Triange }, Mesh{ geometry: Geometry::Plane }];
+	renderer.submit_static_meshes(&meshes);
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -23,6 +30,9 @@ fn main() {
 				glfw::WindowEvent::FramebufferSize(_, _) => {
 					framebuffer_resized = true;
 				},
+				glfw::WindowEvent::Key(glfw::Key::Q, _, glfw::Action::Press, _) => {
+					renderer.submit_static_meshes(&meshes);
+				},
 				_ => {}
 			}
 		}
@@ -35,7 +45,7 @@ fn main() {
 
 		if framebuffer_resized {
 			renderer.recreate_swapchain(width as u32, height as u32);
-			renderer.submit_static_meshes();
+			renderer.submit_static_meshes(&meshes);
 		}
 
 		renderer.render(&window);
