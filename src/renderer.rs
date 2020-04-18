@@ -655,6 +655,41 @@ impl Renderer {
 		frames
 	}
 
+	fn create_buffer(
+		instance: &ash::Instance,
+		physical_device: &vk::PhysicalDevice,
+		logical_device: &ash::Device,
+		size: vk::DeviceSize,
+		usage: vk::BufferUsageFlags,
+		properties: vk::MemoryPropertyFlags) -> Buffer
+	{
+		let create_info = vk::BufferCreateInfo::builder()
+			.size(size as u64)
+			.usage(usage)
+			.sharing_mode(vk::SharingMode::EXCLUSIVE);
+		
+		let handle = unsafe { logical_device.create_buffer(&create_info, None).unwrap() };
+		let memory_requirements = unsafe { logical_device.get_buffer_memory_requirements(handle) };
+		let memory_properties = unsafe { instance.get_physical_device_memory_properties(*physical_device) };
+		
+		let memory_type_index = (0..memory_properties.memory_types.len())
+			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 &&
+				memory_properties.memory_types[i].property_flags.contains(properties))
+			.expect("Could not find suitable memory type");
+		
+		let allocate_info = vk::MemoryAllocateInfo::builder()
+			.allocation_size(memory_requirements.size)
+			.memory_type_index(memory_type_index as u32);
+
+		let memory = unsafe { logical_device.allocate_memory(&allocate_info, None).unwrap() };
+		unsafe { logical_device.bind_buffer_memory(handle, memory, 0).unwrap() };
+
+		Buffer {
+			handle,
+			memory
+		}
+	}
+
 	pub fn submit_static_meshes(&mut self, meshes: &Vec<Mesh>) {
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
@@ -663,42 +698,25 @@ impl Renderer {
 		}
 
 		let size = meshes.iter().map(|m| m.geometry.get_vertex_data().len()).sum::<usize>() * std::mem::size_of::<f32>();
-		let buffer_create_info = vk::BufferCreateInfo::builder()
-			.size(size as u64)
-			.usage(vk::BufferUsageFlags::VERTEX_BUFFER)
-			.sharing_mode(vk::SharingMode::EXCLUSIVE);
 		
-		let buffer_handle = unsafe { self.logical_device.create_buffer(&buffer_create_info, None).unwrap() };
-		let memory_requirements = unsafe { self.logical_device.get_buffer_memory_requirements(buffer_handle) };
-		let memory_properties = unsafe { self.instance.get_physical_device_memory_properties(self.physical_device) };
-		
-		let memory_type_index = (0..memory_properties.memory_types.len())
-			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 &&
-				memory_properties.memory_types[i].property_flags.contains(vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT))
-			.expect("Could not find suitable memory type");
-		
-		let memory_allocate_info = vk::MemoryAllocateInfo::builder()
-			.allocation_size(memory_requirements.size)
-			.memory_type_index(memory_type_index as u32);
-
-		let buffer_memory = unsafe { self.logical_device.allocate_memory(&memory_allocate_info, None).unwrap() };
-		unsafe { self.logical_device.bind_buffer_memory(buffer_handle, buffer_memory, 0).unwrap() };
+		self.vertex_buffer = Self::create_buffer(
+			&self.instance,
+			&self.physical_device,
+			&self.logical_device,
+			size as u64,
+			vk::BufferUsageFlags::VERTEX_BUFFER,
+			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
 
 		let mut offset = 0;
 		for mesh in meshes {
 			let src = mesh.geometry.get_vertex_data();
 			unsafe {
-				let dst = self.logical_device.map_memory(buffer_memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
+				let dst = self.logical_device.map_memory(self.vertex_buffer.memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
 				std::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut f32, src.len());
-				self.logical_device.unmap_memory(buffer_memory)
+				self.logical_device.unmap_memory(self.vertex_buffer.memory);
 			}
 			offset += (src.len() * std::mem::size_of::<f32>()) as u64;
 		}
-
-		self.vertex_buffer = Buffer {
-			handle: buffer_handle,
-			memory: buffer_memory
-		};
 
 		let clear_color = vk::ClearValue {
 			color: vk::ClearColorValue {
@@ -729,7 +747,7 @@ impl Renderer {
 			let mut offset = 0;
 			for mesh in meshes {
 				let vertex_data = mesh.geometry.get_vertex_data();
-				let buffers = [buffer_handle];
+				let buffers = [self.vertex_buffer.handle];
 				let offsets = [offset];
 				unsafe {
 					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
