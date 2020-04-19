@@ -2,6 +2,7 @@ use ash::{vk, version::EntryV1_0, version::InstanceV1_0, version::DeviceV1_0, ex
 use glfw::Context;
 use std::ffi::{CString, CStr};
 use std::os::raw::{c_void, c_char};
+use std::mem::size_of;
 use crate::Mesh;
 
 const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
@@ -664,7 +665,7 @@ impl Renderer {
 		properties: vk::MemoryPropertyFlags) -> Buffer
 	{
 		let create_info = vk::BufferCreateInfo::builder()
-			.size(size as u64)
+			.size(size)
 			.usage(usage)
 			.sharing_mode(vk::SharingMode::EXCLUSIVE);
 		
@@ -697,46 +698,67 @@ impl Renderer {
 			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 		}
 
-		let size = meshes.iter().map(|m| m.geometry.get_vertex_data().len()).sum::<usize>() * std::mem::size_of::<f32>();
+		let mut total_size = 0;
+		let mut mesh_chunk_sizes: Vec<[usize; 3]> = Vec::with_capacity(meshes.len());
+
+		for mesh in meshes {
+			let (indices, attributes) = mesh.geometry.get_vertex_data();
+			let index_size = indices.len() * size_of::<u16>();
+			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
+			let attribute_size = attributes.len() * size_of::<f32>();
+			mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size]);
+			total_size += index_size + index_padding_size + attribute_size;
+		}
+		let total_size = total_size as u64;
 
 		let staging_buffer = Self::create_buffer(
 			&self.instance,
 			&self.physical_device,
 			&self.logical_device,
-			size as u64,
+			total_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
 		
-		let mut offset = 0;
-		for mesh in meshes {
-			let src = mesh.geometry.get_vertex_data();
+		let dst_ptr = unsafe { self.logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() as *mut i8 };
+		let mut mesh_offset = 0 as usize;
+
+		for (i, mesh) in meshes.iter().enumerate() {
+			let (indices, attributes) = mesh.geometry.get_vertex_data();
+			let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
+
 			unsafe {
-				let dst = self.logical_device.map_memory(staging_buffer.memory, offset, size as u64, vk::MemoryMapFlags::empty()).unwrap();
-				std::ptr::copy_nonoverlapping(src.as_ptr(), dst as *mut f32, src.len());
-				self.logical_device.unmap_memory(staging_buffer.memory);
+				let index_dst_ptr = dst_ptr.offset(mesh_offset as isize) as *mut u16;
+				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+
+				let attribute_dst_ptr = dst_ptr.offset((mesh_offset + index_size + index_padding_size) as isize) as *mut f32;
+				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 			}
-			offset += (src.len() * std::mem::size_of::<f32>()) as u64;
+
+			mesh_offset += index_size + index_padding_size + attribute_size;
 		}
+
+		unsafe { self.logical_device.unmap_memory(staging_buffer.memory) };
 		
 		let vertex_buffer = Self::create_buffer(
 			&self.instance,
 			&self.physical_device,
 			&self.logical_device,
-			size as u64,
-			vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+			total_size,
+			vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
 			vk::MemoryPropertyFlags::DEVICE_LOCAL);
-		
+
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.level(vk::CommandBufferLevel::PRIMARY)
 			.command_pool(self.command_pool)
 			.command_buffer_count(1);
+
 		let command_buffer = unsafe { self.logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap()[0] };
 
 		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
 			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 		
 		let region = vk::BufferCopy::builder()
-			.size(size as u64);
+			.size(total_size);
 		let regions = [region.build()];
 		
 		unsafe {
@@ -786,16 +808,21 @@ impl Renderer {
 				self.logical_device.cmd_bind_pipeline(frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
 			}
 			
-			let mut offset = 0;
-			for mesh in meshes {
-				let vertex_data = mesh.geometry.get_vertex_data();
+			let mut mesh_offset = 0;
+			for (i, mesh) in meshes.iter().enumerate() {
+				let (indices, _) = mesh.geometry.get_vertex_data();
+				let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
+				
 				let buffers = [self.vertex_buffer.handle];
-				let offsets = [offset];
+				let offsets = [(mesh_offset + index_size + index_padding_size) as u64];
+
 				unsafe {
+					self.logical_device.cmd_bind_index_buffer(frame.command_buffer, self.vertex_buffer.handle, mesh_offset as u64, vk::IndexType::UINT16);
 					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
-					self.logical_device.cmd_draw(frame.command_buffer, vertex_data.len() as u32 / 3, 1, 0, 0);
+					self.logical_device.cmd_draw_indexed(frame.command_buffer, indices.len() as u32, 1, 0, 0, 0);
 				}
-				offset += (vertex_data.len() * std::mem::size_of::<f32>()) as u64;
+
+				mesh_offset += index_size + index_padding_size + attribute_size;
 			}
 
 			unsafe {
@@ -803,6 +830,7 @@ impl Renderer {
 				self.logical_device.end_command_buffer(frame.command_buffer).unwrap();
 			}
 		}
+		
 	}
 	
 	pub fn render(&mut self, window: &glfw::Window) {
