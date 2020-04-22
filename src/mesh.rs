@@ -1,5 +1,5 @@
-use crate::Geometry;
+use crate::geometry::Geometry;
 
 pub struct Mesh {
-	pub geometry: Geometry
+	pub geometry: Box<dyn Geometry>
 }

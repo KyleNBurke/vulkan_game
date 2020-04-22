@@ -702,7 +702,8 @@ impl Renderer {
 		let mut mesh_chunk_sizes: Vec<[usize; 3]> = Vec::with_capacity(meshes.len());
 
 		for mesh in meshes {
-			let (indices, attributes) = mesh.geometry.get_vertex_data();
+			let indices = mesh.geometry.get_vertex_indices();
+			let attributes = mesh.geometry.get_vertex_attributes();
 			let index_size = indices.len() * size_of::<u16>();
 			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
 			let attribute_size = attributes.len() * size_of::<f32>();
@@ -723,7 +724,8 @@ impl Renderer {
 		let mut mesh_offset = 0 as usize;
 
 		for (i, mesh) in meshes.iter().enumerate() {
-			let (indices, attributes) = mesh.geometry.get_vertex_data();
+			let indices = mesh.geometry.get_vertex_indices();
+			let attributes = mesh.geometry.get_vertex_attributes();
 			let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
 
 			unsafe {
@@ -810,7 +812,7 @@ impl Renderer {
 			
 			let mut mesh_offset = 0;
 			for (i, mesh) in meshes.iter().enumerate() {
-				let (indices, _) = mesh.geometry.get_vertex_data();
+				let indices = mesh.geometry.get_vertex_indices();
 				let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
 				
 				let buffers = [self.vertex_buffer.handle];
