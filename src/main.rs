@@ -5,6 +5,7 @@ mod mesh;
 use mesh::Mesh;
 
 mod geometry;
+mod math;
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
@@ -14,8 +15,8 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
-	let triangle = Mesh { geometry: Box::new(geometry::Triangle {}) };
-	let plane = Mesh { geometry: Box::new(geometry::Plane {}) };
+	let triangle = Mesh::new(Box::new(geometry::Triangle {}));
+	let plane = Mesh::new(Box::new(geometry::Plane {}));
 	let meshes = vec![triangle, plane];
 	renderer.submit_static_meshes(&meshes);
 
