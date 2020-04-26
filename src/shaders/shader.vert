@@ -3,8 +3,6 @@
 
 layout(binding = 0) uniform TransformMatrices {
 	mat4 model;
-	mat4 view;
-	mat4 proj;
 } transformMatrices;
 
 layout(location = 0) in vec3 inPosition;

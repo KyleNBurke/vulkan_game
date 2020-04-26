@@ -26,7 +26,7 @@ pub struct Renderer {
 	instance: ash::Instance,
 	debug_utils: DebugUtils,
 	surface: Surface,
-	physical_device: vk::PhysicalDevice,
+	physical_device: PhysicalDevice,
 	logical_device: ash::Device,
 	graphics_queue_family: QueueFamily,
 	present_queue_family: QueueFamily,
@@ -36,7 +36,10 @@ pub struct Renderer {
 	in_flight_frames: Vec<InFlightFrame>,
 	current_in_flight_frame: usize,
 	swapchain: Swapchain,
-	vertex_buffer: Buffer
+	vertex_buffer: Buffer,
+	descriptor_set_layout: vk::DescriptorSetLayout,
+	descriptor_pool: vk::DescriptorPool,
+	descriptor_set: vk::DescriptorSet
 }
 
 struct DebugUtils {
@@ -48,6 +51,11 @@ struct Surface {
 	extension: khr::Surface,
 	handle: vk::SurfaceKHR,
 	format: vk::SurfaceFormatKHR
+}
+
+struct PhysicalDevice {
+	handle: vk::PhysicalDevice,
+	min_uniform_buffer_offset_alignment: u64
 }
 
 struct QueueFamily {
@@ -108,20 +116,20 @@ impl Renderer {
 			&surface_extension,
 			&surface_handle);
 		
-		let surface_format = Self::create_surface_format(&surface_extension, &surface_handle, &physical_device);
+		let surface_format = Self::create_surface_format(&surface_extension, &surface_handle, &physical_device.handle);
 
 		let (logical_device, graphics_queue_handle, present_queue_handle) = Self::create_logical_device(
 			&instance,
 			&layers_c_string,
 			&device_extensions_c_string,
-			&physical_device,
+			&physical_device.handle,
 			graphics_queue_family_index,
 			present_queue_family_index);
 
 		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
 		let (swapchain_extension, swapchain_handle, swapchain_extent, swapchain_image_views) = Self::create_swapchain(
 			&instance,
-			&physical_device,
+			&physical_device.handle,
 			&logical_device,
 			&surface_extension,
 			&surface_handle,
@@ -132,11 +140,14 @@ impl Renderer {
 			framebuffer_height as u32);
 		
 		let render_pass = Self::create_render_pass(&logical_device, &surface_format);
-		let pipeline = Self::create_pipeline(&logical_device, &swapchain_extent, &render_pass);
+		let descriptor_set_layout = Self::create_descriptor_set_layout(&logical_device);
+		let pipeline = Self::create_pipeline(&logical_device, &swapchain_extent, &render_pass, &descriptor_set_layout);
 		let framebuffers = Self::create_framebuffers(&logical_device, &swapchain_image_views, &swapchain_extent, &render_pass);
 		let command_pool = Self::create_command_pool(&logical_device, graphics_queue_family_index);
 		let command_buffers = Self::create_command_buffers(&logical_device, &command_pool, swapchain_image_views.len() as u32);
 		let in_flight_frames = Self::create_in_flight_frames(&logical_device);
+		let descriptor_pool = Self::create_descriptor_pool(&logical_device);
+		let descriptor_set = Self::create_descriptor_set(&logical_device, &descriptor_set_layout, &descriptor_pool);
 
 		let mut swapchain_frames: Vec<Frame> = Vec::with_capacity(swapchain_image_views.len());
 		for i in 0..swapchain_image_views.len() {
@@ -180,7 +191,10 @@ impl Renderer {
 			vertex_buffer: Buffer {
 				handle: vk::Buffer::null(),
 				memory: vk::DeviceMemory::null()
-			}
+			},
+			descriptor_set_layout,
+			descriptor_pool,
+			descriptor_set
 		}
 	}
 
@@ -258,7 +272,7 @@ impl Renderer {
 		instance: &ash::Instance,
 		device_extensions: &Vec<CString>,
 		surface_extension: &khr::Surface,
-		surface_handle: &vk::SurfaceKHR) -> (vk::PhysicalDevice, u32, u32)
+		surface_handle: &vk::SurfaceKHR) -> (PhysicalDevice, u32, u32)
 	{
 		let devices = unsafe { instance.enumerate_physical_devices().unwrap() };
 
@@ -308,7 +322,12 @@ impl Renderer {
 				continue;
 			}
 
-			return (device, graphics_queue_family.unwrap() as u32, present_queue_family.unwrap() as u32);
+			let physical_device = PhysicalDevice {
+				handle: device,
+				min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment
+			};
+
+			return (physical_device, graphics_queue_family.unwrap() as u32, present_queue_family.unwrap() as u32);
 		}
 
 		panic!("No suitable physical device found");
@@ -484,7 +503,21 @@ impl Renderer {
 		unsafe { device.create_render_pass(&create_info, None).unwrap() }
 	}
 
-	fn create_pipeline(device: &ash::Device, extent: &vk::Extent2D, render_pass: &vk::RenderPass) -> Pipeline {
+	fn create_descriptor_set_layout(device: &ash::Device) -> vk::DescriptorSetLayout {
+		let layout_binding = vk::DescriptorSetLayoutBinding::builder()
+			.binding(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.descriptor_count(1)
+			.stage_flags(vk::ShaderStageFlags::VERTEX);
+		let layout_bindings = [layout_binding.build()];
+		
+		let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+			.bindings(&layout_bindings);
+		
+		unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() }
+	}
+
+	fn create_pipeline(device: &ash::Device, extent: &vk::Extent2D, render_pass: &vk::RenderPass, descriptor_set_layout: &vk::DescriptorSetLayout) -> Pipeline {
 		let mut curr_dir = std::env::current_exe().unwrap();
 		curr_dir.pop();
 
@@ -573,9 +606,12 @@ impl Renderer {
 			.logic_op_enable(false)
 			.attachments(&color_blend_attachment_states);
 		
-		let layout_create_info = vk::PipelineLayoutCreateInfo::builder();
+		let descriptor_set_layouts = [*descriptor_set_layout];
+		
+		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
+			.set_layouts(&descriptor_set_layouts);
 
-		let layout = unsafe { device.create_pipeline_layout(&layout_create_info, None).unwrap() };
+		let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 	
 		let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
 			.stages(&stages)
@@ -585,7 +621,7 @@ impl Renderer {
 			.rasterization_state(&rasterization_state_create_info)
 			.multisample_state(&multisample_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
-			.layout(layout)
+			.layout(pipeline_layout)
 			.render_pass(*render_pass)
 			.subpass(0);
 		let pipeline_create_infos = [pipeline_create_info.build()];
@@ -599,7 +635,7 @@ impl Renderer {
 
 		Pipeline {
 			handle: pipelines[0],
-			layout
+			layout: pipeline_layout
 		}
 	}
 
@@ -656,6 +692,29 @@ impl Renderer {
 		frames
 	}
 
+	fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
+		let pool_size = vk::DescriptorPoolSize::builder()
+			.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.descriptor_count(1);
+		let pool_sizes = [pool_size.build()];
+		
+		let create_info = vk::DescriptorPoolCreateInfo::builder()
+			.pool_sizes(&pool_sizes)
+			.max_sets(1);
+		
+		unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
+	}
+
+	fn create_descriptor_set(device: &ash::Device, layout: &vk::DescriptorSetLayout, pool: &vk::DescriptorPool) -> vk::DescriptorSet {
+		let layouts = [*layout];
+
+		let allocate_info = vk::DescriptorSetAllocateInfo::builder()
+			.descriptor_pool(*pool)
+			.set_layouts(&layouts);
+		
+		unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap()[0] }
+	}
+
 	fn create_buffer(
 		instance: &ash::Instance,
 		physical_device: &vk::PhysicalDevice,
@@ -698,8 +757,9 @@ impl Renderer {
 			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 		}
 
+		// Calculate total required memory size and calculate chunk sizes to help with offset calculations
 		let mut total_size = 0;
-		let mut mesh_chunk_sizes: Vec<[usize; 3]> = Vec::with_capacity(meshes.len());
+		let mut mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(meshes.len());
 
 		for mesh in meshes {
 			let indices = mesh.geometry.get_vertex_indices();
@@ -707,14 +767,18 @@ impl Renderer {
 			let index_size = indices.len() * size_of::<u16>();
 			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
 			let attribute_size = attributes.len() * size_of::<f32>();
-			mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size]);
-			total_size += index_size + index_padding_size + attribute_size;
+			let uniform_alignment = self.physical_device.min_uniform_buffer_offset_alignment as usize;
+			let attribute_padding = uniform_alignment - (total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
+			let uniform_size = 16 * size_of::<f32>();
+			mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding]);
+			total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 		let total_size = total_size as u64;
 
+		// Create a host visible staging buffer and copy the required data into it
 		let staging_buffer = Self::create_buffer(
 			&self.instance,
-			&self.physical_device,
+			&self.physical_device.handle,
 			&self.logical_device,
 			total_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
@@ -726,27 +790,40 @@ impl Renderer {
 		for (i, mesh) in meshes.iter().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
-			let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
+			let index_size = mesh_chunk_sizes[i][0];
+			let index_padding_size = mesh_chunk_sizes[i][1];
+			let attribute_size = mesh_chunk_sizes[i][2];
+			let attribute_padding_size = mesh_chunk_sizes[i][3];
+			let uniform_size = 16 * size_of::<f32>();
 
 			unsafe {
-				let index_dst_ptr = dst_ptr.offset(mesh_offset as isize) as *mut u16;
+				let index_offset = mesh_offset;
+				let index_dst_ptr = dst_ptr.offset(index_offset as isize) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_dst_ptr = dst_ptr.offset((mesh_offset + index_size + index_padding_size) as isize) as *mut f32;
+				let attribute_offset = index_offset + index_size + index_padding_size;
+				let attribute_dst_ptr = dst_ptr.offset(attribute_offset as isize) as *mut f32;
 				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+
+				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
+				let model_matrix_dst_ptr = dst_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
+				let mut model_matrix = mesh.model_matrix;
+				model_matrix.transpose();
+				std::ptr::copy_nonoverlapping(model_matrix.elements.as_ptr(), model_matrix_dst_ptr, model_matrix.elements.len());
 			}
 
-			mesh_offset += index_size + index_padding_size + attribute_size;
+			mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
 
 		unsafe { self.logical_device.unmap_memory(staging_buffer.memory) };
 		
-		let vertex_buffer = Self::create_buffer(
+		// Create the device local vertex buffer and copy the data from the staging buffer into it using a command buffer
+		self.vertex_buffer = Self::create_buffer(
 			&self.instance,
-			&self.physical_device,
+			&self.physical_device.handle,
 			&self.logical_device,
 			total_size,
-			vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 			vk::MemoryPropertyFlags::DEVICE_LOCAL);
 
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
@@ -765,11 +842,9 @@ impl Renderer {
 		
 		unsafe {
 			self.logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			self.logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, vertex_buffer.handle, &regions);
+			self.logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.vertex_buffer.handle, &regions);
 			self.logical_device.end_command_buffer(command_buffer).unwrap();
 		}
-
-		self.vertex_buffer = vertex_buffer;
 
 		let command_buffers = [command_buffer];
 		let submit_info = vk::SubmitInfo::builder()
@@ -784,6 +859,25 @@ impl Renderer {
 			self.logical_device.free_memory(staging_buffer.memory, None);
 		}
 
+		let buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.vertex_buffer.handle)
+			.offset(0)
+			.range(16 * size_of::<f32>() as u64);
+		let buffer_infos = [buffer_info.build()];
+
+		let write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.buffer_info(&buffer_infos);
+		let write_descriptor_sets = [write_descriptor_set.build()];
+
+		let copy_descriptor_sets = [];
+		
+		unsafe { self.logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+
+		// Record the command buffers for drawing
 		let clear_color = vk::ClearValue {
 			color: vk::ClearColorValue {
 				float32: [0.0, 0.0, 0.0, 1.0]
@@ -813,7 +907,11 @@ impl Renderer {
 			let mut mesh_offset = 0;
 			for (i, mesh) in meshes.iter().enumerate() {
 				let indices = mesh.geometry.get_vertex_indices();
-				let (index_size, index_padding_size, attribute_size) = (mesh_chunk_sizes[i][0], mesh_chunk_sizes[i][1], mesh_chunk_sizes[i][2]);
+				let index_size = mesh_chunk_sizes[i][0];
+				let index_padding_size = mesh_chunk_sizes[i][1];
+				let attribute_size = mesh_chunk_sizes[i][2];
+				let attribute_padding_size = mesh_chunk_sizes[i][3];
+				let uniform_size = 16 * size_of::<f32>();
 				
 				let buffers = [self.vertex_buffer.handle];
 				let offsets = [(mesh_offset + index_size + index_padding_size) as u64];
@@ -821,10 +919,21 @@ impl Renderer {
 				unsafe {
 					self.logical_device.cmd_bind_index_buffer(frame.command_buffer, self.vertex_buffer.handle, mesh_offset as u64, vk::IndexType::UINT16);
 					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
+					
+					let descriptor_sets = [self.descriptor_set];
+					let dynamic_offsets = [(mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
+					self.logical_device.cmd_bind_descriptor_sets(
+						frame.command_buffer,
+						vk::PipelineBindPoint::GRAPHICS,
+						self.pipeline.layout,
+						0,
+						&descriptor_sets,
+						&dynamic_offsets);
+					
 					self.logical_device.cmd_draw_indexed(frame.command_buffer, indices.len() as u32, 1, 0, 0, 0);
 				}
 
-				mesh_offset += index_size + index_padding_size + attribute_size;
+				mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 			}
 
 			unsafe {
@@ -913,7 +1022,7 @@ impl Renderer {
 
 		let (swapchain_extension, swapchain_handle, swapchain_extent, swapchain_image_views) = Self::create_swapchain(
 			&self.instance,
-			&self.physical_device,
+			&self.physical_device.handle,
 			&self.logical_device,
 			&self.surface.extension,
 			&self.surface.handle,
@@ -923,7 +1032,7 @@ impl Renderer {
 			width,
 			height);
 		
-		self.pipeline = Self::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass);
+		self.pipeline = Self::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass, &self.descriptor_set_layout);
 		let framebuffers = Self::create_framebuffers(&self.logical_device, &swapchain_image_views, &swapchain_extent, &self.render_pass);
 		let command_buffers = Self::create_command_buffers(&self.logical_device, &self.command_pool, swapchain_image_views.len() as u32);
 
@@ -973,6 +1082,8 @@ impl Drop for Renderer {
 				self.logical_device.destroy_fence(frame.fence, None);
 			}
 
+			self.logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
+			self.logical_device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
 			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
 			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 			self.logical_device.destroy_render_pass(self.render_pass, None);
