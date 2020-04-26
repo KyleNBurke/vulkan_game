@@ -17,6 +17,10 @@ impl Matrix4 {
 		}
 	}
 
+	pub fn set(&mut self, elements: [[f32; 4]; 4]) {
+		self.elements = elements;
+	}
+
 	pub fn transpose(&mut self) {
 		let e = &mut self.elements;
 		let mut temp;
@@ -50,6 +54,21 @@ mod tests {
 	}
 
 	#[test]
+	fn set() {
+		let elements = [
+			[0.0, 0.1, 0.2, 0.3],
+			[1.0, 1.1, 1.2, 1.3],
+			[2.0, 2.1, 2.2, 2.3],
+			[3.0, 3.1, 3.2, 3.3]
+		];
+
+		let mut m = Matrix4::new();
+		m.set(elements);
+
+		assert_eq!(m.elements, elements);
+	}
+
+	#[test]
 	fn from() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
@@ -63,13 +82,13 @@ mod tests {
 
 	#[test]
 	fn transpose() {
-		let mut actual = Matrix4::from([
+		let mut m = Matrix4::from([
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
 			[3.0, 3.1, 3.2, 3.3]
 		]);
-		actual.transpose();
+		m.transpose();
 
 		let expected = [
 			[0.0, 1.0, 2.0, 3.0],
@@ -78,6 +97,6 @@ mod tests {
 			[0.3, 1.3, 2.3, 3.3]
 		];
 
-		assert_eq!(actual.elements, expected);
+		assert_eq!(m.elements, expected);
 	}
 }

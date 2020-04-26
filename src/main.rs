@@ -10,14 +10,30 @@ mod math;
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
-	let (mut window, events) = glfw.create_window(300, 300, "Vulkan", glfw::WindowMode::Windowed).unwrap();
+	let (mut window, events) = glfw.create_window(400, 400, "Vulkan", glfw::WindowMode::Windowed).unwrap();
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
-	let triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	let plane = Mesh::new(Box::new(geometry::Plane {}));
+	
+	let mut triangle = Mesh::new(Box::new(geometry::Triangle {}));
+	triangle.model_matrix.set([
+		[0.8, 0.0, 0.0, -0.5],
+		[0.0, 0.8, 0.0, 0.0],
+		[0.0, 0.0, 0.8, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
+
+	let mut plane = Mesh::new(Box::new(geometry::Plane {}));
+	plane.model_matrix.set([
+		[0.8, 0.0, 0.0, 0.5],
+		[0.0, 0.8, 0.0, 0.0],
+		[0.0, 0.0, 0.8, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
+
 	let meshes = vec![triangle, plane];
+	
 	renderer.submit_static_meshes(&meshes);
 
 	while !window.should_close() {
