@@ -4,6 +4,7 @@ use std::ffi::{CString, CStr};
 use std::os::raw::{c_void, c_char};
 use std::mem::size_of;
 use crate::Mesh;
+use crate::math::Matrix4;
 
 const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 const REQUIRED_INSTANCE_EXTENSIONS: &[&str] = &["VK_EXT_debug_utils"];
@@ -32,14 +33,14 @@ pub struct Renderer {
 	present_queue_family: QueueFamily,
 	command_pool: vk::CommandPool,
 	render_pass: vk::RenderPass,
+	descriptor_pool: vk::DescriptorPool,
+	projection_matrix_descriptor_set: DescriptorSet,
+	model_matrix_descriptor_set: DescriptorSet,
 	pipeline: Pipeline,
 	in_flight_frames: Vec<InFlightFrame>,
 	current_in_flight_frame: usize,
 	swapchain: Swapchain,
-	vertex_buffer: Buffer,
-	descriptor_set_layout: vk::DescriptorSetLayout,
-	descriptor_pool: vk::DescriptorPool,
-	descriptor_set: vk::DescriptorSet
+	vertex_buffer: Buffer
 }
 
 struct DebugUtils {
@@ -75,6 +76,11 @@ struct Frame {
 	framebuffer: vk::Framebuffer,
 	command_buffer: vk::CommandBuffer,
 	fence: vk::Fence
+}
+
+struct DescriptorSet {
+	layout: vk::DescriptorSetLayout,
+	handle: vk::DescriptorSet
 }
 
 struct Pipeline {
@@ -140,14 +146,14 @@ impl Renderer {
 			framebuffer_height as u32);
 		
 		let render_pass = Self::create_render_pass(&logical_device, &surface_format);
-		let descriptor_set_layout = Self::create_descriptor_set_layout(&logical_device);
-		let pipeline = Self::create_pipeline(&logical_device, &swapchain_extent, &render_pass, &descriptor_set_layout);
+		let descriptor_pool = Self::create_descriptor_pool(&logical_device);
+		let (projection_matrix_descriptor_set, model_matrix_descriptor_set) = Self::create_descriptor_sets(&logical_device, &descriptor_pool);
+		let descriptor_set_layouts = [projection_matrix_descriptor_set.layout, model_matrix_descriptor_set.layout];
+		let pipeline = Self::create_pipeline(&logical_device, &swapchain_extent, &render_pass, &descriptor_set_layouts);
 		let framebuffers = Self::create_framebuffers(&logical_device, &swapchain_image_views, &swapchain_extent, &render_pass);
 		let command_pool = Self::create_command_pool(&logical_device, graphics_queue_family_index);
 		let command_buffers = Self::create_command_buffers(&logical_device, &command_pool, swapchain_image_views.len() as u32);
 		let in_flight_frames = Self::create_in_flight_frames(&logical_device);
-		let descriptor_pool = Self::create_descriptor_pool(&logical_device);
-		let descriptor_set = Self::create_descriptor_set(&logical_device, &descriptor_set_layout, &descriptor_pool);
 
 		let mut swapchain_frames: Vec<Frame> = Vec::with_capacity(swapchain_image_views.len());
 		for i in 0..swapchain_image_views.len() {
@@ -180,6 +186,9 @@ impl Renderer {
 			command_pool,
 			render_pass,
 			pipeline,
+			descriptor_pool,
+			projection_matrix_descriptor_set,
+			model_matrix_descriptor_set,
 			in_flight_frames,
 			current_in_flight_frame: 0,
 			swapchain: Swapchain {
@@ -191,10 +200,7 @@ impl Renderer {
 			vertex_buffer: Buffer {
 				handle: vk::Buffer::null(),
 				memory: vk::DeviceMemory::null()
-			},
-			descriptor_set_layout,
-			descriptor_pool,
-			descriptor_set
+			}
 		}
 	}
 
@@ -503,7 +509,37 @@ impl Renderer {
 		unsafe { device.create_render_pass(&create_info, None).unwrap() }
 	}
 
-	fn create_descriptor_set_layout(device: &ash::Device) -> vk::DescriptorSetLayout {
+	fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
+		let uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
+			.ty(vk::DescriptorType::UNIFORM_BUFFER)
+			.descriptor_count(1);
+
+		let dynamic_uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
+			.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.descriptor_count(1);
+		
+		let pool_sizes = [uniform_buffer_pool_size.build(), dynamic_uniform_buffer_pool_size.build()];
+		
+		let create_info = vk::DescriptorPoolCreateInfo::builder()
+			.pool_sizes(&pool_sizes)
+			.max_sets(2);
+		
+		unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
+	}
+
+	fn create_descriptor_sets(device: &ash::Device, pool: &vk::DescriptorPool) -> (DescriptorSet, DescriptorSet) {
+		let layout_binding = vk::DescriptorSetLayoutBinding::builder()
+			.binding(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+			.descriptor_count(1)
+			.stage_flags(vk::ShaderStageFlags::VERTEX);
+		let layout_bindings = [layout_binding.build()];
+		
+		let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+			.bindings(&layout_bindings);
+		
+		let projection_matrix_layout = unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() };
+
 		let layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -514,10 +550,35 @@ impl Renderer {
 		let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
 			.bindings(&layout_bindings);
 		
-		unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() }
+		let model_matrix_layout = unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() };
+
+		let layouts = [projection_matrix_layout, model_matrix_layout];
+
+		let allocate_info = vk::DescriptorSetAllocateInfo::builder()
+			.descriptor_pool(*pool)
+			.set_layouts(&layouts);
+		
+		let sets = unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap() };
+
+		let projection_matrix_descriptor_set = DescriptorSet {
+			handle: sets[0],
+			layout: projection_matrix_layout
+		};
+
+		let model_matrix_descriptor_set = DescriptorSet {
+			handle: sets[1],
+			layout: model_matrix_layout
+		};
+
+		(projection_matrix_descriptor_set, model_matrix_descriptor_set)
 	}
 
-	fn create_pipeline(device: &ash::Device, extent: &vk::Extent2D, render_pass: &vk::RenderPass, descriptor_set_layout: &vk::DescriptorSetLayout) -> Pipeline {
+	fn create_pipeline(
+		device: &ash::Device,
+		extent: &vk::Extent2D,
+		render_pass: &vk::RenderPass,
+		descriptor_set_layouts: &[vk::DescriptorSetLayout]) -> Pipeline
+	{
 		let mut curr_dir = std::env::current_exe().unwrap();
 		curr_dir.pop();
 
@@ -605,11 +666,9 @@ impl Renderer {
 		let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
 			.logic_op_enable(false)
 			.attachments(&color_blend_attachment_states);
-		
-		let descriptor_set_layouts = [*descriptor_set_layout];
-		
+				
 		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
-			.set_layouts(&descriptor_set_layouts);
+			.set_layouts(descriptor_set_layouts);
 
 		let pipeline_layout = unsafe { device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 	
@@ -692,29 +751,6 @@ impl Renderer {
 		frames
 	}
 
-	fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
-		let pool_size = vk::DescriptorPoolSize::builder()
-			.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.descriptor_count(1);
-		let pool_sizes = [pool_size.build()];
-		
-		let create_info = vk::DescriptorPoolCreateInfo::builder()
-			.pool_sizes(&pool_sizes)
-			.max_sets(1);
-		
-		unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
-	}
-
-	fn create_descriptor_set(device: &ash::Device, layout: &vk::DescriptorSetLayout, pool: &vk::DescriptorPool) -> vk::DescriptorSet {
-		let layouts = [*layout];
-
-		let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-			.descriptor_pool(*pool)
-			.set_layouts(&layouts);
-		
-		unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap()[0] }
-	}
-
 	fn create_buffer(
 		instance: &ash::Instance,
 		physical_device: &vk::PhysicalDevice,
@@ -750,7 +786,7 @@ impl Renderer {
 		}
 	}
 
-	pub fn submit_static_meshes(&mut self, meshes: &Vec<Mesh>) {
+	pub fn submit_static_content(&mut self, projection_matrix: &Matrix4, meshes: &Vec<Mesh>) {
 		unsafe {
 			self.logical_device.device_wait_idle().unwrap();
 			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
@@ -758,7 +794,7 @@ impl Renderer {
 		}
 
 		// Calculate total required memory size and calculate chunk sizes to help with offset calculations
-		let mut total_size = 0;
+		let mut total_size = 16 * size_of::<f32>();
 		let mut mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(meshes.len());
 
 		for mesh in meshes {
@@ -785,7 +821,7 @@ impl Renderer {
 			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
 		
 		let dst_ptr = unsafe { self.logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() as *mut i8 };
-		let mut mesh_offset = 0 as usize;
+		let mut mesh_offset = 16 * size_of::<f32>();
 
 		for (i, mesh) in meshes.iter().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
@@ -797,6 +833,11 @@ impl Renderer {
 			let uniform_size = 16 * size_of::<f32>();
 
 			unsafe {
+				let projection_matrix_dst_ptr = dst_ptr as *mut [f32; 4];
+				let mut projection_matrix = *projection_matrix;
+				projection_matrix.transpose();
+				std::ptr::copy_nonoverlapping(projection_matrix.elements.as_ptr(), projection_matrix_dst_ptr, projection_matrix.elements.len());
+
 				let index_offset = mesh_offset;
 				let index_dst_ptr = dst_ptr.offset(index_offset as isize) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
@@ -859,20 +900,34 @@ impl Renderer {
 			self.logical_device.free_memory(staging_buffer.memory, None);
 		}
 
-		let buffer_info = vk::DescriptorBufferInfo::builder()
+		// Update the descriptor sets to reference the vertex buffer
+		let projection_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
 			.buffer(self.vertex_buffer.handle)
 			.offset(0)
 			.range(16 * size_of::<f32>() as u64);
-		let buffer_infos = [buffer_info.build()];
+		let projection_matrix_buffer_infos = [projection_matrix_buffer_info.build()];
 
-		let write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.descriptor_set)
+		let projection_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.projection_matrix_descriptor_set.handle)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+			.buffer_info(&projection_matrix_buffer_infos);
+
+		let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.vertex_buffer.handle)
+			.offset(0)
+			.range(16 * size_of::<f32>() as u64);
+		let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
+
+		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.model_matrix_descriptor_set.handle)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.buffer_info(&buffer_infos);
-		let write_descriptor_sets = [write_descriptor_set.build()];
-
+			.buffer_info(&model_matrix_buffer_infos);
+		
+		let write_descriptor_sets = [projection_matrix_write_descriptor_set.build(), model_matrix_write_descriptor_set.build()];
 		let copy_descriptor_sets = [];
 		
 		unsafe { self.logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
@@ -902,9 +957,19 @@ impl Renderer {
 				self.logical_device.begin_command_buffer(frame.command_buffer, &command_buffer_begin_info).unwrap();
 				self.logical_device.cmd_begin_render_pass(frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
 				self.logical_device.cmd_bind_pipeline(frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
+				
+				let descriptor_sets = [self.projection_matrix_descriptor_set.handle];
+				let dynamic_offsets = [];
+				self.logical_device.cmd_bind_descriptor_sets(
+					frame.command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline.layout,
+					0,
+					&descriptor_sets,
+					&dynamic_offsets);
 			}
 			
-			let mut mesh_offset = 0;
+			let mut mesh_offset = 16 * size_of::<f32>();
 			for (i, mesh) in meshes.iter().enumerate() {
 				let indices = mesh.geometry.get_vertex_indices();
 				let index_size = mesh_chunk_sizes[i][0];
@@ -920,13 +985,13 @@ impl Renderer {
 					self.logical_device.cmd_bind_index_buffer(frame.command_buffer, self.vertex_buffer.handle, mesh_offset as u64, vk::IndexType::UINT16);
 					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
 					
-					let descriptor_sets = [self.descriptor_set];
+					let descriptor_sets = [self.model_matrix_descriptor_set.handle];
 					let dynamic_offsets = [(mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
 					self.logical_device.cmd_bind_descriptor_sets(
 						frame.command_buffer,
 						vk::PipelineBindPoint::GRAPHICS,
 						self.pipeline.layout,
-						0,
+						1,
 						&descriptor_sets,
 						&dynamic_offsets);
 					
@@ -1032,7 +1097,8 @@ impl Renderer {
 			width,
 			height);
 		
-		self.pipeline = Self::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass, &self.descriptor_set_layout);
+		let descriptor_set_layouts = [self.projection_matrix_descriptor_set.layout, self.model_matrix_descriptor_set.layout];
+		self.pipeline = Self::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass, &descriptor_set_layouts);
 		let framebuffers = Self::create_framebuffers(&self.logical_device, &swapchain_image_views, &swapchain_extent, &self.render_pass);
 		let command_buffers = Self::create_command_buffers(&self.logical_device, &self.command_pool, swapchain_image_views.len() as u32);
 
@@ -1083,7 +1149,8 @@ impl Drop for Renderer {
 			}
 
 			self.logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
-			self.logical_device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+			self.logical_device.destroy_descriptor_set_layout(self.model_matrix_descriptor_set.layout, None);
+			self.logical_device.destroy_descriptor_set_layout(self.projection_matrix_descriptor_set.layout, None);
 			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
 			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 			self.logical_device.destroy_render_pass(self.render_pass, None);

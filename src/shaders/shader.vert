@@ -1,14 +1,18 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(binding = 0) uniform TransformMatrices {
-	mat4 model;
-} transformMatrices;
+layout(set = 0, binding = 0) uniform ProjectionMatrix {
+	mat4 projectionMatrix;
+};
+
+layout(set = 1, binding = 0) uniform ModelMatrix {
+	mat4 modelMatrix;
+};
 
 layout(location = 0) in vec3 inPosition;
 layout(location = 0) out vec3 fragColor;
 
 void main() {
-    gl_Position = transformMatrices.model * vec4(inPosition, 1.0);
-    fragColor = vec3(0.0, 1.0, 0.0);
+	gl_Position = projectionMatrix * modelMatrix * vec4(inPosition, 1.0);
+	fragColor = vec3(0.0, 1.0, 0.0);
 }

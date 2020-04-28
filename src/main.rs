@@ -18,23 +18,29 @@ fn main() {
 	
 	let mut triangle = Mesh::new(Box::new(geometry::Triangle {}));
 	triangle.model_matrix.set([
-		[0.8, 0.0, 0.0, -0.5],
-		[0.0, 0.8, 0.0, 0.0],
-		[0.0, 0.0, 0.8, 0.0],
+		[1.0, 0.0, 0.0, -0.5],
+		[0.0, 1.0, 0.0, 0.0],
+		[0.0, 0.0, 1.0, 0.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
 	let mut plane = Mesh::new(Box::new(geometry::Plane {}));
 	plane.model_matrix.set([
-		[0.8, 0.0, 0.0, 0.5],
-		[0.0, 0.8, 0.0, 0.0],
-		[0.0, 0.0, 0.8, 0.0],
+		[1.0, 0.0, 0.0, 0.5],
+		[0.0, 1.0, 0.0, 0.0],
+		[0.0, 0.0, 1.0, 0.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
 	let meshes = vec![triangle, plane];
+	let projection_matrix = math::Matrix4::from([
+		[0.8, 0.0, 0.0, 0.0],
+		[0.0, 0.8, 0.0, 0.5],
+		[0.0, 0.0, 0.8, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
 	
-	renderer.submit_static_meshes(&meshes);
+	renderer.submit_static_content(&projection_matrix, &meshes);
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -49,7 +55,7 @@ fn main() {
 					framebuffer_resized = true;
 				},
 				glfw::WindowEvent::Key(glfw::Key::Q, _, glfw::Action::Press, _) => {
-					renderer.submit_static_meshes(&meshes);
+					renderer.submit_static_content(&projection_matrix, &meshes);
 				},
 				_ => {}
 			}
@@ -63,7 +69,7 @@ fn main() {
 
 		if framebuffer_resized {
 			renderer.recreate_swapchain(width as u32, height as u32);
-			renderer.submit_static_meshes(&meshes);
+			renderer.submit_static_content(&projection_matrix, &meshes);
 		}
 
 		renderer.render(&window);
