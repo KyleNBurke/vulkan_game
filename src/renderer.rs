@@ -1067,13 +1067,17 @@ impl Renderer {
 		let result = unsafe { self.swapchain.extension.queue_present(self.graphics_queue_family.queue, &present_info) };
 
 		if result.is_err() {
-			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR || result.unwrap() {
+			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width as u32, height as u32);
 			}
 			else {
 				panic!("Could not present swapchain image");
 			}
+		}
+		else if result.unwrap() {
+			let (width, height) = window.get_framebuffer_size();
+			self.recreate_swapchain(width as u32, height as u32);
 		}
 
 		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % MAX_FRAMES_IN_FLIGHT;
