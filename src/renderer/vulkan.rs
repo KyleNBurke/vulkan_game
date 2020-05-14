@@ -38,11 +38,6 @@ pub struct Frame {
 	pub fence: vk::Fence
 }
 
-pub struct DescriptorSet {
-	pub layout: vk::DescriptorSetLayout,
-	pub handle: vk::DescriptorSet
-}
-
 pub struct Pipeline {
 	pub handle: vk::Pipeline,
 	pub layout: vk::PipelineLayout
@@ -51,12 +46,23 @@ pub struct Pipeline {
 pub struct InFlightFrame {
 	pub image_available: vk::Semaphore,
 	pub render_finished: vk::Semaphore,
-	pub fence: vk::Fence
+	pub fence: vk::Fence,
+	pub dynamic_mesh_buffer: Buffer,
+	pub dynamic_mesh_buffer_size: usize,
+	pub dynamic_mesh_buffer_capacity: usize,
+	pub projection_view_matrix_descriptor_set: vk::DescriptorSet,
+	pub model_matrix_descriptor_set: vk::DescriptorSet
 }
 
 pub struct Buffer {
 	pub handle: vk::Buffer,
 	pub memory: vk::DeviceMemory
+}
+
+pub struct StaticMeshContent {
+	pub buffer: Buffer,
+	pub model_matrix_descriptor_set: vk::DescriptorSet,
+	pub chunk_sizes: Vec<[usize; 5]>
 }
 
 pub fn create_instance(entry: &ash::Entry, layers: &Vec<CString>, instance_extensions: &Vec<CString>) -> ash::Instance {
@@ -375,68 +381,34 @@ pub fn create_render_pass(device: &ash::Device, format: &vk::SurfaceFormatKHR) -
 	unsafe { device.create_render_pass(&create_info, None).unwrap() }
 }
 
-pub fn create_descriptor_pool(device: &ash::Device) -> vk::DescriptorPool {
-	let uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
-		.ty(vk::DescriptorType::UNIFORM_BUFFER)
-		.descriptor_count(1);
-
-	let dynamic_uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
-		.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-		.descriptor_count(1);
-	
-	let pool_sizes = [uniform_buffer_pool_size.build(), dynamic_uniform_buffer_pool_size.build()];
-	
-	let create_info = vk::DescriptorPoolCreateInfo::builder()
-		.pool_sizes(&pool_sizes)
-		.max_sets(2);
-	
-	unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
-}
-
-pub fn create_descriptor_sets(device: &ash::Device, pool: &vk::DescriptorPool) -> (DescriptorSet, DescriptorSet) {
-	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
+pub fn create_descriptor_set_layouts(device: &ash::Device) -> (vk::DescriptorSetLayout, vk::DescriptorSetLayout) {
+	// Static
+	let static_binding = vk::DescriptorSetLayoutBinding::builder()
 		.binding(0)
 		.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
 		.descriptor_count(1)
 		.stage_flags(vk::ShaderStageFlags::VERTEX);
-	let layout_bindings = [layout_binding.build()];
-	
-	let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-		.bindings(&layout_bindings);
-	
-	let projection_matrix_layout = unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() };
+	let static_bindings = [static_binding.build()];
 
-	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
+	let static_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+		.bindings(&static_bindings);
+	
+	let static_layout = unsafe { device.create_descriptor_set_layout(&static_create_info, None).unwrap() };
+
+	// Dynamic
+	let dynamic_binding = vk::DescriptorSetLayoutBinding::builder()
 		.binding(0)
 		.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
 		.descriptor_count(1)
 		.stage_flags(vk::ShaderStageFlags::VERTEX);
-	let layout_bindings = [layout_binding.build()];
+	let dynamic_bindings = [dynamic_binding.build()];
 	
-	let create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-		.bindings(&layout_bindings);
+	let dynamic_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+		.bindings(&dynamic_bindings);
 	
-	let model_matrix_layout = unsafe { device.create_descriptor_set_layout(&create_info, None).unwrap() };
-
-	let layouts = [projection_matrix_layout, model_matrix_layout];
-
-	let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-		.descriptor_pool(*pool)
-		.set_layouts(&layouts);
+	let dynamic_layout = unsafe { device.create_descriptor_set_layout(&dynamic_create_info, None).unwrap() };
 	
-	let sets = unsafe { device.allocate_descriptor_sets(&allocate_info).unwrap() };
-
-	let projection_matrix_descriptor_set = DescriptorSet {
-		handle: sets[0],
-		layout: projection_matrix_layout
-	};
-
-	let model_matrix_descriptor_set = DescriptorSet {
-		handle: sets[1],
-		layout: model_matrix_layout
-	};
-
-	(projection_matrix_descriptor_set, model_matrix_descriptor_set)
+	(static_layout, dynamic_layout)
 }
 
 pub fn create_pipeline(
@@ -592,29 +564,146 @@ pub fn create_command_pool(device: &ash::Device, graphics_queue_family: u32) -> 
 }
 
 pub fn create_command_buffers(device: &ash::Device, command_pool: &vk::CommandPool, count: u32) -> Vec<vk::CommandBuffer> {
-	let create_info = vk::CommandBufferAllocateInfo::builder()
+	let allocate_info = vk::CommandBufferAllocateInfo::builder()
 		.command_pool(*command_pool)
 		.level(vk::CommandBufferLevel::PRIMARY)
 		.command_buffer_count(count);
 	
-	unsafe { device.allocate_command_buffers(&create_info).unwrap() }
+	unsafe { device.allocate_command_buffers(&allocate_info).unwrap() }
 }
 
-pub fn create_in_flight_frames(device: &ash::Device, count: usize) -> Vec<InFlightFrame> {
+pub fn create_descriptor_pool(device: &ash::Device, max_frames_in_flight: u32) -> vk::DescriptorPool {
+	let static_pool_size = vk::DescriptorPoolSize::builder()
+		.ty(vk::DescriptorType::UNIFORM_BUFFER)
+		.descriptor_count(max_frames_in_flight);
+
+	let dynamic_pool_size = vk::DescriptorPoolSize::builder()
+		.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+		.descriptor_count(max_frames_in_flight + 1);
+	
+	let pool_sizes = [static_pool_size.build(), dynamic_pool_size.build()];
+	
+	let create_info = vk::DescriptorPoolCreateInfo::builder()
+		.pool_sizes(&pool_sizes)
+		.max_sets(2 * max_frames_in_flight + 1);
+	
+	unsafe { device.create_descriptor_pool(&create_info, None).unwrap() }
+}
+
+pub fn create_in_flight_frames(
+	instance: &ash::Instance,
+	physical_device: &vk::PhysicalDevice,
+	logical_device: &ash::Device,
+	count: usize,
+	dynamic_mesh_buffer_capacity: usize,
+	descriptor_pool: &vk::DescriptorPool,
+	static_descriptor_set_layout: &vk::DescriptorSetLayout,
+	dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> Vec<InFlightFrame>
+{
 	let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
 	let fence_create_info = vk::FenceCreateInfo::builder()
 		.flags(vk::FenceCreateFlags::SIGNALED);
 
+	let dynamic_descriptor_set_layouts = [*static_descriptor_set_layout, *dynamic_descriptor_set_layout];
+	
+	let dynamic_descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
+		.descriptor_pool(*descriptor_pool)
+		.set_layouts(&dynamic_descriptor_set_layouts);
+
 	let mut frames: Vec<InFlightFrame> = Vec::with_capacity(count);
 	for _ in 0..count {
+		let image_available = unsafe { logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
+		let render_finished = unsafe { logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
+		let fence = unsafe { logical_device.create_fence(&fence_create_info, None).unwrap() };
+		
+		let dynamic_mesh_buffer = create_buffer(
+			instance,
+			physical_device,
+			logical_device,
+			dynamic_mesh_buffer_capacity as u64,
+			vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
+			vk::MemoryPropertyFlags::HOST_VISIBLE);
+		
+		let descriptor_sets = unsafe { logical_device.allocate_descriptor_sets(&dynamic_descriptor_set_allocate_info).unwrap() };
+		let projection_view_matrix_descriptor_set = descriptor_sets[0];
+		let model_matrix_descriptor_set = descriptor_sets[1];
+		
+		// Projection & view
+		let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(dynamic_mesh_buffer.handle)
+			.offset(0)
+			.range(32 * std::mem::size_of::<f32>() as u64);
+		let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
+
+		let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(projection_view_matrix_descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+			.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
+
+		// Model
+		let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(dynamic_mesh_buffer.handle)
+			.offset(0)
+			.range(16 * std::mem::size_of::<f32>() as u64);
+		let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
+
+		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(model_matrix_descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.buffer_info(&model_matrix_descriptor_buffer_infos);
+		
+		let write_descriptor_sets = [
+			projection_view_matrix_write_descriptor_set.build(),
+			model_matrix_write_descriptor_set.build()
+		];
+		let copy_descriptor_sets = [];
+		
+		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+
 		frames.push(InFlightFrame {
-			image_available: unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() },
-			render_finished: unsafe { device.create_semaphore(&semaphore_create_info, None).unwrap() },
-			fence: unsafe { device.create_fence(&fence_create_info, None).unwrap() }
+			image_available,
+			render_finished,
+			fence,
+			dynamic_mesh_buffer,
+			dynamic_mesh_buffer_size: 0usize,
+			dynamic_mesh_buffer_capacity,
+			projection_view_matrix_descriptor_set,
+			model_matrix_descriptor_set
 		});
 	}
 
 	frames
+}
+
+pub fn create_static_mesh_content(
+	logical_device: &ash::Device,
+	descriptor_pool: &vk::DescriptorPool,
+	dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshContent
+{
+	let buffer = Buffer {
+		handle: vk::Buffer::null(),
+		memory: vk::DeviceMemory::null()
+	};
+
+	let descriptor_set_layout = [*dynamic_descriptor_set_layout];
+	
+	let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
+		.descriptor_pool(*descriptor_pool)
+		.set_layouts(&descriptor_set_layout);
+	
+	let model_matrix_descriptor_set = unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
+
+	let chunk_sizes = vec![];
+
+	StaticMeshContent {
+		buffer,
+		model_matrix_descriptor_set,
+		chunk_sizes
+	}
 }
 
 pub fn create_buffer(

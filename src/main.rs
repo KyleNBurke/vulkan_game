@@ -7,6 +7,8 @@ use mesh::Mesh;
 mod geometry;
 mod math;
 
+use std::time;
+
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
@@ -16,31 +18,58 @@ fn main() {
 
 	let mut renderer = Renderer::new(&glfw, &window);
 	
-	let mut triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	triangle.model_matrix.set([
+	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
+	static_triangle.model_matrix.set([
+		[1.0, 0.0, 0.0, -0.5],
+		[0.0, 1.0, 0.0, 1.1],
+		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
+
+	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}));
+	static_plane.model_matrix.set([
+		[1.0, 0.0, 0.0, 0.5],
+		[0.0, 1.0, 0.0, 1.1],
+		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
+
+	let static_meshes = vec![static_triangle, static_plane];
+	renderer.submit_static_meshes(&static_meshes);
+
+	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}));
+	dynamic_triangle.model_matrix.set([
 		[1.0, 0.0, 0.0, -0.5],
 		[0.0, 1.0, 0.0, 0.0],
 		[0.0, 0.0, 1.0, 0.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
-	let mut plane = Mesh::new(Box::new(geometry::Plane {}));
-	plane.model_matrix.set([
+	let mut dynamic_plane = Mesh::new(Box::new(geometry::Plane {}));
+	dynamic_plane.model_matrix.set([
 		[1.0, 0.0, 0.0, 0.5],
 		[0.0, 1.0, 0.0, 0.0],
 		[0.0, 0.0, 1.0, 0.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
-	let meshes = vec![triangle, plane];
+	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane];
+
 	let projection_matrix = math::Matrix4::from([
 		[0.8, 0.0, 0.0, 0.0],
-		[0.0, 0.8, 0.0, 0.5],
+		[0.0, 0.8, 0.0, 0.0],
 		[0.0, 0.0, 0.8, 0.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
-	
-	renderer.submit_static_content(&projection_matrix, &meshes);
+
+	let view_matrix = math::Matrix4::from([
+		[1.0, 0.0, 0.0, 0.0],
+		[0.0, 1.0, 0.0, -0.5],
+		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]);
+
+	let timer = time::Instant::now();
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -55,7 +84,7 @@ fn main() {
 					framebuffer_resized = true;
 				},
 				glfw::WindowEvent::Key(glfw::Key::Q, _, glfw::Action::Press, _) => {
-					renderer.submit_static_content(&projection_matrix, &meshes);
+					renderer.submit_static_meshes(&static_meshes);
 				},
 				_ => {}
 			}
@@ -69,9 +98,16 @@ fn main() {
 
 		if framebuffer_resized {
 			renderer.recreate_swapchain(width as u32, height as u32);
-			renderer.submit_static_content(&projection_matrix, &meshes);
 		}
 
-		renderer.render(&window);
+		let elapsed = timer.elapsed().as_secs_f32();
+		dynamic_meshes[0].model_matrix.set([
+			[elapsed.cos(), -elapsed.sin(), 0.0, -0.5],
+			[elapsed.sin(), elapsed.cos(), 0.0, 0.0],
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+
+		renderer.render(&window, &projection_matrix, &view_matrix, &dynamic_meshes);
 	}
 }

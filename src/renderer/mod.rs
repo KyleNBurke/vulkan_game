@@ -19,15 +19,15 @@ pub struct Renderer {
 	graphics_queue_family: vulkan::QueueFamily,
 	present_queue_family: vulkan::QueueFamily,
 	command_pool: vk::CommandPool,
+	static_descriptor_set_layout: vk::DescriptorSetLayout,
+	dynamic_descriptor_set_layout: vk::DescriptorSetLayout,
 	render_pass: vk::RenderPass,
-	descriptor_pool: vk::DescriptorPool,
-	projection_matrix_descriptor_set: vulkan::DescriptorSet,
-	model_matrix_descriptor_set: vulkan::DescriptorSet,
 	pipeline: vulkan::Pipeline,
+	descriptor_pool: vk::DescriptorPool,
 	in_flight_frames: Vec<vulkan::InFlightFrame>,
 	current_in_flight_frame: usize,
 	swapchain: vulkan::Swapchain,
-	vertex_buffer: vulkan::Buffer
+	static_mesh_content: vulkan::StaticMeshContent
 }
 
 impl Renderer {
@@ -77,14 +77,26 @@ impl Renderer {
 			framebuffer_height as u32);
 		
 		let render_pass = vulkan::create_render_pass(&logical_device, &surface_format);
-		let descriptor_pool = vulkan::create_descriptor_pool(&logical_device);
-		let (projection_matrix_descriptor_set, model_matrix_descriptor_set) = vulkan::create_descriptor_sets(&logical_device, &descriptor_pool);
-		let descriptor_set_layouts = [projection_matrix_descriptor_set.layout, model_matrix_descriptor_set.layout];
+		
+		let (static_descriptor_set_layout, dynamic_descriptor_set_layout) = vulkan::create_descriptor_set_layouts(&logical_device);
+		let descriptor_set_layouts = [static_descriptor_set_layout, dynamic_descriptor_set_layout];
+		
 		let pipeline = vulkan::create_pipeline(&logical_device, &swapchain_extent, &render_pass, &descriptor_set_layouts);
 		let framebuffers = vulkan::create_framebuffers(&logical_device, &swapchain_image_views, &swapchain_extent, &render_pass);
 		let command_pool = vulkan::create_command_pool(&logical_device, graphics_queue_family_index);
 		let command_buffers = vulkan::create_command_buffers(&logical_device, &command_pool, swapchain_image_views.len() as u32);
-		let in_flight_frames = vulkan::create_in_flight_frames(&logical_device, MAX_FRAMES_IN_FLIGHT);
+		let descriptor_pool = vulkan::create_descriptor_pool(&logical_device, MAX_FRAMES_IN_FLIGHT as u32);
+		let static_mesh_content = vulkan::create_static_mesh_content(&logical_device, &descriptor_pool, &dynamic_descriptor_set_layout);
+		
+		let in_flight_frames = vulkan::create_in_flight_frames(
+			&instance,
+			&physical_device.handle,
+			&logical_device,
+			MAX_FRAMES_IN_FLIGHT,
+			128,
+			&descriptor_pool,
+			&static_descriptor_set_layout,
+			&dynamic_descriptor_set_layout);
 
 		let mut swapchain_frames: Vec<vulkan::Frame> = Vec::with_capacity(swapchain_image_views.len());
 		for i in 0..swapchain_image_views.len() {
@@ -115,11 +127,11 @@ impl Renderer {
 				queue: present_queue_handle
 			},
 			command_pool,
+			static_descriptor_set_layout,
+			dynamic_descriptor_set_layout,
 			render_pass,
 			pipeline,
 			descriptor_pool,
-			projection_matrix_descriptor_set,
-			model_matrix_descriptor_set,
 			in_flight_frames,
 			current_in_flight_frame: 0,
 			swapchain: vulkan::Swapchain {
@@ -128,23 +140,20 @@ impl Renderer {
 				extent: swapchain_extent,
 				frames: swapchain_frames
 			},
-			vertex_buffer: vulkan::Buffer {
-				handle: vk::Buffer::null(),
-				memory: vk::DeviceMemory::null()
-			}
+			static_mesh_content
 		}
 	}
 
-	pub fn submit_static_content(&mut self, projection_matrix: &Matrix4, meshes: &Vec<Mesh>) {
+	pub fn submit_static_meshes(&mut self, meshes: &Vec<Mesh>) {
 		unsafe {
-			self.logical_device.device_wait_idle().unwrap();
-			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
-			self.logical_device.free_memory(self.vertex_buffer.memory, None);
+			self.logical_device.queue_wait_idle(self.graphics_queue_family.queue).unwrap();
+			self.logical_device.destroy_buffer(self.static_mesh_content.buffer.handle, None);
+			self.logical_device.free_memory(self.static_mesh_content.buffer.memory, None);
 		}
 
-		// Calculate total required memory size and calculate chunk sizes to help with offset calculations
-		let mut total_size = 16 * size_of::<f32>();
-		let mut mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(meshes.len());
+		let mut total_size = 0;
+		let mut chunk_sizes: Vec<[usize; 5]> = Vec::with_capacity(meshes.len());
+		let uniform_alignment = self.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes {
 			let indices = mesh.geometry.get_vertex_indices();
@@ -152,15 +161,14 @@ impl Renderer {
 			let index_size = indices.len() * size_of::<u16>();
 			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
 			let attribute_size = attributes.len() * size_of::<f32>();
-			let uniform_alignment = self.physical_device.min_uniform_buffer_offset_alignment as usize;
 			let attribute_padding = uniform_alignment - (total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
 			let uniform_size = 16 * size_of::<f32>();
-			mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding]);
+			chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding, indices.len()]);
 			total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 		let total_size = total_size as u64;
 
-		// Create a host visible staging buffer and copy the required data into it
+		// Create a host visible staging buffer
 		let staging_buffer = vulkan::create_buffer(
 			&self.instance,
 			&self.physical_device.handle,
@@ -169,34 +177,30 @@ impl Renderer {
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
 		
-		let dst_ptr = unsafe { self.logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() as *mut i8 };
-		let mut mesh_offset = 16 * size_of::<f32>();
+		// Copy mesh data into staging buffer
+		let buffer_ptr = unsafe { self.logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
+		let mut mesh_offset = 0;
 
 		for (i, mesh) in meshes.iter().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
-			let index_size = mesh_chunk_sizes[i][0];
-			let index_padding_size = mesh_chunk_sizes[i][1];
-			let attribute_size = mesh_chunk_sizes[i][2];
-			let attribute_padding_size = mesh_chunk_sizes[i][3];
+			let index_size = chunk_sizes[i][0];
+			let index_padding_size = chunk_sizes[i][1];
+			let attribute_size = chunk_sizes[i][2];
+			let attribute_padding_size = chunk_sizes[i][3];
 			let uniform_size = 16 * size_of::<f32>();
 
 			unsafe {
-				let projection_matrix_dst_ptr = dst_ptr as *mut [f32; 4];
-				let mut projection_matrix = *projection_matrix;
-				projection_matrix.transpose();
-				std::ptr::copy_nonoverlapping(projection_matrix.elements.as_ptr(), projection_matrix_dst_ptr, projection_matrix.elements.len());
-
 				let index_offset = mesh_offset;
-				let index_dst_ptr = dst_ptr.offset(index_offset as isize) as *mut u16;
+				let index_dst_ptr = buffer_ptr.offset(index_offset as isize) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attribute_offset = index_offset + index_size + index_padding_size;
-				let attribute_dst_ptr = dst_ptr.offset(attribute_offset as isize) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.offset(attribute_offset as isize) as *mut f32;
 				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
-				let model_matrix_dst_ptr = dst_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
+				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
 				let mut model_matrix = mesh.model_matrix;
 				model_matrix.transpose();
 				std::ptr::copy_nonoverlapping(model_matrix.elements.as_ptr(), model_matrix_dst_ptr, model_matrix.elements.len());
@@ -207,15 +211,16 @@ impl Renderer {
 
 		unsafe { self.logical_device.unmap_memory(staging_buffer.memory) };
 		
-		// Create the device local vertex buffer and copy the data from the staging buffer into it using a command buffer
-		self.vertex_buffer = vulkan::create_buffer(
+		// Create a device local memory buffer
+		self.static_mesh_content.buffer = vulkan::create_buffer(
 			&self.instance,
 			&self.physical_device.handle,
 			&self.logical_device,
 			total_size,
 			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 			vk::MemoryPropertyFlags::DEVICE_LOCAL);
-
+		
+		// Copy the data from the staging buffer into the device local buffer using a command buffer
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.level(vk::CommandBufferLevel::PRIMARY)
 			.command_pool(self.command_pool)
@@ -232,7 +237,7 @@ impl Renderer {
 		
 		unsafe {
 			self.logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			self.logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.vertex_buffer.handle, &regions);
+			self.logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_content.buffer.handle, &regions);
 			self.logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
@@ -248,122 +253,38 @@ impl Renderer {
 			self.logical_device.destroy_buffer(staging_buffer.handle, None);
 			self.logical_device.free_memory(staging_buffer.memory, None);
 		}
-
-		// Update the descriptor sets to reference the vertex buffer
-		let projection_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(self.vertex_buffer.handle)
-			.offset(0)
-			.range(16 * size_of::<f32>() as u64);
-		let projection_matrix_buffer_infos = [projection_matrix_buffer_info.build()];
-
-		let projection_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.projection_matrix_descriptor_set.handle)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-			.buffer_info(&projection_matrix_buffer_infos);
-
+		
+		// Update the descriptor set to reference the device local buffer
 		let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(self.vertex_buffer.handle)
+			.buffer(self.static_mesh_content.buffer.handle)
 			.offset(0)
 			.range(16 * size_of::<f32>() as u64);
 		let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
 
 		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.model_matrix_descriptor_set.handle)
+			.dst_set(self.static_mesh_content.model_matrix_descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
 			.buffer_info(&model_matrix_buffer_infos);
 		
-		let write_descriptor_sets = [projection_matrix_write_descriptor_set.build(), model_matrix_write_descriptor_set.build()];
+		let write_descriptor_sets = [model_matrix_write_descriptor_set.build()];
 		let copy_descriptor_sets = [];
 		
 		unsafe { self.logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 
-		// Record the command buffers for drawing
-		let clear_color = vk::ClearValue {
-			color: vk::ClearColorValue {
-				float32: [0.0, 0.0, 0.0, 1.0]
-			}
-		};
-		let clear_colors = [clear_color];
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
-
-		let mut render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-			.render_pass(self.render_pass)
-			.render_area(vk::Rect2D::builder()
-				.offset(vk::Offset2D::builder().x(0).y(0).build())
-				.extent(self.swapchain.extent)
-				.build())
-			.clear_values(&clear_colors);
-
-		for frame in &self.swapchain.frames {
-			render_pass_begin_info = render_pass_begin_info.framebuffer(frame.framebuffer);
-			
-			unsafe {
-				self.logical_device.begin_command_buffer(frame.command_buffer, &command_buffer_begin_info).unwrap();
-				self.logical_device.cmd_begin_render_pass(frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-				self.logical_device.cmd_bind_pipeline(frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
-				
-				let descriptor_sets = [self.projection_matrix_descriptor_set.handle];
-				let dynamic_offsets = [];
-				self.logical_device.cmd_bind_descriptor_sets(
-					frame.command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.pipeline.layout,
-					0,
-					&descriptor_sets,
-					&dynamic_offsets);
-			}
-			
-			let mut mesh_offset = 16 * size_of::<f32>();
-			for (i, mesh) in meshes.iter().enumerate() {
-				let indices = mesh.geometry.get_vertex_indices();
-				let index_size = mesh_chunk_sizes[i][0];
-				let index_padding_size = mesh_chunk_sizes[i][1];
-				let attribute_size = mesh_chunk_sizes[i][2];
-				let attribute_padding_size = mesh_chunk_sizes[i][3];
-				let uniform_size = 16 * size_of::<f32>();
-				
-				let buffers = [self.vertex_buffer.handle];
-				let offsets = [(mesh_offset + index_size + index_padding_size) as u64];
-
-				unsafe {
-					self.logical_device.cmd_bind_index_buffer(frame.command_buffer, self.vertex_buffer.handle, mesh_offset as u64, vk::IndexType::UINT16);
-					self.logical_device.cmd_bind_vertex_buffers(frame.command_buffer, 0, &buffers, &offsets);
-					
-					let descriptor_sets = [self.model_matrix_descriptor_set.handle];
-					let dynamic_offsets = [(mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
-					self.logical_device.cmd_bind_descriptor_sets(
-						frame.command_buffer,
-						vk::PipelineBindPoint::GRAPHICS,
-						self.pipeline.layout,
-						1,
-						&descriptor_sets,
-						&dynamic_offsets);
-					
-					self.logical_device.cmd_draw_indexed(frame.command_buffer, indices.len() as u32, 1, 0, 0, 0);
-				}
-
-				mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
-			}
-
-			unsafe {
-				self.logical_device.cmd_end_render_pass(frame.command_buffer);
-				self.logical_device.end_command_buffer(frame.command_buffer).unwrap();
-			}
-		}
-		
+		// Save chunk sizes for recording command buffers later
+		self.static_mesh_content.chunk_sizes = chunk_sizes;
 	}
 	
-	pub fn render(&mut self, window: &glfw::Window) {
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+	pub fn render(&mut self, window: &glfw::Window, projection_matrix: &Matrix4, view_matrix: &Matrix4, dynamic_meshes: &Vec<Mesh>) {
+		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
+		// Wait for this in flight frame to become available
 		let fences = [in_flight_frame.fence];
 		unsafe { self.logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
 		
+		// Acquire a swapchain image to render to
 		let result = unsafe {
 			self.swapchain.extension.acquire_next_image(self.swapchain.handle,
 				std::u64::MAX,
@@ -384,12 +305,236 @@ impl Renderer {
 		let image_index = result.unwrap().0;
 		let swapchain_frame = &mut self.swapchain.frames[image_index as usize];
 
+		// Wait for swapchain frame to become available
 		if swapchain_frame.fence != vk::Fence::null() {
 			let fences = [swapchain_frame.fence];
 			unsafe { self.logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
 		}
 
 		swapchain_frame.fence = in_flight_frame.fence;
+
+		// Calculate total required dynamic mesh memory size and chunk sizes
+		let dynamic_mesh_initial_chunk_size = 32 * size_of::<f32>();
+		let mut dynamic_mesh_total_size = dynamic_mesh_initial_chunk_size;
+		let mut dynamic_mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(dynamic_meshes.len());
+		let uniform_alignment = self.physical_device.min_uniform_buffer_offset_alignment as usize;
+
+		for mesh in dynamic_meshes {
+			let indices = mesh.geometry.get_vertex_indices();
+			let attributes = mesh.geometry.get_vertex_attributes();
+			let index_size = indices.len() * size_of::<u16>();
+			let index_padding_size = size_of::<f32>() - (dynamic_mesh_total_size + index_size) % size_of::<f32>();
+			let attribute_size = attributes.len() * size_of::<f32>();
+			let attribute_padding = uniform_alignment - (dynamic_mesh_total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
+			let uniform_size = 16 * size_of::<f32>();
+			dynamic_mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding]);
+			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
+		}
+
+		// Allocate more memory in buffer for dynamic meshes if necessary
+		if dynamic_mesh_total_size > in_flight_frame.dynamic_mesh_buffer_capacity {
+			// Destroy current memory buffer
+			unsafe {
+				self.logical_device.destroy_buffer(in_flight_frame.dynamic_mesh_buffer.handle, None);
+				self.logical_device.free_memory(in_flight_frame.dynamic_mesh_buffer.memory, None);
+			}
+
+			// Create memory buffer with new size
+			in_flight_frame.dynamic_mesh_buffer = vulkan::create_buffer(
+				&self.instance,
+				&self.physical_device.handle,
+				&self.logical_device,
+				dynamic_mesh_total_size as u64,
+				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
+				vk::MemoryPropertyFlags::HOST_VISIBLE);
+
+			// Update descriptor sets to refer to new memory buffer
+			let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(in_flight_frame.dynamic_mesh_buffer.handle)
+				.offset(0)
+				.range(32 * std::mem::size_of::<f32>() as u64);
+			let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
+
+			let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(in_flight_frame.projection_view_matrix_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+				.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
+
+			let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(in_flight_frame.dynamic_mesh_buffer.handle)
+				.offset(0)
+				.range(16 * std::mem::size_of::<f32>() as u64);
+			let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
+
+			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(in_flight_frame.model_matrix_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+				.buffer_info(&model_matrix_descriptor_buffer_infos);
+			
+			let write_descriptor_sets = [
+				projection_view_matrix_write_descriptor_set.build(),
+				model_matrix_write_descriptor_set.build()
+			];
+			let copy_descriptor_sets = [];
+			
+			unsafe { self.logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+
+			// Set new buffer capacity
+			in_flight_frame.dynamic_mesh_buffer_capacity = dynamic_mesh_total_size;
+		}
+
+		// Record the command buffers
+		let clear_color = vk::ClearValue {
+			color: vk::ClearColorValue {
+				float32: [0.0, 0.0, 0.0, 1.0]
+			}
+		};
+		let clear_colors = [clear_color];
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
+
+		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+			.render_pass(self.render_pass)
+			.framebuffer(swapchain_frame.framebuffer)
+			.render_area(vk::Rect2D::builder()
+				.offset(vk::Offset2D::builder().x(0).y(0).build())
+				.extent(self.swapchain.extent)
+				.build())
+			.clear_values(&clear_colors);
+		
+		unsafe {
+			self.logical_device.begin_command_buffer(swapchain_frame.command_buffer, &command_buffer_begin_info).unwrap();
+			self.logical_device.cmd_begin_render_pass(swapchain_frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
+			self.logical_device.cmd_bind_pipeline(swapchain_frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
+			
+			let descriptor_sets = [in_flight_frame.projection_view_matrix_descriptor_set];
+			let dynamic_offsets = [];
+			self.logical_device.cmd_bind_descriptor_sets(
+				swapchain_frame.command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.pipeline.layout,
+				0,
+				&descriptor_sets,
+				&dynamic_offsets);
+		}
+		
+		let buffer_ptr = unsafe { self.logical_device.map_memory(in_flight_frame.dynamic_mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
+		
+		// Copy projection and view matrix into dynamic memory buffer
+		unsafe {
+			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
+			let mut projection_matrix = *projection_matrix;
+			projection_matrix.transpose();
+			std::ptr::copy_nonoverlapping(projection_matrix.elements.as_ptr(), projection_matrix_dst_ptr, projection_matrix.elements.len());
+
+			let view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
+			let mut view_matrix = *view_matrix;
+			view_matrix.transpose();
+			std::ptr::copy_nonoverlapping(view_matrix.elements.as_ptr(), view_matrix_dst_ptr, view_matrix.elements.len());
+		}
+
+		// Record static mesh command buffers
+		let mut static_mesh_offset = 0;
+		for chunk_size in &self.static_mesh_content.chunk_sizes {
+			let index_size = chunk_size[0];
+			let index_padding_size = chunk_size[1];
+			let attribute_size = chunk_size[2];
+			let attribute_padding_size = chunk_size[3];
+			let uniform_size = 16 * size_of::<f32>();
+			let index_count = chunk_size[4];
+
+			unsafe {
+				self.logical_device.cmd_bind_index_buffer(
+					swapchain_frame.command_buffer,
+					self.static_mesh_content.buffer.handle,
+					static_mesh_offset as u64,
+					vk::IndexType::UINT16);
+				
+				let vertex_buffers = [self.static_mesh_content.buffer.handle];
+				let vertex_offsets = [(static_mesh_offset + index_size + index_padding_size) as u64];
+				self.logical_device.cmd_bind_vertex_buffers(swapchain_frame.command_buffer, 0, &vertex_buffers, &vertex_offsets);
+				
+				let descriptor_sets = [self.static_mesh_content.model_matrix_descriptor_set];
+				let dynamic_offsets = [(static_mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
+				self.logical_device.cmd_bind_descriptor_sets(
+					swapchain_frame.command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline.layout,
+					1,
+					&descriptor_sets,
+					&dynamic_offsets);
+				
+				self.logical_device.cmd_draw_indexed(swapchain_frame.command_buffer, index_count as u32, 1, 0, 0, 0);
+			}
+
+			static_mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
+		}
+
+		// Copy dynamic mesh data into buffer and record command buffers
+		let mut dynamic_mesh_offset = dynamic_mesh_initial_chunk_size;
+		for (i, mesh) in dynamic_meshes.iter().enumerate() {
+			let indices = mesh.geometry.get_vertex_indices();
+			let attributes = mesh.geometry.get_vertex_attributes();
+			let index_size = dynamic_mesh_chunk_sizes[i][0];
+			let index_padding_size = dynamic_mesh_chunk_sizes[i][1];
+			let attribute_size = dynamic_mesh_chunk_sizes[i][2];
+			let attribute_padding_size = dynamic_mesh_chunk_sizes[i][3];
+			let uniform_size = 16 * size_of::<f32>();
+
+			unsafe {
+				// Copy index, attribute and uniform buffer objects into memory buffer
+				let index_offset = dynamic_mesh_offset;
+				let index_dst_ptr = buffer_ptr.offset(index_offset as isize) as *mut u16;
+				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+
+				let attribute_offset = index_offset + index_size + index_padding_size;
+				let attribute_dst_ptr = buffer_ptr.offset(attribute_offset as isize) as *mut f32;
+				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+
+				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
+				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
+				let mut model_matrix = mesh.model_matrix;
+				model_matrix.transpose();
+				std::ptr::copy_nonoverlapping(model_matrix.elements.as_ptr(), model_matrix_dst_ptr, model_matrix.elements.len());
+
+				// Record draw commands
+				self.logical_device.cmd_bind_index_buffer(
+					swapchain_frame.command_buffer,
+					in_flight_frame.dynamic_mesh_buffer.handle,
+					dynamic_mesh_offset as u64,
+					vk::IndexType::UINT16);
+				
+				let vertex_buffers = [in_flight_frame.dynamic_mesh_buffer.handle];
+				let vertex_offsets = [(dynamic_mesh_offset + index_size + index_padding_size) as u64];
+				self.logical_device.cmd_bind_vertex_buffers(swapchain_frame.command_buffer, 0, &vertex_buffers, &vertex_offsets);
+				
+				let descriptor_sets = [in_flight_frame.model_matrix_descriptor_set];
+				let dynamic_offsets = [(dynamic_mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
+				self.logical_device.cmd_bind_descriptor_sets(
+					swapchain_frame.command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline.layout,
+					1,
+					&descriptor_sets,
+					&dynamic_offsets);
+				
+				self.logical_device.cmd_draw_indexed(swapchain_frame.command_buffer, indices.len() as u32, 1, 0, 0, 0);
+			}
+
+			dynamic_mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
+		}
+
+		unsafe {
+			self.logical_device.cmd_end_render_pass(swapchain_frame.command_buffer);
+			self.logical_device.end_command_buffer(swapchain_frame.command_buffer).unwrap();
+			self.logical_device.unmap_memory(in_flight_frame.dynamic_mesh_buffer.memory);
+		}
+
+		// Wait for image to be available then submit command buffer
 		let image_available_semaphores = [in_flight_frame.image_available];
 		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
 		let command_buffers = [swapchain_frame.command_buffer];
@@ -406,6 +551,7 @@ impl Renderer {
 			self.logical_device.queue_submit(self.graphics_queue_family.queue, &submit_infos, in_flight_frame.fence).unwrap();
 		}
 
+		// Wait for render to finish then present swapchain image
 		let swapchains = [self.swapchain.handle];
 		let image_indices = [image_index];
 		let present_info = vk::PresentInfoKHR::builder()
@@ -450,7 +596,7 @@ impl Renderer {
 			width,
 			height);
 		
-		let descriptor_set_layouts = [self.projection_matrix_descriptor_set.layout, self.model_matrix_descriptor_set.layout];
+		let descriptor_set_layouts = [self.static_descriptor_set_layout, self.dynamic_descriptor_set_layout];
 		self.pipeline = vulkan::create_pipeline(&self.logical_device, &swapchain_extent, &self.render_pass, &descriptor_set_layouts);
 		let framebuffers = vulkan::create_framebuffers(&self.logical_device, &swapchain_image_views, &swapchain_extent, &self.render_pass);
 		let command_buffers = vulkan::create_command_buffers(&self.logical_device, &self.command_pool, swapchain_image_views.len() as u32);
@@ -465,7 +611,7 @@ impl Renderer {
 			});
 		}
 
-		self.swapchain =vulkan:: Swapchain {
+		self.swapchain = vulkan::Swapchain {
 			extension: swapchain_extension,
 			handle: swapchain_handle,
 			extent: swapchain_extent,
@@ -496,16 +642,18 @@ impl Drop for Renderer {
 			self.cleanup_swapchain();
 
 			for frame in &self.in_flight_frames {
+				self.logical_device.destroy_buffer(frame.dynamic_mesh_buffer.handle, None);
+				self.logical_device.free_memory(frame.dynamic_mesh_buffer.memory, None);
 				self.logical_device.destroy_semaphore(frame.image_available, None);
 				self.logical_device.destroy_semaphore(frame.render_finished, None);
 				self.logical_device.destroy_fence(frame.fence, None);
 			}
 
+			self.logical_device.destroy_buffer(self.static_mesh_content.buffer.handle, None);
+			self.logical_device.free_memory(self.static_mesh_content.buffer.memory, None);
+			self.logical_device.destroy_descriptor_set_layout(self.dynamic_descriptor_set_layout, None);
+			self.logical_device.destroy_descriptor_set_layout(self.static_descriptor_set_layout, None);
 			self.logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
-			self.logical_device.destroy_descriptor_set_layout(self.model_matrix_descriptor_set.layout, None);
-			self.logical_device.destroy_descriptor_set_layout(self.projection_matrix_descriptor_set.layout, None);
-			self.logical_device.destroy_buffer(self.vertex_buffer.handle, None);
-			self.logical_device.free_memory(self.vertex_buffer.memory, None);
 			self.logical_device.destroy_render_pass(self.render_pass, None);
 			self.logical_device.destroy_command_pool(self.command_pool, None);
 			self.logical_device.destroy_device(None);
