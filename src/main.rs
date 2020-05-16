@@ -1,3 +1,5 @@
+mod vulkan;
+
 mod renderer;
 use renderer::Renderer;
 
@@ -15,6 +17,8 @@ fn main() {
 	let (mut window, events) = glfw.create_window(400, 400, "Vulkan", glfw::WindowMode::Windowed).unwrap();
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
+
+	let context = vulkan::Context::new(&glfw, &window);
 
 	let mut renderer = Renderer::new(&glfw, &window);
 	
@@ -101,8 +105,16 @@ fn main() {
 		}
 
 		let elapsed = timer.elapsed().as_secs_f32();
+		
 		dynamic_meshes[0].model_matrix.set([
 			[elapsed.cos(), -elapsed.sin(), 0.0, -0.5],
+			[elapsed.sin(), elapsed.cos(), 0.0, 0.0],
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+
+		dynamic_meshes[1].model_matrix.set([
+			[elapsed.cos(), -elapsed.sin(), 0.0, 0.5],
 			[elapsed.sin(), elapsed.cos(), 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]

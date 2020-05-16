@@ -48,7 +48,6 @@ pub struct InFlightFrame {
 	pub render_finished: vk::Semaphore,
 	pub fence: vk::Fence,
 	pub dynamic_mesh_buffer: Buffer,
-	pub dynamic_mesh_buffer_size: usize,
 	pub dynamic_mesh_buffer_capacity: usize,
 	pub projection_view_matrix_descriptor_set: vk::DescriptorSet,
 	pub model_matrix_descriptor_set: vk::DescriptorSet
@@ -669,7 +668,6 @@ pub fn create_in_flight_frames(
 			render_finished,
 			fence,
 			dynamic_mesh_buffer,
-			dynamic_mesh_buffer_size: 0usize,
 			dynamic_mesh_buffer_capacity,
 			projection_view_matrix_descriptor_set,
 			model_matrix_descriptor_set
