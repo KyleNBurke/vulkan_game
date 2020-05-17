@@ -8,34 +8,34 @@ const REQUIRED_INSTANCE_EXTENSIONS: &[&str] = &["VK_EXT_debug_utils"];
 const REQUIRED_DEVICE_EXTENSIONS: &[&str] = &["VK_KHR_swapchain"];
 
 pub struct Context {
-	instance: ash::Instance,
-	debug_utils: DebugUtils,
-	physical_device: PhysicalDevice,
-	surface: Surface,
-	logical_device: ash::Device,
+	pub instance: ash::Instance,
+	pub debug_utils: DebugUtils,
+	pub physical_device: PhysicalDevice,
+	pub surface: Surface,
+	pub logical_device: ash::Device,
 }
 
-struct DebugUtils {
-	extension: ext::DebugUtils,
-	messenger_handle: vk::DebugUtilsMessengerEXT
+pub struct DebugUtils {
+	pub extension: ext::DebugUtils,
+	pub messenger_handle: vk::DebugUtilsMessengerEXT
 }
 
-struct Surface {
-	extension: khr::Surface,
-	handle: vk::SurfaceKHR,
-	format: vk::SurfaceFormatKHR
+pub struct Surface {
+	pub extension: khr::Surface,
+	pub handle: vk::SurfaceKHR,
+	pub format: vk::SurfaceFormatKHR
 }
 
-struct PhysicalDevice {
-	handle: vk::PhysicalDevice,
-	graphics_queue_family: QueueFamily,
-	present_quue_family: QueueFamily,
-	min_uniform_buffer_offset_alignment: u64
+pub struct PhysicalDevice {
+	pub handle: vk::PhysicalDevice,
+	pub graphics_queue_family: QueueFamily,
+	pub present_quue_family: QueueFamily,
+	pub min_uniform_buffer_offset_alignment: u64
 }
 
-struct QueueFamily {
-	index: u32,
-	queue: vk::Queue
+pub struct QueueFamily {
+	pub index: u32,
+	pub queue: vk::Queue
 }
 
 impl Context {
@@ -87,7 +87,7 @@ impl Context {
 			.pfn_user_callback(Some(Self::debug_message_callback))
 			.build();
 		
-		let mut debug_messenger_create_info_mut = debug_messenger_create_info.clone();
+		let mut debug_messenger_create_info_mut = debug_messenger_create_info;
 	
 		let instance_create_info = vk::InstanceCreateInfo::builder()
 			.application_info(&app_info)
@@ -193,7 +193,7 @@ impl Context {
 		// Create surface format
 		let surface_formats = unsafe { surface_extension.get_physical_device_surface_formats(physical_device_intermediary.handle, surface_handle).unwrap() };
 		let surface_format_option = surface_formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
-		let surface_format = if surface_format_option.is_some() { surface_format_option.unwrap().clone() } else { surface_formats[0] };
+		let surface_format = if surface_format_option.is_some() { *surface_format_option.unwrap() } else { surface_formats[0] };
 
 		// Create logical device and queues
 		let graphics_queue_family_index = physical_device_intermediary.graphics_queue_family_index;

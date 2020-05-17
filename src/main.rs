@@ -18,10 +18,8 @@ fn main() {
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
 
-	let context = vulkan::Context::new(&glfw, &window);
-
 	let mut renderer = Renderer::new(&glfw, &window);
-	
+
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
 	static_triangle.model_matrix.set([
 		[1.0, 0.0, 0.0, -0.5],
