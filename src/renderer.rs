@@ -1,19 +1,19 @@
-use ash::{vk, version::InstanceV1_0, version::DeviceV1_0, extensions::khr};
-use crate::{vulkan::Context, math::Matrix4, Mesh};
+use ash::{vk, version::DeviceV1_0, extensions::khr};
+use crate::{vulkan::Context, vulkan::Buffer, math::Matrix4, Mesh};
 use std::{mem, mem::size_of};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 
-pub struct Renderer {
-	context: Context,
+pub struct Renderer<'a> {
+	context: &'a Context,
 	render_pass: vk::RenderPass,
 	command_pool: vk::CommandPool,
 	swapchain: Swapchain,
 	pipeline: Pipeline,
 	descriptor_pool: vk::DescriptorPool,
-	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
+	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	static_mesh_content: StaticMeshContent
+	static_mesh_content: StaticMeshContent<'a>
 }
 
 struct Swapchain {
@@ -37,34 +37,26 @@ struct Pipeline {
 	dynamic_descriptor_set_layout: vk::DescriptorSetLayout
 }
 
-struct InFlightFrame {
+struct InFlightFrame<'a> {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
 	fence: vk::Fence,
-	dynamic_mesh_buffer: Buffer,
-	dynamic_mesh_buffer_capacity: usize,
+	buffer: Buffer<'a>,
 	projection_view_matrix_descriptor_set: vk::DescriptorSet,
 	model_matrix_descriptor_set: vk::DescriptorSet
 }
 
-struct StaticMeshContent {
-	buffer: Buffer,
+struct StaticMeshContent<'a> {
+	buffer: Buffer<'a>,
 	model_matrix_descriptor_set: vk::DescriptorSet,
 	chunk_sizes: Vec<[usize; 5]>
 }
 
-struct Buffer {
-	handle: vk::Buffer,
-	memory: vk::DeviceMemory
-}
-
-impl Renderer {
-	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
-		let context = Context::new(glfw, window);
+impl<'a> Renderer<'a> {
+	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
 		let render_pass = Self::render_pass(&context);
 		let command_pool = Self::create_command_pool(&context);
-		let (width, height) = window.get_framebuffer_size();
-		let swapchain = Self::create_swapchain(&context, width as u32, height as u32, &command_pool, &render_pass);
+		let swapchain = Self::create_swapchain(&context, width, height, &command_pool, &render_pass);
 		let pipeline = Self::create_pipeline(&context, &swapchain, &render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(&context);
 		let in_flight_frames = Self::create_in_flight_frames(&context, &descriptor_pool, &pipeline.static_descriptor_set_layout, &pipeline.dynamic_descriptor_set_layout);
@@ -425,7 +417,7 @@ impl Renderer {
 		context: &Context,
 		descriptor_pool: &vk::DescriptorPool,
 		static_descriptor_set_layout: &vk::DescriptorSetLayout,
-		dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]
+		dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT]
 	{
 		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
 		let fence_create_info = vk::FenceCreateInfo::builder()
@@ -436,17 +428,14 @@ impl Renderer {
 			.descriptor_pool(*descriptor_pool)
 			.set_layouts(&dynamic_descriptor_set_layouts);
 
-		// let mut frames: Vec<InFlightFrame> = Vec::with_capacity(count);
 		let mut frames: [mem::MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { mem::MaybeUninit::uninit().assume_init() };
 		for frame in &mut frames {
 			let image_available = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None).unwrap() };
 			
-			let dynamic_mesh_buffer = Self::create_buffer(
-				&context.instance,
-				&context.physical_device.handle,
-				&context.logical_device,
+			let buffer = Buffer::new(
+				context,
 				128,
 				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 				vk::MemoryPropertyFlags::HOST_VISIBLE);
@@ -457,7 +446,7 @@ impl Renderer {
 			
 			// Projection & view
 			let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(dynamic_mesh_buffer.handle)
+				.buffer(buffer.handle)
 				.offset(0)
 				.range(32 * std::mem::size_of::<f32>() as u64);
 			let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
@@ -471,7 +460,7 @@ impl Renderer {
 
 			// Model
 			let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(dynamic_mesh_buffer.handle)
+				.buffer(buffer.handle)
 				.offset(0)
 				.range(16 * std::mem::size_of::<f32>() as u64);
 			let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
@@ -495,8 +484,7 @@ impl Renderer {
 				image_available,
 				render_finished,
 				fence,
-				dynamic_mesh_buffer,
-				dynamic_mesh_buffer_capacity: 128,
+				buffer,
 				projection_view_matrix_descriptor_set,
 				model_matrix_descriptor_set
 			});
@@ -505,7 +493,12 @@ impl Renderer {
 		unsafe { mem::transmute::<_, [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]>(frames) }
 	}
 
-	fn create_static_mesh_content(context: &Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshContent {
+	fn create_static_mesh_content(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshContent<'a> {
+		let buffer = Buffer::null(
+			context,
+			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
+			vk::MemoryPropertyFlags::DEVICE_LOCAL);
+		
 		let descriptor_set_layout = [*dynamic_descriptor_set_layout];
 		let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 			.descriptor_pool(*descriptor_pool)
@@ -514,47 +507,9 @@ impl Renderer {
 		let model_matrix_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
 	
 		StaticMeshContent {
-			buffer: Buffer {
-				handle: vk::Buffer::null(),
-				memory: vk::DeviceMemory::null()
-			},
+			buffer,
 			model_matrix_descriptor_set,
 			chunk_sizes: vec![]
-		}
-	}
-
-	fn create_buffer(
-		instance: &ash::Instance,
-		physical_device: &vk::PhysicalDevice,
-		logical_device: &ash::Device,
-		size: vk::DeviceSize,
-		usage: vk::BufferUsageFlags,
-		properties: vk::MemoryPropertyFlags) -> Buffer
-	{
-		let create_info = vk::BufferCreateInfo::builder()
-			.size(size)
-			.usage(usage)
-			.sharing_mode(vk::SharingMode::EXCLUSIVE);
-		
-		let handle = unsafe { logical_device.create_buffer(&create_info, None).unwrap() };
-		let memory_requirements = unsafe { logical_device.get_buffer_memory_requirements(handle) };
-		let memory_properties = unsafe { instance.get_physical_device_memory_properties(*physical_device) };
-		
-		let memory_type_index = (0..memory_properties.memory_types.len())
-			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 &&
-				memory_properties.memory_types[i].property_flags.contains(properties))
-			.expect("Could not find suitable memory type");
-		
-		let allocate_info = vk::MemoryAllocateInfo::builder()
-			.allocation_size(memory_requirements.size)
-			.memory_type_index(memory_type_index as u32);
-	
-		let memory = unsafe { logical_device.allocate_memory(&allocate_info, None).unwrap() };
-		unsafe { logical_device.bind_buffer_memory(handle, memory, 0).unwrap() };
-	
-		Buffer {
-			handle,
-			memory
 		}
 	}
 
@@ -584,11 +539,7 @@ impl Renderer {
 		let logical_device = &self.context.logical_device;
 
 		// Wait for rendering operations to finish
-		unsafe {
-			logical_device.queue_wait_idle(self.context.physical_device.graphics_queue_family.queue).unwrap();
-			logical_device.destroy_buffer(self.static_mesh_content.buffer.handle, None);
-			logical_device.free_memory(self.static_mesh_content.buffer.memory, None);
-		}
+		unsafe { logical_device.queue_wait_idle(self.context.physical_device.graphics_queue_family.queue).unwrap() };
 
 		// Calculate total memory size and chunk sizes
 		let mut total_size = 0;
@@ -609,10 +560,8 @@ impl Renderer {
 		let total_size = total_size as u64;
 
 		// Create a host visible staging buffer
-		let staging_buffer = Self::create_buffer(
-			&self.context.instance,
-			&self.context.physical_device.handle,
-			logical_device,
+		let staging_buffer = Buffer::new(
+			self.context,
 			total_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
@@ -651,14 +600,10 @@ impl Renderer {
 
 		unsafe { logical_device.unmap_memory(staging_buffer.memory) };
 		
-		// Create a device local memory buffer
-		self.static_mesh_content.buffer = Self::create_buffer(
-			&self.context.instance,
-			&self.context.physical_device.handle,
-			logical_device,
-			total_size,
-			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
-			vk::MemoryPropertyFlags::DEVICE_LOCAL);
+		// Resize device local memory buffer if necessary
+		if total_size > self.static_mesh_content.buffer.capacity {
+			self.static_mesh_content.buffer.resize(total_size);
+		}
 		
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
@@ -690,8 +635,6 @@ impl Renderer {
 			logical_device.queue_submit(self.context.physical_device.graphics_queue_family.queue, &submit_infos, vk::Fence::null()).unwrap();
 			logical_device.queue_wait_idle(self.context.physical_device.graphics_queue_family.queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
-			logical_device.destroy_buffer(staging_buffer.handle, None);
-			logical_device.free_memory(staging_buffer.memory, None);
 		}
 		
 		// Update the descriptor set to reference the device local buffer
@@ -772,26 +715,15 @@ impl Renderer {
 			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 
-		// Allocate more memory in buffer for dynamic meshes if necessary
-		if dynamic_mesh_total_size > in_flight_frame.dynamic_mesh_buffer_capacity {
-			// Destroy current memory buffer
-			unsafe {
-				logical_device.destroy_buffer(in_flight_frame.dynamic_mesh_buffer.handle, None);
-				logical_device.free_memory(in_flight_frame.dynamic_mesh_buffer.memory, None);
-			}
+		let dynamic_mesh_total_size = dynamic_mesh_total_size as vk::DeviceSize;
 
-			// Create memory buffer with new size
-			in_flight_frame.dynamic_mesh_buffer = Self::create_buffer(
-				&self.context.instance,
-				&self.context.physical_device.handle,
-				logical_device,
-				dynamic_mesh_total_size as u64,
-				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
-				vk::MemoryPropertyFlags::HOST_VISIBLE);
+		// Allocate more memory in buffer for dynamic meshes if necessary
+		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
+			in_flight_frame.buffer.resize(dynamic_mesh_total_size);
 
 			// Update descriptor sets to refer to new memory buffer
 			let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(in_flight_frame.dynamic_mesh_buffer.handle)
+				.buffer(in_flight_frame.buffer.handle)
 				.offset(0)
 				.range(32 * std::mem::size_of::<f32>() as u64);
 			let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
@@ -804,7 +736,7 @@ impl Renderer {
 				.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
 
 			let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(in_flight_frame.dynamic_mesh_buffer.handle)
+				.buffer(in_flight_frame.buffer.handle)
 				.offset(0)
 				.range(16 * std::mem::size_of::<f32>() as u64);
 			let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
@@ -823,9 +755,6 @@ impl Renderer {
 			let copy_descriptor_sets = [];
 			
 			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
-
-			// Set new buffer capacity
-			in_flight_frame.dynamic_mesh_buffer_capacity = dynamic_mesh_total_size;
 		}
 
 		// Record the command buffers
@@ -863,7 +792,7 @@ impl Renderer {
 				&dynamic_offsets);
 		}
 		
-		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.dynamic_mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
+		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 		
 		// Copy projection and view matrix into dynamic memory buffer
 		unsafe {
@@ -945,11 +874,11 @@ impl Renderer {
 				// Record draw commands
 				logical_device.cmd_bind_index_buffer(
 					swapchain_frame.command_buffer,
-					in_flight_frame.dynamic_mesh_buffer.handle,
+					in_flight_frame.buffer.handle,
 					dynamic_mesh_offset as u64,
 					vk::IndexType::UINT16);
 				
-				let vertex_buffers = [in_flight_frame.dynamic_mesh_buffer.handle];
+				let vertex_buffers = [in_flight_frame.buffer.handle];
 				let vertex_offsets = [(dynamic_mesh_offset + index_size + index_padding_size) as u64];
 				logical_device.cmd_bind_vertex_buffers(swapchain_frame.command_buffer, 0, &vertex_buffers, &vertex_offsets);
 				
@@ -972,7 +901,7 @@ impl Renderer {
 		unsafe {
 			logical_device.cmd_end_render_pass(swapchain_frame.command_buffer);
 			logical_device.end_command_buffer(swapchain_frame.command_buffer).unwrap();
-			logical_device.unmap_memory(in_flight_frame.dynamic_mesh_buffer.memory);
+			logical_device.unmap_memory(in_flight_frame.buffer.memory);
 		}
 
 		// Wait for image to be available then submit command buffer
@@ -1020,19 +949,14 @@ impl Renderer {
 	}
 }
 
-impl Drop for Renderer {
+impl<'a> Drop for Renderer<'a> {
 	fn drop(&mut self) {
 		let logical_device = &self.context.logical_device;
 
 		unsafe {
 			logical_device.device_wait_idle().unwrap();
 
-			logical_device.free_memory(self.static_mesh_content.buffer.memory, None);
-			logical_device.destroy_buffer(self.static_mesh_content.buffer.handle, None);
-
 			for frame in &self.in_flight_frames {
-				logical_device.free_memory(frame.dynamic_mesh_buffer.memory, None);
-				logical_device.destroy_buffer(frame.dynamic_mesh_buffer.handle, None);
 				logical_device.destroy_fence(frame.fence, None);
 				logical_device.destroy_semaphore(frame.render_finished, None);
 				logical_device.destroy_semaphore(frame.image_available, None);

@@ -1,4 +1,5 @@
 mod vulkan;
+use vulkan::Context;
 
 mod renderer;
 use renderer::Renderer;
@@ -18,7 +19,9 @@ fn main() {
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
 
-	let mut renderer = Renderer::new(&glfw, &window);
+	let context = Context::new(&glfw, &window);
+	let (width, height) = window.get_framebuffer_size();
+	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
 	static_triangle.model_matrix.set([
