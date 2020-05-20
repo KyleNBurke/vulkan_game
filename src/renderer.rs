@@ -443,42 +443,12 @@ impl<'a> Renderer<'a> {
 			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&dynamic_descriptor_set_allocate_info).unwrap() };
 			let projection_view_matrix_descriptor_set = descriptor_sets[0];
 			let model_matrix_descriptor_set = descriptor_sets[1];
-			
-			// Projection & view
-			let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(buffer.handle)
-				.offset(0)
-				.range(32 * std::mem::size_of::<f32>() as u64);
-			let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
 
-			let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(projection_view_matrix_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-				.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
-
-			// Model
-			let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(buffer.handle)
-				.offset(0)
-				.range(16 * std::mem::size_of::<f32>() as u64);
-			let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
-
-			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(model_matrix_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-				.buffer_info(&model_matrix_descriptor_buffer_infos);
-			
-			let write_descriptor_sets = [
-				projection_view_matrix_write_descriptor_set.build(),
-				model_matrix_write_descriptor_set.build()
-			];
-			let copy_descriptor_sets = [];
-			
-			unsafe { context.logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+			Self::update_in_flight_frame_descriptor_sets(
+				&context.logical_device,
+				&projection_view_matrix_descriptor_set,
+				&model_matrix_descriptor_set,
+				&buffer.handle);
 
 			*frame = mem::MaybeUninit::new(InFlightFrame {
 				image_available,
@@ -491,6 +461,49 @@ impl<'a> Renderer<'a> {
 		}
 
 		unsafe { mem::transmute::<_, [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]>(frames) }
+	}
+
+	fn update_in_flight_frame_descriptor_sets(
+		logical_device: &ash::Device,
+		projection_view_matrix_descriptor_set: &vk::DescriptorSet,
+		model_matrix_descriptor_set: &vk::DescriptorSet,
+		buffer: &vk::Buffer)
+	{
+		// Projection & view
+		let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(*buffer)
+			.offset(0)
+			.range(32 * std::mem::size_of::<f32>() as u64);
+		let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
+
+		let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(*projection_view_matrix_descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+			.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
+
+		// Model
+		let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(*buffer)
+			.offset(0)
+			.range(16 * std::mem::size_of::<f32>() as u64);
+		let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
+
+		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(*model_matrix_descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+			.buffer_info(&model_matrix_descriptor_buffer_infos);
+
+		let write_descriptor_sets = [
+			projection_view_matrix_write_descriptor_set.build(),
+			model_matrix_write_descriptor_set.build()
+		];
+		let copy_descriptor_sets = [];
+
+		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
 	fn create_static_mesh_content(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshContent<'a> {
@@ -602,7 +615,7 @@ impl<'a> Renderer<'a> {
 		
 		// Resize device local memory buffer if necessary
 		if total_size > self.static_mesh_content.buffer.capacity {
-			self.static_mesh_content.buffer.resize(total_size);
+			self.static_mesh_content.buffer.reallocate(total_size);
 		}
 		
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
@@ -719,42 +732,14 @@ impl<'a> Renderer<'a> {
 
 		// Allocate more memory in buffer for dynamic meshes if necessary
 		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
-			in_flight_frame.buffer.resize(dynamic_mesh_total_size);
+			in_flight_frame.buffer.reallocate(dynamic_mesh_total_size);
 
 			// Update descriptor sets to refer to new memory buffer
-			let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(in_flight_frame.buffer.handle)
-				.offset(0)
-				.range(32 * std::mem::size_of::<f32>() as u64);
-			let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
-
-			let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(in_flight_frame.projection_view_matrix_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-				.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
-
-			let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(in_flight_frame.buffer.handle)
-				.offset(0)
-				.range(16 * std::mem::size_of::<f32>() as u64);
-			let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
-
-			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(in_flight_frame.model_matrix_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-				.buffer_info(&model_matrix_descriptor_buffer_infos);
-			
-			let write_descriptor_sets = [
-				projection_view_matrix_write_descriptor_set.build(),
-				model_matrix_write_descriptor_set.build()
-			];
-			let copy_descriptor_sets = [];
-			
-			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+			Self::update_in_flight_frame_descriptor_sets(
+				&self.context.logical_device,
+				&in_flight_frame.projection_view_matrix_descriptor_set,
+				&in_flight_frame.model_matrix_descriptor_set,
+				&in_flight_frame.buffer.handle);
 		}
 
 		// Record the command buffers
