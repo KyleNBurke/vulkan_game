@@ -577,7 +577,7 @@ impl<'a> Renderer<'a> {
 			self.context,
 			total_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
-			vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT);
+			vk::MemoryPropertyFlags::HOST_VISIBLE);
 		
 		// Copy mesh data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
@@ -611,7 +611,15 @@ impl<'a> Renderer<'a> {
 			mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
 
-		unsafe { logical_device.unmap_memory(staging_buffer.memory) };
+		unsafe {
+			let ranges = [vk::MappedMemoryRange::builder()
+				.memory(staging_buffer.memory)
+				.offset(0)
+				.size(vk::WHOLE_SIZE)
+				.build()];
+			logical_device.flush_mapped_memory_ranges(&ranges).unwrap();
+			logical_device.unmap_memory(staging_buffer.memory);
+		}
 		
 		// Resize device local memory buffer if necessary
 		if total_size > self.static_mesh_content.buffer.capacity {
@@ -886,6 +894,14 @@ impl<'a> Renderer<'a> {
 		unsafe {
 			logical_device.cmd_end_render_pass(swapchain_frame.command_buffer);
 			logical_device.end_command_buffer(swapchain_frame.command_buffer).unwrap();
+
+			let ranges = [vk::MappedMemoryRange::builder()
+				.memory(in_flight_frame.buffer.memory)
+				.offset(0)
+				.size(vk::WHOLE_SIZE)
+				.build()];
+			logical_device.flush_mapped_memory_ranges(&ranges).unwrap();
+
 			logical_device.unmap_memory(in_flight_frame.buffer.memory);
 		}
 
