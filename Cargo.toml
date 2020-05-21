@@ -5,7 +5,7 @@ authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = "2018"
 
 [dependencies]
-ash = "0.30.0"
+ash = "0.31.0"
 
 [dependencies.glfw]
 version = "0.34.0"
