@@ -34,6 +34,18 @@ impl Matrix4 {
 
 		temp = e[3][2]; e[3][2] = e[2][3]; e[2][3] = temp;
 	}
+
+	pub fn make_perspective(&mut self, aspect: f32, fov: f32, near: f32, far: f32) {
+		let s = (fov / 2.0 * std::f32::consts::PI / 180.0).tan();
+		let d = far - near;
+
+		self.set([
+			[1.0 / (s * aspect), 0.0, 0.0, 0.0],
+			[0.0, 1.0 / s, 0.0, 0.0],
+			[0.0, 0.0, far / d, -(far * near) / d],
+			[0.0, 0.0, 1.0, 0.0]
+		]);
+	}
 }
 
 impl From<[[f32; 4]; 4]> for Matrix4 {
@@ -69,18 +81,6 @@ mod tests {
 	}
 
 	#[test]
-	fn from() {
-		let elements = [
-			[0.0, 0.1, 0.2, 0.3],
-			[1.0, 1.1, 1.2, 1.3],
-			[2.0, 2.1, 2.2, 2.3],
-			[3.0, 3.1, 3.2, 3.3]
-		];
-		
-		assert_eq!(Matrix4::from(elements).elements, elements);
-	}
-
-	#[test]
 	fn transpose() {
 		let mut m = Matrix4::from([
 			[0.0, 0.1, 0.2, 0.3],
@@ -98,5 +98,17 @@ mod tests {
 		];
 
 		assert_eq!(m.elements, expected);
+	}
+
+	#[test]
+	fn from() {
+		let elements = [
+			[0.0, 0.1, 0.2, 0.3],
+			[1.0, 1.1, 1.2, 1.3],
+			[2.0, 2.1, 2.2, 2.3],
+			[3.0, 3.1, 3.2, 3.3]
+		];
+		
+		assert_eq!(Matrix4::from(elements).elements, elements);
 	}
 }
