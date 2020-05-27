@@ -8,7 +8,15 @@ mod mesh;
 use mesh::Mesh;
 
 mod geometry;
+
+#[allow(dead_code)]
 mod math;
+
+mod object3d;
+use object3d::Object3D;
+
+mod camera;
+use camera::Camera;
 
 use std::time;
 
@@ -27,7 +35,7 @@ fn main() {
 	static_triangle.model_matrix.set([
 		[1.0, 0.0, 0.0, -0.5],
 		[0.0, 1.0, 0.0, 0.6],
-		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 1.0, 2.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
@@ -35,7 +43,7 @@ fn main() {
 	static_plane.model_matrix.set([
 		[1.0, 0.0, 0.0, 0.5],
 		[0.0, 1.0, 0.0, 0.6],
-		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 1.0, 2.0],
 		[0.0, 0.0, 0.0, 1.0]
 	]);
 
@@ -46,16 +54,8 @@ fn main() {
 	let dynamic_plane = Mesh::new(Box::new(geometry::Plane {}));
 	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane];
 
-	let mut projection_matrix = math::Matrix4::new();
-	projection_matrix.make_perspective(1.0, 75.0, 0.1, 10.0);
-
-	let view_matrix = math::Matrix4::from([
-		[1.0, 0.0, 0.0, 0.0],
-		[0.0, 1.0, 0.0, 0.0],
-		[0.0, 0.0, 1.0, 2.0],
-		[0.0, 0.0, 0.0, 1.0]
-	]);
-
+	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
+	let mut camera = Camera::new(1.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
 	let timer = time::Instant::now();
 
 	while !window.should_close() {
@@ -85,7 +85,7 @@ fn main() {
 
 		if framebuffer_resized {
 			renderer.recreate_swapchain(width as u32, height as u32);
-			projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
 		let elapsed = timer.elapsed().as_secs_f32();
@@ -93,17 +93,19 @@ fn main() {
 		dynamic_meshes[0].model_matrix.set([
 			[elapsed.cos(), 0.0, elapsed.sin(), -0.5],
 			[0.0, 1.0, 0.0, -0.6],
-			[-elapsed.sin(), 0.0, elapsed.cos(), 0.0],
+			[-elapsed.sin(), 0.0, elapsed.cos(), 2.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
 
 		dynamic_meshes[1].model_matrix.set([
 			[-elapsed.cos(), 0.0, -elapsed.sin(), 0.5],
 			[0.0, 1.0, 0.0, -0.6],
-			[elapsed.sin(), 0.0, -elapsed.cos(), 0.0],
+			[elapsed.sin(), 0.0, -elapsed.cos(), 2.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
 
-		renderer.render(&window, &projection_matrix, &view_matrix, &dynamic_meshes);
+		camera.update(&window);
+
+		renderer.render(&window, &mut camera, &dynamic_meshes);
 	}
 }

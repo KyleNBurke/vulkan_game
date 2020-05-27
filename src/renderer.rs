@@ -1,5 +1,5 @@
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{vulkan::Context, vulkan::Buffer, math::Matrix4, Mesh};
+use crate::{vulkan::Context, vulkan::Buffer, Mesh, Camera, Object3D};
 use std::{mem, mem::size_of};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -681,7 +681,7 @@ impl<'a> Renderer<'a> {
 		self.static_mesh_content.chunk_sizes = chunk_sizes;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, projection_matrix: &Matrix4, view_matrix: &Matrix4, dynamic_meshes: &Vec<Mesh>) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &Vec<Mesh>) {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
@@ -790,12 +790,14 @@ impl<'a> Renderer<'a> {
 		// Copy projection and view matrix into dynamic memory buffer
 		unsafe {
 			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-			let mut projection_matrix = *projection_matrix;
+			let mut projection_matrix = camera.projection_matrix;
 			projection_matrix.transpose();
 			std::ptr::copy_nonoverlapping(projection_matrix.elements.as_ptr(), projection_matrix_dst_ptr, projection_matrix.elements.len());
 
 			let view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
-			let mut view_matrix = *view_matrix;
+			camera.update_matrix();
+			let mut view_matrix = camera.view_matrix;
+			view_matrix.invert();
 			view_matrix.transpose();
 			std::ptr::copy_nonoverlapping(view_matrix.elements.as_ptr(), view_matrix_dst_ptr, view_matrix.elements.len());
 		}
