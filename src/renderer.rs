@@ -603,9 +603,8 @@ impl<'a> Renderer<'a> {
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
 				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
-				let mut model_matrix = mesh.model_matrix;
-				model_matrix.transpose();
-				std::ptr::copy_nonoverlapping(model_matrix.elements.as_ptr(), model_matrix_dst_ptr, model_matrix.elements.len());
+				let model_matrix = &mesh.model_matrix.elements;
+				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 			}
 
 			mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
@@ -790,15 +789,13 @@ impl<'a> Renderer<'a> {
 		// Copy projection and view matrix into dynamic memory buffer
 		unsafe {
 			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-			let mut projection_matrix = camera.projection_matrix;
-			projection_matrix.transpose();
-			std::ptr::copy_nonoverlapping(projection_matrix.elements.as_ptr(), projection_matrix_dst_ptr, projection_matrix.elements.len());
+			let projection_matrix = &camera.projection_matrix.elements;
+			std::ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
 
 			let view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
 			camera.update_matrix();
 			let mut view_matrix = camera.view_matrix;
 			view_matrix.invert();
-			view_matrix.transpose();
 			std::ptr::copy_nonoverlapping(view_matrix.elements.as_ptr(), view_matrix_dst_ptr, view_matrix.elements.len());
 		}
 
@@ -862,9 +859,8 @@ impl<'a> Renderer<'a> {
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
 				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
-				let mut model_matrix = mesh.model_matrix;
-				model_matrix.transpose();
-				std::ptr::copy_nonoverlapping(model_matrix.elements.as_ptr(), model_matrix_dst_ptr, model_matrix.elements.len());
+				let model_matrix = &mesh.model_matrix.elements;
+				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 
 				// Record draw commands
 				logical_device.cmd_bind_index_buffer(
