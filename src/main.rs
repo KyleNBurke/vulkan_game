@@ -1,6 +1,9 @@
 mod vulkan;
 use vulkan::Context;
 
+#[allow(unused_macros)]
+mod util;
+
 mod renderer;
 use renderer::Renderer;
 
