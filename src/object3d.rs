@@ -1,4 +1,4 @@
-use crate::math::{Vector3, Quaternion, Matrix4};
+use crate::math::{vector3, Vector3, Quaternion, Matrix4};
 
 pub trait Object3D {
 	fn position(&self) -> &Vector3;
@@ -28,15 +28,15 @@ pub trait Object3D {
 	}
 
 	fn translate_x(&mut self, distance: f32) {
-		self.translate_on_axis(&Vector3::from(1.0, 0.0, 0.0), distance);
+		self.translate_on_axis(&vector3::UNIT_X, distance);
 	}
 
 	fn translate_y(&mut self, distance: f32) {
-		self.translate_on_axis(&Vector3::from(0.0, 1.0, 0.0), distance);
+		self.translate_on_axis(&vector3::UNIT_Y, distance);
 	}
 
 	fn translate_z(&mut self, distance: f32) {
-		self.translate_on_axis(&Vector3::from(0.0, 0.0, 1.0), distance);
+		self.translate_on_axis(&vector3::UNIT_Z, distance);
 	}
 
 	fn rotate_on_axis(&mut self, axis: &Vector3, angle: f32) {
@@ -47,14 +47,14 @@ pub trait Object3D {
 	}
 
 	fn rotate_x(&mut self, angle: f32) {
-		self.rotate_on_axis(&Vector3::from(1.0, 0.0, 0.0), angle);
+		self.rotate_on_axis(&vector3::UNIT_X, angle);
 	}
 
 	fn rotate_y(&mut self, angle: f32) {
-		self.rotate_on_axis(&Vector3::from(0.0, 1.0, 0.0), angle);
+		self.rotate_on_axis(&vector3::UNIT_Y, angle);
 	}
 
 	fn rotate_z(&mut self, angle: f32) {
-		self.rotate_on_axis(&Vector3::from(0.0, 0.0, 1.0), angle);
+		self.rotate_on_axis(&vector3::UNIT_Z, angle);
 	}
 }

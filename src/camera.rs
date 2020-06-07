@@ -22,7 +22,7 @@ impl Camera {
 		Self {
 			position: Vector3::new(),
 			rotation: Quaternion::new(),
-			scale: Vector3::from(1.0, 1.0, 1.0),
+			scale: Vector3::from_scalar(1.0),
 			view_matrix: Matrix4::new(),
 			projection_matrix,
 			prev_mouse_pos_x: mouse_pos_x,

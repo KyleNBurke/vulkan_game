@@ -1,3 +1,4 @@
+#[macro_export]
 macro_rules! assert_approx_eq {
 	($left: expr, $right: expr, $tol: expr) => {
 		let left_minus_right = $left - $right;
@@ -11,6 +12,7 @@ macro_rules! assert_approx_eq {
 	($left: expr, $right: expr) => (assert_approx_eq!(($left), ($right), 1e-8))
 }
 
+#[macro_export]
 macro_rules! assert_approx_neq {
 	($left: expr, $right: expr, $tol: expr) => {
 		let left_minus_right = $left - $right;
