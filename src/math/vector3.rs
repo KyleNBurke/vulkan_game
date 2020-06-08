@@ -94,7 +94,7 @@ impl Vector3 {
 		self.z = iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x;
 	}
 
-	pub fn approx_eq(&self, other: &Vector3, tol: f32) -> bool {
+	pub fn approx_eq(&self, other: &Self, tol: f32) -> bool {
 		let x_diff = (self.x - other.x).abs();
 		let y_diff = (self.y - other.y).abs();
 		let z_diff = (self.z - other.z).abs();
@@ -530,9 +530,16 @@ mod tests {
 	}
 
 	#[test]
-	fn partial_eq() {
+	fn eq() {
 		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
 		let b = Vector3::from_xyz(1.0, 2.0, 3.0);
 		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn ne() {
+		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
+		let b = Vector3::from_xyz(1.0, -2.0, 3.0);
+		assert_ne!(a, b);
 	}
 }

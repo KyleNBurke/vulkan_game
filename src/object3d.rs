@@ -42,8 +42,7 @@ pub trait Object3D {
 	fn rotate_on_axis(&mut self, axis: &Vector3, angle: f32) {
 		let mut q = Quaternion::new();
 		q.set_from_axis_angle(axis, angle);
-		let rotation = self.rotation_mut();
-		*rotation = *rotation * q;
+		*self.rotation_mut() *= q;
 	}
 
 	fn rotate_x(&mut self, angle: f32) {
