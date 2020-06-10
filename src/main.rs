@@ -35,7 +35,7 @@ fn main() {
 	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	static_triangle.model_matrix.set([
+	static_triangle.model_matrix.set_from_elements([
 		[1.0, 0.0, 0.0, -0.5],
 		[0.0, 1.0, 0.0, 0.6],
 		[0.0, 0.0, 1.0, 2.0],
@@ -43,7 +43,7 @@ fn main() {
 	]);
 
 	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}));
-	static_plane.model_matrix.set([
+	static_plane.model_matrix.set_from_elements([
 		[1.0, 0.0, 0.0, 0.5],
 		[0.0, 1.0, 0.0, 0.6],
 		[0.0, 0.0, 1.0, 2.0],
@@ -93,14 +93,14 @@ fn main() {
 
 		let elapsed = timer.elapsed().as_secs_f32();
 		
-		dynamic_meshes[0].model_matrix.set([
+		dynamic_meshes[0].model_matrix.set_from_elements([
 			[elapsed.cos(), 0.0, elapsed.sin(), -0.5],
 			[0.0, 1.0, 0.0, -0.6],
 			[-elapsed.sin(), 0.0, elapsed.cos(), 2.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
 
-		dynamic_meshes[1].model_matrix.set([
+		dynamic_meshes[1].model_matrix.set_from_elements([
 			[-elapsed.cos(), 0.0, -elapsed.sin(), 0.5],
 			[0.0, 1.0, 0.0, -0.6],
 			[elapsed.sin(), 0.0, -elapsed.cos(), 2.0],

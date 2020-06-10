@@ -19,18 +19,6 @@ impl Quaternion {
 		Self { x, y, z, w }
 	}
 
-	pub fn from_axis_angle(axis: &Vector3, angle: f32) -> Self {
-		let half_angle = angle / 2.0;
-		let s = half_angle.sin();
-
-		Self {
-			x: axis.x * s,
-			y: axis.y * s,
-			z: axis.z * s,
-			w: half_angle.cos()
-		}
-	}
-
 	pub fn set_from_xyzw(&mut self, x: f32, y: f32, z: f32, w: f32) {
 		self.x = x;
 		self.y = y;
@@ -145,12 +133,6 @@ mod tests {
 	}
 
 	#[test]
-	fn from_axis_angle() {
-		let q = Quaternion::from_axis_angle(&Vector3::from_xyz(1.0, 2.0, 3.0), std::f32::consts::PI);
-		assert!(q.approx_eq(&Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 0.0 }, 0.001));
-	}
-
-	#[test]
 	fn set_from_xyzw() {
 		let mut q = Quaternion::new();
 		q.set_from_xyzw(1.0, 2.0, 3.0, 4.0);
@@ -241,12 +223,5 @@ mod tests {
 		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
 		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
 		assert_eq!(a, b);
-	}
-
-	#[test]
-	fn ne() {
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(4.0, 3.0, 2.0, 1.0);
-		assert_ne!(a, b);
 	}
 }

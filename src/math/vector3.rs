@@ -535,11 +535,4 @@ mod tests {
 		let b = Vector3::from_xyz(1.0, 2.0, 3.0);
 		assert_eq!(a, b);
 	}
-
-	#[test]
-	fn ne() {
-		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
-		let b = Vector3::from_xyz(1.0, -2.0, 3.0);
-		assert_ne!(a, b);
-	}
 }
