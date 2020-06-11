@@ -1,5 +1,5 @@
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{vulkan::Context, vulkan::Buffer, Mesh, Camera, Object3D};
+use crate::{vulkan::Context, vulkan::Buffer, Mesh, Camera};
 use std::{mem, mem::size_of};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -680,7 +680,7 @@ impl<'a> Renderer<'a> {
 		self.static_mesh_content.chunk_sizes = chunk_sizes;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &Vec<Mesh>) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &Vec<Mesh>) {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
@@ -792,11 +792,9 @@ impl<'a> Renderer<'a> {
 			let projection_matrix = &camera.projection_matrix.elements;
 			std::ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
 
-			let view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
-			camera.update_matrix();
-			let mut view_matrix = camera.view_matrix;
-			view_matrix.invert();
-			std::ptr::copy_nonoverlapping(view_matrix.elements.as_ptr(), view_matrix_dst_ptr, view_matrix.elements.len());
+			let inverse_view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
+			let inverse_view_matrix = &camera.inverse_view_matrix;
+			std::ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
 		}
 
 		// Record static mesh command buffers

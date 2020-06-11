@@ -9,6 +9,7 @@ pub struct Camera {
 	pub rotation: Quaternion,
 	pub scale: Vector3,
 	pub view_matrix: Matrix4,
+	pub inverse_view_matrix: Matrix4,
 	pub projection_matrix: Matrix4,
 	prev_mouse_pos_x: f32,
 	prev_mouse_pos_y: f32
@@ -24,6 +25,7 @@ impl Camera {
 			rotation: Quaternion::new(),
 			scale: Vector3::from_scalar(1.0),
 			view_matrix: Matrix4::new(),
+			inverse_view_matrix: Matrix4::new(),
 			projection_matrix,
 			prev_mouse_pos_x: mouse_pos_x,
 			prev_mouse_pos_y: mouse_pos_y
@@ -56,6 +58,10 @@ impl Camera {
 
 		self.prev_mouse_pos_x = mouse_pos_x;
 		self.prev_mouse_pos_y = mouse_pos_y;
+
+		self.update_matrix();
+		self.inverse_view_matrix = self.view_matrix.clone();
+		self.inverse_view_matrix.invert();
 	}
 }
 
