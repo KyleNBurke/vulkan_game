@@ -1,4 +1,4 @@
-use crate::math::Vector3;
+use crate::{math::Vector3, math::ApproxEq};
 use std::ops::{Mul, MulAssign};
 use std::fmt::Display;
 
@@ -67,15 +67,6 @@ impl Quaternion {
 			self.w /= l;
 		}
 	}
-
-	pub fn approx_eq(&self, other: &Self, tol: f32) -> bool {
-		let x_diff = (self.x - other.x).abs();
-		let y_diff = (self.y - other.y).abs();
-		let z_diff = (self.z - other.z).abs();
-		let w_diff = (self.w - other.w).abs();
-
-		x_diff <= tol && y_diff <= tol && z_diff <= tol && w_diff <= tol
-	}
 }
 
 impl Mul for Quaternion {
@@ -109,6 +100,17 @@ impl MulAssign for Quaternion {
 impl PartialEq for Quaternion {
 	fn eq(&self, other: &Self) -> bool {
 		self.x == other.x && self.y == other.y && self.z == other.z && self.w == other.w
+	}
+}
+
+impl ApproxEq for Quaternion {
+	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
+		let x_diff = (self.x - other.x).abs();
+		let y_diff = (self.y - other.y).abs();
+		let z_diff = (self.z - other.z).abs();
+		let w_diff = (self.w - other.w).abs();
+
+		x_diff <= tol && y_diff <= tol && z_diff <= tol && w_diff <= tol
 	}
 }
 
@@ -182,29 +184,6 @@ mod tests {
 	}
 
 	#[test]
-	fn approx_eq() {
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		assert!(a.approx_eq(&b, 0.0));
-
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(2.0, 3.0, 4.0, 5.0);
-		assert!(a.approx_eq(&b, 1.0));
-
-		let a = Quaternion::from_xyzw(0.003, -0.0051, 5.0008, 2.0);
-		let b = Quaternion::from_xyzw(0.002, -0.006, 5.00001, 2.0);
-		assert!(a.approx_eq(&b, 0.001));
-
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(1.0, -2.0, 3.0, 4.0);
-		assert!(!a.approx_eq(&b, 0.0));
-
-		let a = Quaternion::from_xyzw(0.003, -0.0051, 5.0008, 3.0);
-		let b = Quaternion::from_xyzw(0.002, -0.006, 5.01, 6.0);
-		assert!(!a.approx_eq(&b, 0.001));
-	}
-
-	#[test]
 	fn mul() {
 		let a = Quaternion::from_xyzw(3.0, 1.0, 2.0, 4.0);
 		let b = Quaternion::from_xyzw(2.0, 5.0, 3.0, 1.0);
@@ -223,5 +202,12 @@ mod tests {
 		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
 		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
 		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn approx_eq() {
+		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
+		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
+		crate::math::assert_approx_eq(&a, &b, 0.0);
 	}
 }

@@ -1,4 +1,4 @@
-use crate::math::Quaternion;
+use crate::{math::Quaternion, math::ApproxEq};
 use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Neg};
 use std::fmt::Display;
 
@@ -92,14 +92,6 @@ impl Vector3 {
 		self.x = ix * q.w + iw * -q.x + iy * -q.z - iz * -q.y;
 		self.y = iy * q.w + iw * -q.y + iz * -q.x - ix * -q.z;
 		self.z = iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x;
-	}
-
-	pub fn approx_eq(&self, other: &Self, tol: f32) -> bool {
-		let x_diff = (self.x - other.x).abs();
-		let y_diff = (self.y - other.y).abs();
-		let z_diff = (self.z - other.z).abs();
-
-		x_diff <= tol && y_diff <= tol && z_diff <= tol
 	}
 }
 
@@ -281,6 +273,16 @@ impl PartialEq for Vector3 {
 	}
 }
 
+impl ApproxEq for Vector3 {
+	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
+		let x_diff = (self.x - other.x).abs();
+		let y_diff = (self.y - other.y).abs();
+		let z_diff = (self.z - other.z).abs();
+
+		x_diff <= tol && y_diff <= tol && z_diff <= tol
+	}
+}
+
 impl Display for Vector3 {
 	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
 		write!(f, "({} {} {})", self.x, self.y, self.z)
@@ -387,29 +389,6 @@ mod tests {
 		q.set_from_axis_angle(&Vector3::from_xyz(0.0, 1.0, 0.0), std::f32::consts::PI / 2.0);
 		v.apply_quaternion(&q);
 		assert!(v.approx_eq(&Vector3{ x: 1.0, y: 0.0, z: 0.0 }, 1e-6));
-	}
-
-	#[test]
-	fn approx_eq() {
-		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
-		let b = Vector3::from_xyz(1.0, 2.0, 3.0);
-		assert!(a.approx_eq(&b, 0.0));
-
-		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
-		let b = Vector3::from_xyz(2.0, 3.0, 4.0);
-		assert!(a.approx_eq(&b, 1.0));
-
-		let a = Vector3::from_xyz(0.003, -0.0051, 5.0008);
-		let b = Vector3::from_xyz(0.002, -0.006, 5.00001);
-		assert!(a.approx_eq(&b, 0.001));
-
-		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
-		let b = Vector3::from_xyz(1.0, -2.0, 3.0);
-		assert!(!a.approx_eq(&b, 0.0));
-
-		let a = Vector3::from_xyz(0.003, -0.0051, 5.0008);
-		let b = Vector3::from_xyz(0.002, -0.006, 5.01);
-		assert!(!a.approx_eq(&b, 0.001));
 	}
 
 	#[test]
@@ -534,5 +513,12 @@ mod tests {
 		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
 		let b = Vector3::from_xyz(1.0, 2.0, 3.0);
 		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn approx_eq() {
+		let a = Vector3::from_xyz(1.0, 2.0, 3.0);
+		let b = Vector3::from_xyz(1.0, 2.0, 3.0);
+		crate::math::assert_approx_eq(&a, &b, 0.0);
 	}
 }

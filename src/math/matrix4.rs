@@ -1,4 +1,4 @@
-use crate::math::{Vector3, Quaternion};
+use crate::math::{Vector3, Quaternion, ApproxEq};
 use std::ops::Mul;
 
 const IDENTITY: [[f32; 4]; 4] = [
@@ -116,18 +116,6 @@ impl Matrix4 {
 			[0.0, 0.0, 1.0, 0.0]
 		];
 	}
-
-	pub fn approx_eq(&self, other: &Self, tol: f32) -> bool {
-		for i in 0..4 {
-			for j in 0..4 {
-				if (self.elements[i][j] - other.elements[i][j]).abs() > tol {
-					return false;
-				}
-			}
-		}
-
-		true
-	}
 }
 
 impl Mul for Matrix4 {
@@ -171,6 +159,20 @@ impl Mul for Matrix4 {
 impl PartialEq for Matrix4 {
 	fn eq(&self, other: &Self) -> bool {
 		self.elements == other.elements
+	}
+}
+
+impl ApproxEq for Matrix4 {
+	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
+		for i in 0..4 {
+			for j in 0..4 {
+				if (self.elements[i][j] - other.elements[i][j]).abs() > tol {
+					return false;
+				}
+			}
+		}
+
+		true
 	}
 }
 
@@ -299,36 +301,6 @@ mod tests {
 	}
 
 	#[test]
-	pub fn approx_eq() {
-		let elements = [
-			[0.0, 0.1, 0.2, 0.3],
-			[1.0, 1.1, 1.2, 1.3],
-			[2.0, 2.1, 2.2, 2.3],
-			[3.0, 3.1, 3.2, 3.3]
-		];
-
-		let a = Matrix4::from_elements(elements);
-		let b = Matrix4::from_elements(elements);
-		assert!(a.approx_eq(&b, 0.0));
-
-		let a = Matrix4::from_elements([
-			[4.0, 2.0, 8.0, 5.0],
-			[7.0, 1.0, 9.0, 4.0],
-			[0.0, 2.0, 6.0, 3.0],
-			[7.0, 8.0, 5.0, 3.0]
-		]);
-
-		let b = Matrix4::from_elements([
-			[9.1, 0.0, 4.0, 5.0],
-			[7.0, 6.0, 9.0, 2.0],
-			[0.0, 9.0, 1.0, 7.0],
-			[3.0, 4.0, 5.0, 2.0]
-		]);
-
-		assert!(!a.approx_eq(&b, 0.001));
-	}
-
-	#[test]
 	fn mul() {
 		let a = Matrix4::from_elements([
 			[4.0, 2.0, 8.0, 5.0],
@@ -355,7 +327,7 @@ mod tests {
 	}
 
 	#[test]
-	pub fn eq() {
+	fn eq() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
@@ -367,5 +339,20 @@ mod tests {
 		let b = Matrix4::from_elements(elements);
 
 		assert_eq!(a, b);
+	}
+
+	#[test]
+	fn approx_eq() {
+		let elements = [
+			[0.0, 0.1, 0.2, 0.3],
+			[1.0, 1.1, 1.2, 1.3],
+			[2.0, 2.1, 2.2, 2.3],
+			[3.0, 3.1, 3.2, 3.3]
+		];
+
+		let a = Matrix4::from_elements(elements);
+		let b = Matrix4::from_elements(elements);
+
+		crate::math::assert_approx_eq(&a, &b, 0.0);
 	}
 }
