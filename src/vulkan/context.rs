@@ -60,7 +60,7 @@ impl Context {
 		for layer in &layers_c_string {
 			available_layers.iter()
 				.find(|l| unsafe { CStr::from_ptr(l.layer_name.as_ptr()) } == layer.as_c_str())
-				.expect(&format!("Required layer {} not supported", layer.to_str().unwrap()));
+				.unwrap_or_else(|| panic!("Required layer {} not supported", layer.to_str().unwrap()));
 		}
 	
 		let available_instance_extensions = entry.enumerate_instance_extension_properties().unwrap();
@@ -68,7 +68,7 @@ impl Context {
 		for instance_extension in &instance_extensions_c_string {
 			available_instance_extensions.iter()
 				.find(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) } == instance_extension.as_c_str())
-				.expect(&format!("Required instance extension {} not supported", instance_extension.to_str().unwrap()));
+				.unwrap_or_else(|| panic!("Required instance extension {} not supported", instance_extension.to_str().unwrap()));
 			instance_extensions_ptr.push(instance_extension.as_ptr());
 		}
 	
@@ -165,12 +165,12 @@ impl Context {
 			}
 
 			let formats = unsafe { surface_extension.get_physical_device_surface_formats(device, surface_handle).unwrap() };
-			if formats.len() == 0 {
+			if formats.is_empty() {
 				continue;
 			}
 
 			let present_modes = unsafe { surface_extension.get_physical_device_surface_present_modes(device, surface_handle).unwrap() };
-			if present_modes.len() == 0 {
+			if present_modes.is_empty() {
 				continue;
 			}
 
@@ -193,7 +193,7 @@ impl Context {
 		// Create surface format
 		let surface_formats = unsafe { surface_extension.get_physical_device_surface_formats(physical_device_intermediary.handle, surface_handle).unwrap() };
 		let surface_format_option = surface_formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
-		let surface_format = if surface_format_option.is_some() { *surface_format_option.unwrap() } else { surface_formats[0] };
+		let surface_format = *surface_format_option.unwrap_or_else(|| &surface_formats[0]);
 
 		// Create logical device and queues
 		let graphics_queue_family_index = physical_device_intermediary.graphics_queue_family_index;

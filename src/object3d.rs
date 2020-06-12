@@ -14,15 +14,15 @@ pub trait Object3D {
 	fn matrix_mut(&mut self) -> &mut Matrix4;
 
 	fn update_matrix(&mut self) {
-		let position = self.position().clone();
-		let rotation = self.rotation().clone();
-		let scale = self.scale().clone();
+		let position = *self.position();
+		let rotation = *self.rotation();
+		let scale = *self.scale();
 
 		self.matrix_mut().compose(&position, &rotation, &scale);
 	}
 
 	fn translate_on_axis(&mut self, axis: &Vector3, distance: f32) {
-		let mut object_space_axis = axis.clone();
+		let mut object_space_axis = *axis;
 		object_space_axis.apply_quaternion(self.rotation());
 		*self.position_mut() += object_space_axis * distance;
 	}

@@ -60,7 +60,7 @@ impl Camera {
 		self.prev_mouse_pos_y = mouse_pos_y;
 
 		self.update_matrix();
-		self.inverse_view_matrix = self.view_matrix.clone();
+		self.inverse_view_matrix = self.view_matrix;
 		self.inverse_view_matrix.invert();
 	}
 }

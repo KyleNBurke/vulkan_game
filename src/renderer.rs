@@ -125,18 +125,20 @@ impl<'a> Renderer<'a> {
 	fn create_swapchain(context: &Context, width: u32, height: u32, command_pool: &vk::CommandPool, render_pass: &vk::RenderPass) -> Swapchain {
 		// Get present mode
 		let present_modes = unsafe { context.surface.extension.get_physical_device_surface_present_modes(context.physical_device.handle, context.surface.handle).unwrap() };
-		let present_mode = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
-		let present_mode = if present_mode.is_some() { *present_mode.unwrap() } else { present_modes[0] };
+		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
+		let present_mode = *present_mode_option.unwrap_or_else(|| &present_modes[0]);
 
 		// Create extent
 		let capabilities = unsafe { context.surface.extension.get_physical_device_surface_capabilities(context.physical_device.handle, context.surface.handle).unwrap() };
-		let mut extent = capabilities.current_extent;
-		if capabilities.current_extent.width == std::u32::MAX {
-			extent = vk::Extent2D::builder()
+		let extent = if capabilities.current_extent.width == std::u32::MAX {
+			vk::Extent2D::builder()
 				.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, width)))
 				.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, height)))
-				.build();
+				.build()
 		}
+		else {
+			capabilities.current_extent
+		};
 
 		// Create swapchain extension, handle & images
 		let mut image_count = capabilities.min_image_count + 1;
@@ -548,7 +550,7 @@ impl<'a> Renderer<'a> {
 		self.pipeline.handle = Self::create_pipeline_handle(&self.context, &self.swapchain, &self.pipeline.pipeline_layout, &self.render_pass);
 	}
 
-	pub fn submit_static_meshes(&mut self, meshes: &Vec<Mesh>) {
+	pub fn submit_static_meshes(&mut self, meshes: &[Mesh]) {
 		let logical_device = &self.context.logical_device;
 
 		// Wait for rendering operations to finish
@@ -594,15 +596,15 @@ impl<'a> Renderer<'a> {
 
 			unsafe {
 				let index_offset = mesh_offset;
-				let index_dst_ptr = buffer_ptr.offset(index_offset as isize) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attribute_offset = index_offset + index_size + index_padding_size;
-				let attribute_dst_ptr = buffer_ptr.offset(attribute_offset as isize) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
-				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
+				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
 				let model_matrix = &mesh.model_matrix.elements;
 				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 			}
@@ -680,7 +682,7 @@ impl<'a> Renderer<'a> {
 		self.static_mesh_content.chunk_sizes = chunk_sizes;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &Vec<Mesh>) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &[Mesh]) {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
@@ -696,8 +698,8 @@ impl<'a> Renderer<'a> {
 				vk::Fence::null())
 		};
 
-		if result.is_err() {
-			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
+		if let Err(error) = result {
+			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width as u32, height as u32);
 				return;
@@ -792,7 +794,7 @@ impl<'a> Renderer<'a> {
 			let projection_matrix = &camera.projection_matrix.elements;
 			std::ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
 
-			let inverse_view_matrix_dst_ptr = buffer_ptr.offset(16 * size_of::<f32>() as isize) as *mut [f32; 4];
+			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
 			let inverse_view_matrix = &camera.inverse_view_matrix;
 			std::ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
 		}
@@ -848,15 +850,15 @@ impl<'a> Renderer<'a> {
 			unsafe {
 				// Copy index, attribute and uniform buffer objects into memory buffer
 				let index_offset = dynamic_mesh_offset;
-				let index_dst_ptr = buffer_ptr.offset(index_offset as isize) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attribute_offset = index_offset + index_size + index_padding_size;
-				let attribute_dst_ptr = buffer_ptr.offset(attribute_offset as isize) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
-				let model_matrix_dst_ptr = buffer_ptr.offset(model_matrix_offset as isize) as *mut [f32; 4];
+				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
 				let model_matrix = &mesh.model_matrix.elements;
 				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 
@@ -928,18 +930,18 @@ impl<'a> Renderer<'a> {
 		
 		let result = unsafe { self.swapchain.extension.queue_present(self.context.physical_device.graphics_queue_family.queue, &present_info) };
 
-		if result.is_err() {
-			if result.unwrap_err() == vk::Result::ERROR_OUT_OF_DATE_KHR {
+		if let Ok(true) = result {
+			let (width, height) = window.get_framebuffer_size();
+			self.recreate_swapchain(width as u32, height as u32);
+		}
+		else if let Err(error) = result {
+			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width as u32, height as u32);
 			}
 			else {
 				panic!("Could not present swapchain image");
 			}
-		}
-		else if result.unwrap() {
-			let (width, height) = window.get_framebuffer_size();
-			self.recreate_swapchain(width as u32, height as u32);
 		}
 
 		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;

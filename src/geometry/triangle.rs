@@ -14,10 +14,10 @@ pub struct Triangle {}
 
 impl Geometry for Triangle {
 	fn get_vertex_indices(&self) -> &[u16] {
-		return &VERTEX_INDICES;
+		&VERTEX_INDICES
 	}
 
 	fn get_vertex_attributes(&self) -> &[f32] {
-		return &VERTEX_ATTRIBUTES;
+		&VERTEX_ATTRIBUTES
 	}
 }
