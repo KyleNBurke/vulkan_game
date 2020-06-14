@@ -64,8 +64,7 @@ impl<'a> Buffer<'a> {
 		let memory_properties = unsafe { context.instance.get_physical_device_memory_properties(context.physical_device.handle) };
 		
 		let memory_type_index = (0..memory_properties.memory_types.len())
-			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 &&
-				memory_properties.memory_types[i].property_flags.contains(properties))
+			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 && memory_properties.memory_types[i].property_flags.contains(properties))
 			.expect("Could not find suitable memory type") as u32;
 
 		let allocate_info = vk::MemoryAllocateInfo::builder()

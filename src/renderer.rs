@@ -1,4 +1,4 @@
-use ash::{vk, version::DeviceV1_0, extensions::khr};
+use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{vulkan::Context, vulkan::Buffer, Mesh, Camera};
 use std::{mem, mem::size_of};
 
@@ -20,7 +20,14 @@ struct Swapchain {
 	extension: khr::Swapchain,
 	handle: vk::SwapchainKHR,
 	extent: vk::Extent2D,
+	depth_image_resources: DepthImageResources,
 	frames: Vec<SwapchainFrame>
+}
+
+struct DepthImageResources {
+	image: vk::Image,
+	image_view: vk::ImageView,
+	memory: vk::DeviceMemory
 }
 
 struct SwapchainFrame {
@@ -76,7 +83,7 @@ impl<'a> Renderer<'a> {
 	}
 
 	fn render_pass(context: &Context) -> vk::RenderPass {
-		let attachment_description = vk::AttachmentDescription::builder()
+		let color_attachment_description = vk::AttachmentDescription::builder()
 			.format(context.surface.format.format)
 			.samples(vk::SampleCountFlags::TYPE_1)
 			.load_op(vk::AttachmentLoadOp::CLEAR)
@@ -85,16 +92,32 @@ impl<'a> Renderer<'a> {
 			.stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
 			.initial_layout(vk::ImageLayout::UNDEFINED)
 			.final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
-		let attachment_descriptions = [attachment_description.build()];
+
+		let depth_attachment_description = vk::AttachmentDescription::builder()
+			.format(vk::Format::D32_SFLOAT)
+			.samples(vk::SampleCountFlags::TYPE_1)
+			.load_op(vk::AttachmentLoadOp::CLEAR)
+			.store_op(vk::AttachmentStoreOp::DONT_CARE)
+			.stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+			.stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+			.initial_layout(vk::ImageLayout::UNDEFINED)
+			.final_layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
+
+		let attachment_descriptions = [color_attachment_description.build(), depth_attachment_description.build()];
 		
 		let color_attachment_ref = vk::AttachmentReference::builder()
 			.attachment(0)
 			.layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
 		let color_attachment_refs = [color_attachment_ref.build()];
+
+		let depth_attachment_ref = vk::AttachmentReference::builder()
+			.attachment(1)
+			.layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL);
 		
 		let subpass_description = vk::SubpassDescription::builder()
 			.pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
-			.color_attachments(&color_attachment_refs);
+			.color_attachments(&color_attachment_refs)
+			.depth_stencil_attachment(&depth_attachment_ref);
 		let subpass_descriptions = [subpass_description.build()];
 
 		let subpass_dependency = vk::SubpassDependency::builder()
@@ -183,6 +206,70 @@ impl<'a> Renderer<'a> {
 		
 		let command_buffers = unsafe { context.logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap() };
 
+		// Ensure D32_SFLOAT format is supported for depth buffering
+		let required_format = vk::Format::D32_SFLOAT;
+		let format_properties = unsafe { context.instance.get_physical_device_format_properties(context.physical_device.handle, required_format) };
+		let required_format_feature = vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT;
+		if format_properties.optimal_tiling_features & required_format_feature != required_format_feature {
+			panic!("Required format for depth buffering not supported");
+		}
+
+		// Create depth image
+		let image_create_info = vk::ImageCreateInfo::builder()
+			.image_type(vk::ImageType::TYPE_2D)
+			.extent(vk::Extent3D::builder()
+				.width(extent.width)
+				.height(extent.height)
+				.depth(1)
+				.build())
+			.mip_levels(1)
+			.array_layers(1)
+			.format(required_format)
+			.tiling(vk::ImageTiling::OPTIMAL)
+			.initial_layout(vk::ImageLayout::UNDEFINED)
+			.usage(vk::ImageUsageFlags::DEPTH_STENCIL_ATTACHMENT)
+			.samples(vk::SampleCountFlags::TYPE_1)
+			.sharing_mode(vk::SharingMode::EXCLUSIVE);
+	
+		let depth_image = unsafe { context.logical_device.create_image(&image_create_info, None).unwrap() };
+
+		// Allocate depth image memory and bind it to the image
+		let memory_requirements = unsafe { context.logical_device.get_image_memory_requirements(depth_image) };
+		let memory_properties = unsafe { context.instance.get_physical_device_memory_properties(context.physical_device.handle) };
+		
+		let memory_type_index = (0..memory_properties.memory_types.len())
+			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 && memory_properties.memory_types[i].property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL))
+			.expect("Could not find suitable memory type for depth buffering") as u32;
+
+		let allocate_info = vk::MemoryAllocateInfo::builder()
+			.allocation_size(memory_requirements.size)
+			.memory_type_index(memory_type_index);
+
+		let depth_image_memory = unsafe { context.logical_device.allocate_memory(&allocate_info, None).unwrap() };
+		unsafe { context.logical_device.bind_image_memory(depth_image, depth_image_memory, 0).unwrap() };
+
+		// Create depth image view
+		let image_view_create_info = vk::ImageViewCreateInfo::builder()
+			.image(depth_image)
+			.view_type(vk::ImageViewType::TYPE_2D)
+			.format(required_format)
+			.subresource_range(vk::ImageSubresourceRange::builder()
+				.aspect_mask(vk::ImageAspectFlags::DEPTH)
+				.base_mip_level(0)
+				.level_count(1)
+				.base_array_layer(0)
+				.layer_count(1)
+				.build());
+		
+		let depth_image_view = unsafe { context.logical_device.create_image_view(&image_view_create_info, None).unwrap() };
+		
+		// Create the container struct
+		let depth_image_resources = DepthImageResources {
+			image: depth_image,
+			image_view: depth_image_view,
+			memory: depth_image_memory
+		};
+
 		// Create swapchain frames
 		let mut frames = Vec::with_capacity(images.len());
 		for i in 0..images.len() {
@@ -208,7 +295,7 @@ impl<'a> Renderer<'a> {
 			let image_view = unsafe { context.logical_device.create_image_view(&image_view_create_info, None).unwrap() };
 
 			// Create framebuffer
-			let attachments = [image_view];
+			let attachments = [image_view, depth_image_view];
 
 			let create_info = vk::FramebufferCreateInfo::builder()
 				.render_pass(*render_pass)
@@ -234,6 +321,7 @@ impl<'a> Renderer<'a> {
 			extension,
 			handle,
 			extent,
+			depth_image_resources,
 			frames
 		}
 	}
@@ -363,6 +451,13 @@ impl<'a> Renderer<'a> {
 			.sample_shading_enable(false)
 			.rasterization_samples(vk::SampleCountFlags::TYPE_1);
 		
+		let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder()
+			.depth_test_enable(true)
+			.depth_write_enable(true)
+			.depth_compare_op(vk::CompareOp::LESS)
+			.depth_bounds_test_enable(false)
+			.stencil_test_enable(false);
+		
 		let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
 			.color_write_mask(vk::ColorComponentFlags::all())
 			.blend_enable(false);
@@ -379,6 +474,7 @@ impl<'a> Renderer<'a> {
 			.viewport_state(&viewport_state_create_info)
 			.rasterization_state(&rasterization_state_create_info)
 			.multisample_state(&multisample_state_create_info)
+			.depth_stencil_state(&depth_stencil_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
 			.layout(*pipeline_layout)
 			.render_pass(*render_pass)
@@ -543,6 +639,9 @@ impl<'a> Renderer<'a> {
 			}
 
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
+			logical_device.free_memory(self.swapchain.depth_image_resources.memory, None);
+			logical_device.destroy_image_view(self.swapchain.depth_image_resources.image_view, None);
+			logical_device.destroy_image(self.swapchain.depth_image_resources.image, None);
 			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 		}
 
@@ -752,12 +851,18 @@ impl<'a> Renderer<'a> {
 		}
 
 		// Record the command buffers
-		let clear_color = vk::ClearValue {
+		let color_attachment_clear_value = vk::ClearValue {
 			color: vk::ClearColorValue {
 				float32: [0.0, 0.0, 0.0, 1.0]
 			}
 		};
-		let clear_colors = [clear_color];
+		let depth_attachment_clear_value = vk::ClearValue {
+			depth_stencil: vk::ClearDepthStencilValue {
+				depth: 1.0,
+				stencil: 0,
+			}
+		};
+		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
 
 		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
 
@@ -972,6 +1077,9 @@ impl<'a> Drop for Renderer<'a> {
 				logical_device.destroy_image_view(frame.image_view, None);
 			}
 
+			logical_device.free_memory(self.swapchain.depth_image_resources.memory, None);
+			logical_device.destroy_image_view(self.swapchain.depth_image_resources.image_view, None);
+			logical_device.destroy_image(self.swapchain.depth_image_resources.image, None);
 			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 			logical_device.destroy_command_pool(self.command_pool, None);
 			logical_device.destroy_render_pass(self.render_pass, None);

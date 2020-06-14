@@ -30,11 +30,11 @@ fn main() {
 	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	static_triangle.position = math::Vector3::from_xyz(-0.5, 0.6, 2.0);
+	static_triangle.position = math::Vector3::from_xyz(0.0, 1.0, 1.7);
 	static_triangle.update_matrix();
 
 	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}));
-	static_plane.position = math::Vector3::from_xyz(0.5, 0.6, 2.0);
+	static_plane.position = math::Vector3::from_xyz(0.0, 1.0, 2.0);
 	static_plane.update_matrix();
 
 	let static_meshes = vec![static_triangle, static_plane];
