@@ -5,6 +5,7 @@ pub struct PhysicalDevice {
 	pub handle: vk::PhysicalDevice,
 	pub graphics_queue_family: u32,
 	pub present_queue_family: u32,
+	pub memory_properties: vk::PhysicalDeviceMemoryProperties,
 	pub min_uniform_buffer_offset_alignment: u64
 }
 
@@ -62,10 +63,19 @@ impl PhysicalDevice {
 				handle: device,
 				graphics_queue_family: graphics_queue_family.unwrap() as u32,
 				present_queue_family: present_queue_family.unwrap() as u32,
+				memory_properties: unsafe { instance.get_physical_device_memory_properties(device) },
 				min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment
 			}
 		}
 
 		panic!("No suitable physical device found");
+	}
+
+	pub fn find_memory_type_index(&self, r#type: u32, properties: vk::MemoryPropertyFlags) -> usize {
+		let available_types = self.memory_properties.memory_types;
+
+		(0..available_types.len())
+			.find(|&i| r#type & (1 << i) != 0 && available_types[i].property_flags.contains(properties))
+			.expect("Could not find suitable memory type")
 	}
 }

@@ -235,15 +235,11 @@ impl<'a> Renderer<'a> {
 
 		// Allocate depth image memory and bind it to the image
 		let memory_requirements = unsafe { context.logical_device.get_image_memory_requirements(depth_image) };
-		let memory_properties = unsafe { context.instance.get_physical_device_memory_properties(context.physical_device.handle) };
-		
-		let memory_type_index = (0..memory_properties.memory_types.len())
-			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 && memory_properties.memory_types[i].property_flags.contains(vk::MemoryPropertyFlags::DEVICE_LOCAL))
-			.expect("Could not find suitable memory type for depth buffering") as u32;
+		let memory_type_index = context.physical_device.find_memory_type_index(memory_requirements.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL);
 
 		let allocate_info = vk::MemoryAllocateInfo::builder()
 			.allocation_size(memory_requirements.size)
-			.memory_type_index(memory_type_index);
+			.memory_type_index(memory_type_index as u32);
 
 		let depth_image_memory = unsafe { context.logical_device.allocate_memory(&allocate_info, None).unwrap() };
 		unsafe { context.logical_device.bind_image_memory(depth_image, depth_image_memory, 0).unwrap() };

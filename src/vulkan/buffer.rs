@@ -1,4 +1,4 @@
-use ash::{vk, version::DeviceV1_0, version::InstanceV1_0};
+use ash::{vk, version::DeviceV1_0};
 use crate::vulkan::Context;
 
 pub struct Buffer<'a> {
@@ -61,15 +61,11 @@ impl<'a> Buffer<'a> {
 		
 		let handle = unsafe { context.logical_device.create_buffer(&create_info, None).unwrap() };
 		let memory_requirements = unsafe { context.logical_device.get_buffer_memory_requirements(handle) };
-		let memory_properties = unsafe { context.instance.get_physical_device_memory_properties(context.physical_device.handle) };
-		
-		let memory_type_index = (0..memory_properties.memory_types.len())
-			.find(|&i| memory_requirements.memory_type_bits & (1 << i) != 0 && memory_properties.memory_types[i].property_flags.contains(properties))
-			.expect("Could not find suitable memory type") as u32;
+		let memory_type_index = context.physical_device.find_memory_type_index(memory_requirements.memory_type_bits, properties);
 
 		let allocate_info = vk::MemoryAllocateInfo::builder()
 			.allocation_size(memory_requirements.size)
-			.memory_type_index(memory_type_index);
+			.memory_type_index(memory_type_index as u32);
 	
 		let memory = unsafe { context.logical_device.allocate_memory(&allocate_info, None).unwrap() };
 		unsafe { context.logical_device.bind_buffer_memory(handle, memory, 0).unwrap() };
