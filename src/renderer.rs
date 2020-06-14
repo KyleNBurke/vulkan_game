@@ -13,7 +13,7 @@ pub struct Renderer<'a> {
 	descriptor_pool: vk::DescriptorPool,
 	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	static_mesh_content: StaticMeshContent<'a>
+	static_mesh_content: StaticMeshResouces<'a>
 }
 
 struct Swapchain {
@@ -53,7 +53,7 @@ struct InFlightFrame<'a> {
 	model_matrix_descriptor_set: vk::DescriptorSet
 }
 
-struct StaticMeshContent<'a> {
+struct StaticMeshResouces<'a> {
 	buffer: Buffer<'a>,
 	model_matrix_descriptor_set: vk::DescriptorSet,
 	chunk_sizes: Vec<[usize; 5]>
@@ -604,7 +604,7 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
-	fn create_static_mesh_content(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshContent<'a> {
+	fn create_static_mesh_content(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshResouces<'a> {
 		let buffer = Buffer::null(
 			context,
 			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -617,7 +617,7 @@ impl<'a> Renderer<'a> {
 		
 		let model_matrix_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
 	
-		StaticMeshContent {
+		StaticMeshResouces {
 			buffer,
 			model_matrix_descriptor_set,
 			chunk_sizes: vec![]
