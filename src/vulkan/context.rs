@@ -2,6 +2,7 @@ use ash::{vk, version::EntryV1_0, version::InstanceV1_0, version::DeviceV1_0, ex
 use glfw::Context as glfwContext;
 use std::ffi::{CString, CStr};
 use std::os::raw::{c_void, c_char};
+use super::PhysicalDevice;
 
 const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];
 const REQUIRED_INSTANCE_EXTENSIONS: &[&str] = &["VK_EXT_debug_utils"];
@@ -13,6 +14,8 @@ pub struct Context {
 	pub physical_device: PhysicalDevice,
 	pub surface: Surface,
 	pub logical_device: ash::Device,
+	pub graphics_queue: vk::Queue,
+	pub present_queue: vk::Queue
 }
 
 pub struct DebugUtils {
@@ -24,18 +27,6 @@ pub struct Surface {
 	pub extension: khr::Surface,
 	pub handle: vk::SurfaceKHR,
 	pub format: vk::SurfaceFormatKHR
-}
-
-pub struct PhysicalDevice {
-	pub handle: vk::PhysicalDevice,
-	pub graphics_queue_family: QueueFamily,
-	pub present_quue_family: QueueFamily,
-	pub min_uniform_buffer_offset_alignment: u64
-}
-
-pub struct QueueFamily {
-	pub index: u32,
-	pub queue: vk::Queue
 }
 
 impl Context {
@@ -117,95 +108,25 @@ impl Context {
 		let surface_extension = khr::Surface::new(&entry, &instance);
 		let surface_handle = vk::SurfaceKHR::from_raw(surface_raw);
 
-		// Choose physical device and get properties
-		struct PhysicalDeviceIntermediary {
-			handle: vk::PhysicalDevice,
-			graphics_queue_family_index: u32,
-			present_queue_family_index: u32,
-			min_uniform_buffer_offset_alignment: u64
-		}
-
-		let mut physical_device_intermediary = None;
-		let physical_devices = unsafe { instance.enumerate_physical_devices().unwrap() };
-
-		'main: for device in physical_devices {
-			let properties = unsafe { instance.get_physical_device_properties(device) };
-			if properties.device_type != vk::PhysicalDeviceType::DISCRETE_GPU {
-				continue;
-			}
-			
-			let features = unsafe { instance.get_physical_device_features(device) };
-			if features.geometry_shader == vk::FALSE {
-				continue;
-			}
-
-			let queue_family_properties = unsafe { instance.get_physical_device_queue_family_properties(device) };
-			let mut graphics_queue_family_index = None;
-			let mut present_queue_family_index = None;
-			for (i, property) in queue_family_properties.iter().enumerate() {
-				if property.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
-					graphics_queue_family_index = Some(i);
-				}
-
-				if unsafe { surface_extension.get_physical_device_surface_support(device, i as u32, surface_handle).unwrap() } {
-					present_queue_family_index = Some(i);
-				}
-			}
-
-			if graphics_queue_family_index.is_none() || present_queue_family_index.is_none() {
-				continue;
-			}
-
-			let available_device_extensions = unsafe { instance.enumerate_device_extension_properties(device).unwrap() };
-			for device_extension in &device_extensions_c_string {
-				let extension = available_device_extensions.iter().find(|e| unsafe { CStr::from_ptr(e.extension_name.as_ptr()) } == device_extension.as_c_str());
-				if extension.is_none() {
-					continue 'main;
-				}
-			}
-
-			let formats = unsafe { surface_extension.get_physical_device_surface_formats(device, surface_handle).unwrap() };
-			if formats.is_empty() {
-				continue;
-			}
-
-			let present_modes = unsafe { surface_extension.get_physical_device_surface_present_modes(device, surface_handle).unwrap() };
-			if present_modes.is_empty() {
-				continue;
-			}
-
-			physical_device_intermediary = Some(PhysicalDeviceIntermediary {
-				handle: device,
-				graphics_queue_family_index: graphics_queue_family_index.unwrap() as u32,
-				present_queue_family_index: present_queue_family_index.unwrap() as u32,
-				min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment
-			});
-
-			break;
-		}
-
-		if physical_device_intermediary.is_none() {
-			panic!("No suitable physical device found");
-		}
-
-		let physical_device_intermediary = physical_device_intermediary.unwrap();
+		// Create the physical device
+		let physical_device = PhysicalDevice::new(&instance, surface_handle, &surface_extension, &device_extensions_c_string);
 
 		// Create surface format
-		let surface_formats = unsafe { surface_extension.get_physical_device_surface_formats(physical_device_intermediary.handle, surface_handle).unwrap() };
+		let surface_formats = unsafe { surface_extension.get_physical_device_surface_formats(physical_device.handle, surface_handle).unwrap() };
 		let surface_format_option = surface_formats.iter().find(|f| f.format == vk::Format::B8G8R8A8_SRGB && f.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR);
 		let surface_format = *surface_format_option.unwrap_or_else(|| &surface_formats[0]);
 
 		// Create logical device and queues
-		let graphics_queue_family_index = physical_device_intermediary.graphics_queue_family_index;
-		let present_queue_family_index = physical_device_intermediary.present_queue_family_index;
+		let graphics_queue_family = physical_device.graphics_queue_family;
+		let present_queue_family = physical_device.present_queue_family;
 		let mut device_queue_create_infos = vec![vk::DeviceQueueCreateInfo::builder()
-			.queue_family_index(graphics_queue_family_index)
+			.queue_family_index(graphics_queue_family)
 			.queue_priorities(&[1.0])
 			.build()];
 
-		if graphics_queue_family_index != present_queue_family_index {
+		if graphics_queue_family != present_queue_family {
 			device_queue_create_infos.push(vk::DeviceQueueCreateInfo::builder()
-				.queue_family_index(present_queue_family_index)
+				.queue_family_index(present_queue_family)
 				.queue_priorities(&[1.0])
 				.build());
 		}
@@ -218,31 +139,22 @@ impl Context {
 			.enabled_layer_names(&layers_ptr_c_char)
 			.enabled_extension_names(&device_extensions_ptr_c_char);
 		
-		let logical_device = unsafe { instance.create_device(physical_device_intermediary.handle, &device_create_info, None).unwrap() };
-		let graphics_queue = unsafe { logical_device.get_device_queue(graphics_queue_family_index, 0) };
-		let present_queue = unsafe { logical_device.get_device_queue(present_queue_family_index, 0) };
+		let logical_device = unsafe { instance.create_device(physical_device.handle, &device_create_info, None).unwrap() };
+		let graphics_queue = unsafe { logical_device.get_device_queue(graphics_queue_family, 0) };
+		let present_queue = unsafe { logical_device.get_device_queue(present_queue_family, 0) };
 		
 		Self {
 			instance,
 			debug_utils,
-			physical_device: PhysicalDevice {
-				handle: physical_device_intermediary.handle,
-				graphics_queue_family: QueueFamily {
-					index: physical_device_intermediary.graphics_queue_family_index,
-					queue: graphics_queue
-				},
-				present_quue_family: QueueFamily {
-					index: physical_device_intermediary.present_queue_family_index,
-					queue: present_queue
-				},
-				min_uniform_buffer_offset_alignment: physical_device_intermediary.min_uniform_buffer_offset_alignment
-			},
+			physical_device,
 			surface: Surface {
 				extension: surface_extension,
 				handle: surface_handle,
 				format: surface_format
 			},
-			logical_device
+			logical_device,
+			graphics_queue,
+			present_queue
 		}
 	}
 	

@@ -139,7 +139,7 @@ impl<'a> Renderer<'a> {
 
 	fn create_command_pool(context: &Context) -> vk::CommandPool {
 		let create_info = vk::CommandPoolCreateInfo::builder()
-			.queue_family_index(context.physical_device.graphics_queue_family.index)
+			.queue_family_index(context.physical_device.graphics_queue_family)
 			.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
 		unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
@@ -182,8 +182,8 @@ impl<'a> Renderer<'a> {
 			.present_mode(present_mode)
 			.clipped(true);
 		
-		let graphics_queue_family_index = context.physical_device.graphics_queue_family.index;
-		let present_queue_family_index = context.physical_device.present_quue_family.index;
+		let graphics_queue_family_index = context.physical_device.graphics_queue_family;
+		let present_queue_family_index = context.physical_device.present_queue_family;
 		let queue_families = [graphics_queue_family_index, present_queue_family_index];
 		if graphics_queue_family_index == present_queue_family_index {
 			swapchain_create_info = swapchain_create_info.image_sharing_mode(vk::SharingMode::EXCLUSIVE);
@@ -653,7 +653,7 @@ impl<'a> Renderer<'a> {
 		let logical_device = &self.context.logical_device;
 
 		// Wait for rendering operations to finish
-		unsafe { logical_device.queue_wait_idle(self.context.physical_device.graphics_queue_family.queue).unwrap() };
+		unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
 
 		// Calculate total memory size and chunk sizes
 		let mut total_size = 0;
@@ -753,8 +753,8 @@ impl<'a> Renderer<'a> {
 		let submit_infos = [submit_info.build()];
 		
 		unsafe {
-			logical_device.queue_submit(self.context.physical_device.graphics_queue_family.queue, &submit_infos, vk::Fence::null()).unwrap();
-			logical_device.queue_wait_idle(self.context.physical_device.graphics_queue_family.queue).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, vk::Fence::null()).unwrap();
+			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 		}
 		
@@ -1022,7 +1022,7 @@ impl<'a> Renderer<'a> {
 
 		unsafe {
 			logical_device.reset_fences(&fences).unwrap();
-			logical_device.queue_submit(self.context.physical_device.graphics_queue_family.queue, &submit_infos, in_flight_frame.fence).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, in_flight_frame.fence).unwrap();
 		}
 
 		// Wait for render to finish then present swapchain image
@@ -1033,7 +1033,7 @@ impl<'a> Renderer<'a> {
 			.swapchains(&swapchains)
 			.image_indices(&image_indices);
 		
-		let result = unsafe { self.swapchain.extension.queue_present(self.context.physical_device.graphics_queue_family.queue, &present_info) };
+		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
 
 		if let Ok(true) = result {
 			let (width, height) = window.get_framebuffer_size();
