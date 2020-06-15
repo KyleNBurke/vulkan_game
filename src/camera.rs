@@ -49,6 +49,14 @@ impl Camera {
 			self.translate_x(TRANSLATION_SPEED);
 		}
 
+		if window.get_key(glfw::Key::E) == glfw::Action::Press {
+			self.translate_y(-TRANSLATION_SPEED);
+		}
+
+		if window.get_key(glfw::Key::Q) == glfw::Action::Press {
+			self.translate_y(TRANSLATION_SPEED);
+		}
+
 		let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 		let mouse_pos_x = mouse_pos_x as f32;
 		let mouse_pos_y = mouse_pos_y as f32;

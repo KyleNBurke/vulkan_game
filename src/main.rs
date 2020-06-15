@@ -37,7 +37,11 @@ fn main() {
 	static_plane.position = math::Vector3::from_xyz(0.0, 1.0, 2.0);
 	static_plane.update_matrix();
 
-	let static_meshes = vec![static_triangle, static_plane];
+	let mut static_box = Mesh::new(Box::new(geometry::Box {}));
+	static_box.position = math::Vector3::from_xyz(-2.0, 0.0, 0.0);
+	static_box.update_matrix();
+
+	let static_meshes = vec![static_triangle, static_plane, static_box];
 	renderer.submit_static_meshes(&static_meshes);
 
 	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}));
