@@ -1,4 +1,4 @@
-use crate::math::{Vector3, Quaternion, ApproxEq};
+use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
 use std::ops::Mul;
 
 const IDENTITY: [[f32; 4]; 4] = [
@@ -116,6 +116,66 @@ impl Matrix4 {
 			[0.0, 0.0, 1.0, 0.0]
 		];
 	}
+
+	pub fn make_rotation_from_quaternion(&mut self, q: &Quaternion) {
+		self.compose(&vector3::ZERO, q, &vector3::ONE);
+	}
+
+	pub fn make_rotation_from_euler(&mut self, e: &Euler) {
+		let (cx, cy, cz) = (e.x.cos(), e.y.cos(), e.z.cos());
+		let (sx, sy, sz) = (e.x.sin(), e.y.sin(), e.z.sin());
+
+		match e.order {
+			Order::XYZ => {
+				self.elements = [
+					[cy * cz, -cy * sz, sy, 0.0],
+					[cz * sx * sy + cx * sz, cx * cz - sx * sy * sz, -cy * sx, 0.0],
+					[sx * sz - cx * cz * sy, cz * sx + cx * sy * sz, cx * cy, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			},
+			Order::XZY => {
+				self.elements = [
+					[cy * cz, -sz, cz * sy, 0.0],
+					[sx * sy + cx * cy * sz, cx * cz, cx * sy * sz - cy * sx, 0.0],
+					[cy * sx * sz - cx * sy, cz * sx, cx * cy + sx * sy * sz, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			},
+			Order::YXZ => {
+				self.elements = [
+					[cy * cz + sx * sy * sz, cz * sx * sy - cy * sz, cx * sy, 0.0],
+					[cx * sz, cx * cz, -sx, 0.0],
+					[cy * sx * sz - cz * sy, cy * cz * sx + sy * sz, cx * cy, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			},
+			Order::YZX => {
+				self.elements = [
+					[cy * cz, sx * sy - cx * cy * sz, cx * sy + cy * sx * sz, 0.0],
+					[sz, cx * cz, -cz * sx, 0.0],
+					[-cz * sy, cy * sx + cx * sy * sz, cx * cy - sx * sy * sz, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			},
+			Order::ZXY => {
+				self.elements = [
+					[cy * cz - sx * sy * sz, -cx * sz, cz * sy + cy * sx * sz, 0.0],
+					[cz * sx * sz + cy * sz, cx * cz, sy * sz - cy * cz * sx, 0.0],
+					[-cx * sy, sx, cx * cy, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			},
+			Order::ZYX => {
+				self.elements = [
+					[cy * cz, cz * sx * sy - cx * sz, cx * cz * sy + sx * sz, 0.0],
+					[cy * sz, cx * cz + sx * sy * sz, cx * sy * sz - cz * sx, 0.0],
+					[-sy, cy * sx, cx * cy, 0.0],
+					[0.0, 0.0, 0.0, 1.0]
+				];
+			}
+		}
+	}
 }
 
 impl Mul for Matrix4 {
@@ -179,6 +239,7 @@ impl ApproxEq for Matrix4 {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use std::f32::consts::FRAC_PI_2;
 
 	#[test]
 	fn new() {
@@ -298,6 +359,86 @@ mod tests {
 		];
 
 		assert_eq!(m.elements, expected);
+	}
+
+	#[test]
+	fn make_rotation_from_quaternion() {
+		let mut m = Matrix4::new();
+		m.make_rotation_from_quaternion(&Quaternion::from_xyzw(0.5, 0.5, 0.5, 0.5));
+
+		let expected = [
+			[0.0, 0.0, 1.0, 0.0],
+			[1.0, 0.0, 0.0, 0.0],
+			[0.0, 1.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		];
+
+		assert_eq!(m.elements, expected);
+	}
+
+	#[test]
+	fn make_rotation_from_euler() {
+		let mut m = Matrix4::new();
+
+		// XYZ
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
+		let expected = Matrix4::from_elements([
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, -1.0, 0.0, 0.0],
+			[1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
+
+		// XZY
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
+		let expected = Matrix4::from_elements([
+			[0.0, -1.0, 0.0, 0.0],
+			[1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
+
+		// YXZ
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
+		let expected = Matrix4::from_elements([
+			[1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, -1.0, 0.0],
+			[0.0, 1.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
+
+		// YZX
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
+		let expected = Matrix4::from_elements([
+			[0.0, 1.0, 0.0, 0.0],
+			[1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, -1.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
+
+		// ZXY
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
+		let expected = Matrix4::from_elements([
+			[-1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, 1.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
+
+		// ZYX
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
+		let expected = Matrix4::from_elements([
+			[0.0, 0.0, 1.0, 0.0],
+			[0.0, 1.0, 0.0, 0.0],
+			[-1.0, 0.0, 0.0, 0.0],
+			[0.0, 0.0, 0.0, 1.0]
+		]);
+		assert!(m.approx_eq(&expected, 1e-6));
 	}
 
 	#[test]

@@ -7,6 +7,10 @@ pub use quaternion::Quaternion;
 pub mod matrix4;
 pub use matrix4::Matrix4;
 
+pub mod euler;
+pub use euler::Order;
+pub use euler::Euler;
+
 use std::fmt::Debug;
 
 pub trait ApproxEq {

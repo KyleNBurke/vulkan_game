@@ -3,6 +3,7 @@ use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, N
 use std::fmt::Display;
 
 pub const ZERO: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 0.0 };
+pub const ONE: Vector3 = Vector3 { x: 1.0, y: 1.0, z: 1.0 };
 pub const UNIT_X: Vector3 = Vector3 { x: 1.0, y: 0.0, z: 0.0 };
 pub const UNIT_Y: Vector3 = Vector3 { x: 0.0, y: 1.0, z: 0.0 };
 pub const UNIT_Z: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 1.0 };
@@ -44,7 +45,7 @@ impl Vector3 {
 			0 => self.x = value,
 			1 => self.y = value,
 			2 => self.z = value,
-			_ => panic!("invalid index")
+			_ => panic!("invalid index {}", index)
 		}
 	}
 
@@ -53,7 +54,7 @@ impl Vector3 {
 			0 => self.x,
 			1 => self.y,
 			2 => self.z,
-			_ => panic!("invalid index")
+			_ => panic!("invalid index {}", index)
 		}
 	}
 

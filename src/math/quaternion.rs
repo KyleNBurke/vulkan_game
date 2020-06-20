@@ -1,4 +1,4 @@
-use crate::{math::Vector3, math::ApproxEq};
+use super::{Vector3, Euler, Order, ApproxEq};
 use std::ops::{Mul, MulAssign};
 use std::fmt::Display;
 
@@ -34,6 +34,50 @@ impl Quaternion {
 		self.y = axis.y * s;
 		self.z = axis.z * s;
 		self.w = half_angle.cos();
+	}
+
+	pub fn set_from_euler(&mut self, e: &Euler) {
+		let (cx, cy, cz) = ((e.x / 2.0).cos(), (e.y / 2.0).cos(), (e.z / 2.0).cos());
+		let (sx, sy, sz) = ((e.x / 2.0).sin(), (e.y / 2.0).sin(), (e.z / 2.0).sin());
+
+		match e.order {
+			Order::XYZ => {
+				self.x = sx * cy * cz + cx * sy * sz;
+				self.y = cx * sy * cz - sx * cy * sz;
+				self.z = cx * cy * sz + sx * sy * cz;
+				self.w = cx * cy * cz - sx * sy * sz;
+			},
+			Order::XZY => {
+				self.x = sx * cy * cz - cx * sy * sz;
+				self.y = cx * sy * cz - sx * cy * sz;
+				self.z = cx * cy * sz + sx * sy * cz;
+				self.w = cx * cy * cz + sx * sy * sz;
+			},
+			Order::YXZ => {
+				self.x = sx * cy * cz + cx * sy * sz;
+				self.y = cx * sy * cz - sx * cy * sz;
+				self.z = cx * cy * sz - sx * sy * cz;
+				self.w = cx * cy * cz + sx * sy * sz;
+			},
+			Order::YZX => {
+				self.x = sx * cy * cz + cx * sy * sz;
+				self.y = cx * sy * cz + sx * cy * sz;
+				self.z = cx * cy * sz - sx * sy * cz;
+				self.w = cx * cy * cz - sx * sy * sz;
+			},
+			Order::ZXY => {
+				self.x = sx * cy * cz - cx * sy * sz;
+				self.y = cx * sy * cz + sx * cy * sz;
+				self.z = cx * cy * sz + sx * sy * cz;
+				self.w = cx * cy * cz - sx * sy * sz;
+			},
+			Order::ZYX => {
+				self.x = sx * cy * cz - cx * sy * sz;
+				self.y = cx * sy * cz + sx * cy * sz;
+				self.z = cx * cy * sz - sx * sy * cz;
+				self.w = cx * cy * cz + sx * sy * sz;
+			}
+		}
 	}
 
 	pub fn conjigate(&mut self) {
@@ -123,6 +167,8 @@ impl Display for Quaternion {
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::math::assert_approx_eq;
+	use std::f32::consts::{PI, FRAC_PI_2, FRAC_1_SQRT_2};
 
 	#[test]
 	fn new() {
@@ -144,8 +190,41 @@ mod tests {
 	#[test]
 	fn set_from_axis_angle() {
 		let mut q = Quaternion::new();
-		q.set_from_axis_angle(&Vector3::from_xyz(1.0, 2.0, 3.0), std::f32::consts::PI);
+		q.set_from_axis_angle(&Vector3::from_xyz(1.0, 2.0, 3.0), PI);
 		assert!(q.approx_eq(&Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 0.0 }, 0.001));
+	}
+
+	#[test]
+	fn set_from_euler() {
+		// XYZ
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
+		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
+
+		// XZY
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
+		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: 0.0, z: FRAC_1_SQRT_2, w: FRAC_1_SQRT_2 }, 1e-6);
+
+		// YZX
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
+		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: FRAC_1_SQRT_2, z: 0.0, w: 0.0 }, 1e-6);
+
+		// YXZ
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
+		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
+
+		// ZXY
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
+		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
+
+		// ZYX
+		let mut q = Quaternion::new();
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
+		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
 	}
 
 	#[test]

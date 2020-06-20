@@ -67,8 +67,9 @@ fn main() {
 				glfw::WindowEvent::FramebufferSize(_, _) => {
 					framebuffer_resized = true;
 				},
-				glfw::WindowEvent::Key(glfw::Key::Q, _, glfw::Action::Press, _) => {
+				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&static_meshes);
+					println!("Static meshes submitted");
 				},
 				_ => {}
 			}
