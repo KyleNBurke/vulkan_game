@@ -1,4 +1,5 @@
 use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
+use std::fmt::Display;
 use std::ops::Mul;
 
 const IDENTITY: [[f32; 4]; 4] = [
@@ -8,7 +9,7 @@ const IDENTITY: [[f32; 4]; 4] = [
 	[0.0, 0.0, 0.0, 1.0]
 ];
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Matrix4 {
 	pub elements: [[f32; 4]; 4]
 }
@@ -18,11 +19,11 @@ impl Matrix4 {
 		Matrix4 { elements: IDENTITY }
 	}
 
-	pub fn from_elements(elements: [[f32; 4]; 4]) -> Self {
+	pub fn from(elements: [[f32; 4]; 4]) -> Self {
 		Matrix4 { elements }
 	}
 
-	pub fn set_from_elements(&mut self, elements: [[f32; 4]; 4]) {
+	pub fn set(&mut self, elements: [[f32; 4]; 4]) {
 		self.elements = elements;
 	}
 
@@ -216,12 +217,6 @@ impl Mul for Matrix4 {
 	}
 }
 
-impl PartialEq for Matrix4 {
-	fn eq(&self, other: &Self) -> bool {
-		self.elements == other.elements
-	}
-}
-
 impl ApproxEq for Matrix4 {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
 		for i in 0..4 {
@@ -236,9 +231,16 @@ impl ApproxEq for Matrix4 {
 	}
 }
 
+impl Display for Matrix4 {
+	fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+		write!(f, "{:?}", self.elements)
+	}
+}
+
 #[cfg(test)]
 mod tests {
 	use super::*;
+	use crate::math::assert_approx_eq;
 	use std::f32::consts::FRAC_PI_2;
 
 	#[test]
@@ -247,7 +249,7 @@ mod tests {
 	}
 
 	#[test]
-	fn from_elements() {
+	fn from() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
@@ -255,13 +257,13 @@ mod tests {
 			[3.0, 3.1, 3.2, 3.3]
 		];
 
-		let m = Matrix4::from_elements(elements);
+		let m = Matrix4::from(elements);
 
 		assert_eq!(m.elements, elements);
 	}
 
 	#[test]
-	fn set_from_elements() {
+	fn set() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
@@ -270,14 +272,14 @@ mod tests {
 		];
 
 		let mut m = Matrix4::new();
-		m.set_from_elements(elements);
+		m.set(elements);
 
 		assert_eq!(m.elements, elements);
 	}
 
 	#[test]
 	fn identity() {
-		let mut m = Matrix4::from_elements([
+		let mut m = Matrix4::from([
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
@@ -290,7 +292,7 @@ mod tests {
 
 	#[test]
 	fn transpose() {
-		let mut m = Matrix4::from_elements([
+		let mut m = Matrix4::from([
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
@@ -310,7 +312,7 @@ mod tests {
 
 	#[test]
 	fn invert() {
-		let mut m = Matrix4::from_elements([
+		let mut m = Matrix4::from([
 			[2.0, 4.0, 3.0, 7.0],
 			[5.0, 2.0, 8.0, 3.0],
 			[7.0, 6.0, 1.0, 0.0],
@@ -318,21 +320,21 @@ mod tests {
 		]);
 		m.invert();
 
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[0.205, 0.038, 0.183, -0.222],
 			[-0.209, -0.066, -0.028, 0.238],
 			[-0.181, 0.127, -0.111, 0.126],
 			[0.281, -0.027, 0.011, -0.126]
 		]);
 
-		assert!(m.approx_eq(&expected, 0.001));
+		assert_approx_eq(&m, &expected, 0.001);
 	}
 
 	#[test]
 	fn compose() {
-		let pos = Vector3::from_xyz(1.0, 2.0, 3.0);
-		let rot = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let scale = Vector3::from_xyz(3.0, 4.0, 5.0);
+		let pos = Vector3::from(1.0, 2.0, 3.0);
+		let rot = Quaternion::from(1.0, 2.0, 3.0, 4.0);
+		let scale = Vector3::from(3.0, 4.0, 5.0);
 		let mut m = Matrix4::new();
 		m.compose(&pos, &rot, &scale);
 
@@ -364,7 +366,7 @@ mod tests {
 	#[test]
 	fn make_rotation_from_quaternion() {
 		let mut m = Matrix4::new();
-		m.make_rotation_from_quaternion(&Quaternion::from_xyzw(0.5, 0.5, 0.5, 0.5));
+		m.make_rotation_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
 
 		let expected = [
 			[0.0, 0.0, 1.0, 0.0],
@@ -382,75 +384,75 @@ mod tests {
 
 		// XYZ
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, -1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 
 		// XZY
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[0.0, -1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YXZ
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, -1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YZX
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[0.0, 1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, -1.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZXY
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[-1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZYX
 		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
-		let expected = Matrix4::from_elements([
+		let expected = Matrix4::from([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
 			[-1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
 		]);
-		assert!(m.approx_eq(&expected, 1e-6));
+		assert_approx_eq(&m, &expected, 1e-6);
 	}
 
 	#[test]
 	fn mul() {
-		let a = Matrix4::from_elements([
+		let a = Matrix4::from([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]
 		]);
 
-		let b = Matrix4::from_elements([
+		let b = Matrix4::from([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
@@ -468,21 +470,6 @@ mod tests {
 	}
 
 	#[test]
-	fn eq() {
-		let elements = [
-			[0.0, 0.1, 0.2, 0.3],
-			[1.0, 1.1, 1.2, 1.3],
-			[2.0, 2.1, 2.2, 2.3],
-			[3.0, 3.1, 3.2, 3.3]
-		];
-
-		let a = Matrix4::from_elements(elements);
-		let b = Matrix4::from_elements(elements);
-
-		assert_eq!(a, b);
-	}
-
-	#[test]
 	fn approx_eq() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
@@ -491,9 +478,9 @@ mod tests {
 			[3.0, 3.1, 3.2, 3.3]
 		];
 
-		let a = Matrix4::from_elements(elements);
-		let b = Matrix4::from_elements(elements);
+		let a = Matrix4::from(elements);
+		let b = Matrix4::from(elements);
 
-		crate::math::assert_approx_eq(&a, &b, 0.0);
+		assert_approx_eq(&a, &b, 0.0);
 	}
 }

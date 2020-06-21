@@ -2,7 +2,7 @@ use super::{Vector3, Euler, Order, ApproxEq};
 use std::ops::{Mul, MulAssign};
 use std::fmt::Display;
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Quaternion {
 	pub x: f32,
 	pub y: f32,
@@ -15,11 +15,11 @@ impl Quaternion {
 		Self { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
 	}
 
-	pub fn from_xyzw(x: f32, y: f32, z: f32, w: f32) -> Self {
+	pub fn from(x: f32, y: f32, z: f32, w: f32) -> Self {
 		Self { x, y, z, w }
 	}
 
-	pub fn set_from_xyzw(&mut self, x: f32, y: f32, z: f32, w: f32) {
+	pub fn set(&mut self, x: f32, y: f32, z: f32, w: f32) {
 		self.x = x;
 		self.y = y;
 		self.z = z;
@@ -141,12 +141,6 @@ impl MulAssign for Quaternion {
 	}
 }
 
-impl PartialEq for Quaternion {
-	fn eq(&self, other: &Self) -> bool {
-		self.x == other.x && self.y == other.y && self.z == other.z && self.w == other.w
-	}
-}
-
 impl ApproxEq for Quaternion {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
 		let x_diff = (self.x - other.x).abs();
@@ -176,117 +170,106 @@ mod tests {
 	}
 
 	#[test]
-	fn from_xyzw() {
-		assert_eq!(Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0), Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 4.0 });
+	fn from() {
+		assert_eq!(Quaternion::from(1.0, 2.0, 3.0, 4.0), Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 4.0 });
 	}
 
 	#[test]
-	fn set_from_xyzw() {
+	fn set() {
 		let mut q = Quaternion::new();
-		q.set_from_xyzw(1.0, 2.0, 3.0, 4.0);
+		q.set(1.0, 2.0, 3.0, 4.0);
 		assert_eq!(q, Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 4.0 });
 	}
 
 	#[test]
 	fn set_from_axis_angle() {
 		let mut q = Quaternion::new();
-		q.set_from_axis_angle(&Vector3::from_xyz(1.0, 2.0, 3.0), PI);
-		assert!(q.approx_eq(&Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 0.0 }, 0.001));
+		q.set_from_axis_angle(&Vector3::from(1.0, 2.0, 3.0), PI);
+		assert_approx_eq(&q, &Quaternion{ x: 1.0, y: 2.0, z: 3.0, w: 0.0 }, 1e-6)
 	}
 
 	#[test]
 	fn set_from_euler() {
-		// XYZ
 		let mut q = Quaternion::new();
+
+		// XYZ
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
 
 		// XZY
-		let mut q = Quaternion::new();
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: 0.0, z: FRAC_1_SQRT_2, w: FRAC_1_SQRT_2 }, 1e-6);
 
 		// YZX
-		let mut q = Quaternion::new();
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: FRAC_1_SQRT_2, z: 0.0, w: 0.0 }, 1e-6);
 
 		// YXZ
-		let mut q = Quaternion::new();
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
 
 		// ZXY
-		let mut q = Quaternion::new();
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
 
 		// ZYX
-		let mut q = Quaternion::new();
 		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
 	}
 
 	#[test]
 	fn conjigate() {
-		let mut q = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
+		let mut q = Quaternion::from(1.0, 2.0, 3.0, 4.0);
 		q.conjigate();
 		assert_eq!(q, Quaternion{ x: -1.0, y: -2.0, z: -3.0, w: 4.0 });
 	}
 
 	#[test]
 	fn dot() {
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(2.0, -3.0, 1.0, 0.0);
+		let a = Quaternion::from(1.0, 2.0, 3.0, 4.0);
+		let b = Quaternion::from(2.0, -3.0, 1.0, 0.0);
 		assert_eq!(a.dot(&b), -1.0);
 	}
 
 	#[test]
 	fn length() {
-		assert_eq!(Quaternion::from_xyzw(5.0, 3.0, 1.0, -1.0).length(), 6.0);
+		assert_eq!(Quaternion::from(5.0, 3.0, 1.0, -1.0).length(), 6.0);
 	}
 
 	#[test]
 	fn length_sq() {
-		assert_eq!(Quaternion::from_xyzw(5.0, 3.0, 1.0, -1.0).length_sq(), 36.0);
+		assert_eq!(Quaternion::from(5.0, 3.0, 1.0, -1.0).length_sq(), 36.0);
 	}
 
 	#[test]
 	fn normalize() {
-		let mut q = Quaternion::from_xyzw(0.0, 0.0, 0.0, 0.0);
+		let mut q = Quaternion::from(0.0, 0.0, 0.0, 0.0);
 		q.normalize();
 		assert_eq!(q, Quaternion{ x: 0.0, y: 0.0, z: 0.0, w: 1.0 });
 
-		q.set_from_xyzw(5.0, 3.0, 1.0, -1.0);
+		q.set(5.0, 3.0, 1.0, -1.0);
 		q.normalize();
-		assert!(q.approx_eq(&Quaternion{ x: 0.833, y: 0.5, z: 0.166, w: -0.166 }, 0.001));
+		assert_approx_eq(&q, &Quaternion{ x: 0.833, y: 0.5, z: 0.166, w: -0.166 }, 0.001);
 	}
 
 	#[test]
 	fn mul() {
-		let a = Quaternion::from_xyzw(3.0, 1.0, 2.0, 4.0);
-		let b = Quaternion::from_xyzw(2.0, 5.0, 3.0, 1.0);
+		let a = Quaternion::from(3.0, 1.0, 2.0, 4.0);
+		let b = Quaternion::from(2.0, 5.0, 3.0, 1.0);
 		assert_eq!(a * b, Quaternion{ x: 4.0, y: 16.0, z: 27.0, w: -13.0 });
 	}
 
 	#[test]
 	fn mul_assign() {
-		let mut a = Quaternion::from_xyzw(3.0, 1.0, 2.0, 4.0);
-		a *= Quaternion::from_xyzw(2.0, 5.0, 3.0, 1.0);
+		let mut a = Quaternion::from(3.0, 1.0, 2.0, 4.0);
+		a *= Quaternion::from(2.0, 5.0, 3.0, 1.0);
 		assert_eq!(a, Quaternion{ x: 4.0, y: 16.0, z: 27.0, w: -13.0 });
 	}
 
 	#[test]
-	fn eq() {
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		assert_eq!(a, b);
-	}
-
-	#[test]
 	fn approx_eq() {
-		let a = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		let b = Quaternion::from_xyzw(1.0, 2.0, 3.0, 4.0);
-		crate::math::assert_approx_eq(&a, &b, 0.0);
+		let a = Quaternion::from(1.0, 2.0, 3.0, 4.0);
+		let b = Quaternion::from(1.0, 2.0, 3.0, 4.0);
+		assert_approx_eq(&a, &b, 0.0);
 	}
 }

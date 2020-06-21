@@ -30,25 +30,25 @@ fn main() {
 	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	static_triangle.position = math::Vector3::from_xyz(0.0, 1.0, 1.7);
+	static_triangle.position = math::Vector3::from(0.0, 1.0, 1.7);
 	static_triangle.update_matrix();
 
 	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}));
-	static_plane.position = math::Vector3::from_xyz(0.0, 1.0, 2.0);
+	static_plane.position = math::Vector3::from(0.0, 1.0, 2.0);
 	static_plane.update_matrix();
 
 	let mut static_box = Mesh::new(Box::new(geometry::Box {}));
-	static_box.position = math::Vector3::from_xyz(-2.0, 0.0, 0.0);
+	static_box.position = math::Vector3::from(-2.0, 0.0, 0.0);
 	static_box.update_matrix();
 
 	let static_meshes = vec![static_triangle, static_plane, static_box];
 	renderer.submit_static_meshes(&static_meshes);
 
 	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}));
-	dynamic_triangle.position = math::Vector3::from_xyz(-0.5, -0.6, 2.0);
+	dynamic_triangle.position = math::Vector3::from(-0.5, -0.6, 2.0);
 
 	let mut dynamic_plane = Mesh::new(Box::new(geometry::Plane {}));
-	dynamic_plane.position = math::Vector3::from_xyz(0.5, -0.6, 2.0);
+	dynamic_plane.position = math::Vector3::from(0.5, -0.6, 2.0);
 
 	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane];
 

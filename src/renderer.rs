@@ -61,7 +61,7 @@ struct StaticMeshResouces<'a> {
 
 impl<'a> Renderer<'a> {
 	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
-		let render_pass = Self::render_pass(&context);
+		let render_pass = Self::create_render_pass(&context);
 		let command_pool = Self::create_command_pool(&context);
 		let swapchain = Self::create_swapchain(&context, width, height, &command_pool, &render_pass);
 		let pipeline = Self::create_pipeline(&context, &swapchain, &render_pass);
@@ -82,7 +82,7 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	fn render_pass(context: &Context) -> vk::RenderPass {
+	fn create_render_pass(context: &Context) -> vk::RenderPass {
 		let color_attachment_description = vk::AttachmentDescription::builder()
 			.format(context.surface.format.format)
 			.samples(vk::SampleCountFlags::TYPE_1)
