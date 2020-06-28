@@ -1,19 +1,21 @@
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
-use crate::{vulkan::Context, vulkan::Buffer, Mesh, Camera};
-use std::{mem, mem::size_of};
+use crate::{vulkan::Context, vulkan::Buffer, mesh, Mesh, Camera};
+use std::{mem, mem::size_of, ffi::CStr, ffi::CString};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 
 pub struct Renderer<'a> {
 	context: &'a Context,
 	render_pass: vk::RenderPass,
-	command_pool: vk::CommandPool,
 	swapchain: Swapchain,
-	pipeline: Pipeline,
+	shared_pipeline_resources: SharedPipelineResources,
+	basic_pipeline: vk::Pipeline,
+	lambert_pipeline: vk::Pipeline,
 	descriptor_pool: vk::DescriptorPool,
+	command_pool: vk::CommandPool,
 	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	static_mesh_content: StaticMeshResouces<'a>
+	static_mesh_resources: StaticMeshResouces<'a>
 }
 
 struct Swapchain {
@@ -33,21 +35,22 @@ struct DepthImageResources {
 struct SwapchainFrame {
 	image_view: vk::ImageView,
 	framebuffer: vk::Framebuffer,
-	command_buffer: vk::CommandBuffer,
 	fence: vk::Fence
 }
 
-struct Pipeline {
-	handle: vk::Pipeline,
-	pipeline_layout: vk::PipelineLayout,
+struct SharedPipelineResources {
 	static_descriptor_set_layout: vk::DescriptorSetLayout,
-	dynamic_descriptor_set_layout: vk::DescriptorSetLayout
+	dynamic_descriptor_set_layout: vk::DescriptorSetLayout,
+	pipeline_layout: vk::PipelineLayout
 }
 
 struct InFlightFrame<'a> {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
 	fence: vk::Fence,
+	primary_command_buffer: vk::CommandBuffer,
+	basic_secondary_command_buffer: vk::CommandBuffer,
+	lambert_secondary_command_buffer: vk::CommandBuffer,
 	buffer: Buffer<'a>,
 	projection_view_matrix_descriptor_set: vk::DescriptorSet,
 	model_matrix_descriptor_set: vk::DescriptorSet
@@ -56,29 +59,42 @@ struct InFlightFrame<'a> {
 struct StaticMeshResouces<'a> {
 	buffer: Buffer<'a>,
 	model_matrix_descriptor_set: vk::DescriptorSet,
-	chunk_sizes: Vec<[usize; 5]>
+	render_info: Vec<RenderInfo>
+}
+
+struct RenderInfo {
+	base_offset: usize,
+	index_count: usize,
+	index_size: usize,
+	index_padding_size: usize,
+	attribute_size: usize,
+	attribute_padding_size: usize,
+	material: mesh::Material
 }
 
 impl<'a> Renderer<'a> {
 	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
 		let render_pass = Self::create_render_pass(&context);
-		let command_pool = Self::create_command_pool(&context);
-		let swapchain = Self::create_swapchain(&context, width, height, &command_pool, &render_pass);
-		let pipeline = Self::create_pipeline(&context, &swapchain, &render_pass);
+		let swapchain = Self::create_swapchain(&context, width, height, &render_pass);
+		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, swapchain.extent, &shared_pipeline_resources.pipeline_layout, &render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(&context);
-		let in_flight_frames = Self::create_in_flight_frames(&context, &descriptor_pool, &pipeline.static_descriptor_set_layout, &pipeline.dynamic_descriptor_set_layout);
-		let static_mesh_content = Self::create_static_mesh_content(&context, &descriptor_pool, &pipeline.dynamic_descriptor_set_layout);
+		let command_pool = Self::create_command_pool(&context);
+		let in_flight_frames = Self::create_in_flight_frames(&context, &descriptor_pool, &command_pool, &shared_pipeline_resources.static_descriptor_set_layout, &shared_pipeline_resources.dynamic_descriptor_set_layout);
+		let static_mesh_resources = Self::create_static_mesh_resources(&context, &descriptor_pool, &shared_pipeline_resources.dynamic_descriptor_set_layout);
 
 		Self {
 			context,
 			render_pass,
 			command_pool,
 			swapchain,
-			pipeline,
+			shared_pipeline_resources,
+			basic_pipeline,
+			lambert_pipeline,
 			descriptor_pool,
 			in_flight_frames,
 			current_in_flight_frame: 0,
-			static_mesh_content
+			static_mesh_resources
 		}
 	}
 
@@ -137,15 +153,7 @@ impl<'a> Renderer<'a> {
 		unsafe { context.logical_device.create_render_pass(&render_pass_create_info, None).unwrap() }
 	}
 
-	fn create_command_pool(context: &Context) -> vk::CommandPool {
-		let create_info = vk::CommandPoolCreateInfo::builder()
-			.queue_family_index(context.physical_device.graphics_queue_family)
-			.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
-
-		unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
-	}
-
-	fn create_swapchain(context: &Context, width: u32, height: u32, command_pool: &vk::CommandPool, render_pass: &vk::RenderPass) -> Swapchain {
+	fn create_swapchain(context: &Context, width: u32, height: u32, render_pass: &vk::RenderPass) -> Swapchain {
 		// Get present mode
 		let present_modes = unsafe { context.surface.extension.get_physical_device_surface_present_modes(context.physical_device.handle, context.surface.handle).unwrap() };
 		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
@@ -197,14 +205,6 @@ impl<'a> Renderer<'a> {
 		let extension = khr::Swapchain::new(&context.instance, &context.logical_device);
 		let handle = unsafe { extension.create_swapchain(&swapchain_create_info, None).unwrap() };
 		let images = unsafe { extension.get_swapchain_images(handle).unwrap() };
-
-		// Create command buffers
-		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-			.command_pool(*command_pool)
-			.level(vk::CommandBufferLevel::PRIMARY)
-			.command_buffer_count(images.len() as u32);
-		
-		let command_buffers = unsafe { context.logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap() };
 
 		// Ensure D32_SFLOAT format is supported for depth buffering
 		let required_format = vk::Format::D32_SFLOAT;
@@ -308,7 +308,6 @@ impl<'a> Renderer<'a> {
 			frames.push(SwapchainFrame {
 				image_view,
 				framebuffer,
-				command_buffer: command_buffers[i],
 				fence
 			});
 		}
@@ -322,8 +321,8 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	fn create_pipeline(context: &Context, swapchain: &Swapchain, render_pass: &vk::RenderPass) -> Pipeline {
-		// Create descriptor set layouts
+	fn create_shared_pipeline_resouces(context: &Context) -> SharedPipelineResources {
+		// Create static descriptor set layout
 		let static_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -336,6 +335,7 @@ impl<'a> Renderer<'a> {
 
 		let static_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&static_create_info, None).unwrap() };
 
+		// Create dynamic descriptor set layout
 		let dynamic_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -348,52 +348,26 @@ impl<'a> Renderer<'a> {
 
 		let dynamic_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&dynamic_create_info, None).unwrap() };
 
+		// Create pipeline layout
 		let descriptor_set_layouts = [static_descriptor_set_layout, dynamic_descriptor_set_layout];
 
-		// Create layout
 		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
 			.set_layouts(&descriptor_set_layouts);
 
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
-		// Create handle
-		let handle = Self::create_pipeline_handle(context, swapchain, &pipeline_layout, render_pass);
-
-		Pipeline {
-			handle,
-			pipeline_layout,
+		SharedPipelineResources {
 			static_descriptor_set_layout,
-			dynamic_descriptor_set_layout
+			dynamic_descriptor_set_layout,
+			pipeline_layout
 		}
 	}
 
-	fn create_pipeline_handle(context: &Context, swapchain: &Swapchain, pipeline_layout: &vk::PipelineLayout, render_pass: &vk::RenderPass) -> vk::Pipeline {
-		let mut curr_dir = std::env::current_exe().unwrap();
-		curr_dir.pop();
-
-		let mut vert_file = std::fs::File::open(curr_dir.join("vert.spv").as_path()).unwrap();
-		let mut frag_file = std::fs::File::open(curr_dir.join("frag.spv").as_path()).unwrap();
-		let vert_file_contents = ash::util::read_spv(&mut vert_file).unwrap();
-		let frag_file_contents = ash::util::read_spv(&mut frag_file).unwrap();
-		
-		let vert_create_info = vk::ShaderModuleCreateInfo::builder().code(&vert_file_contents);
-		let frag_create_info = vk::ShaderModuleCreateInfo::builder().code(&frag_file_contents);
-		let vert_shader_module = unsafe { context.logical_device.create_shader_module(&vert_create_info, None).unwrap() };
-		let frag_shader_module = unsafe { context.logical_device.create_shader_module(&frag_create_info, None).unwrap() };
-
-		let entry_point = std::ffi::CString::new("main").unwrap();
-
-		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::VERTEX)
-			.module(vert_shader_module)
-			.name(entry_point.as_c_str());
-
-		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::FRAGMENT)
-			.module(frag_shader_module)
-			.name(entry_point.as_c_str());
-		
-		let stages = [vert_stage_create_info.build(), frag_stage_create_info.build()];
+	fn create_pipelines(context: &Context, swapchain_extent: vk::Extent2D, pipeline_layout: &vk::PipelineLayout, render_pass: &vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
+		let shader_entry_point_cstring = CString::new("main").unwrap();
+		let shader_entry_point_cstr = shader_entry_point_cstring.as_c_str();
+		let (basic_shader_modules, basic_stages) = Self::create_pipeline_stages(context, "basic", shader_entry_point_cstr);
+		let (lambert_shader_modules, lambert_stages) = Self::create_pipeline_stages(context, "lambert", shader_entry_point_cstr);
 
 		let vert_input_binding_description = vk::VertexInputBindingDescription::builder()
 			.binding(0)
@@ -419,15 +393,15 @@ impl<'a> Renderer<'a> {
 		let viewport = vk::Viewport::builder()
 			.x(0.0)
 			.y(0.0)
-			.width(swapchain.extent.width as f32)
-			.height(swapchain.extent.height as f32)
+			.width(swapchain_extent.width as f32)
+			.height(swapchain_extent.height as f32)
 			.min_depth(0.0)
 			.max_depth(1.0);
 		let viewports = [viewport.build()];
 		
 		let scissor = vk::Rect2D::builder()
 			.offset(vk::Offset2D::builder().x(0).y(0).build())
-			.extent(swapchain.extent);
+			.extent(swapchain_extent);
 		let scissors = [scissor.build()];
 		
 		let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
@@ -463,8 +437,8 @@ impl<'a> Renderer<'a> {
 			.logic_op_enable(false)
 			.attachments(&color_blend_attachment_states);
 
-		let pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-			.stages(&stages)
+		let basic_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+			.stages(&basic_stages)
 			.vertex_input_state(&vert_input_state_create_info)
 			.input_assembly_state(&input_assembly_state_create_info)
 			.viewport_state(&viewport_state_create_info)
@@ -475,16 +449,58 @@ impl<'a> Renderer<'a> {
 			.layout(*pipeline_layout)
 			.render_pass(*render_pass)
 			.subpass(0);
-		let pipeline_create_infos = [pipeline_create_info.build()];
 		
+		let lambert_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+			.stages(&lambert_stages)
+			.vertex_input_state(&vert_input_state_create_info)
+			.input_assembly_state(&input_assembly_state_create_info)
+			.viewport_state(&viewport_state_create_info)
+			.rasterization_state(&rasterization_state_create_info)
+			.multisample_state(&multisample_state_create_info)
+			.depth_stencil_state(&depth_stencil_state_create_info)
+			.color_blend_state(&color_blend_state_create_info)
+			.layout(*pipeline_layout)
+			.render_pass(*render_pass)
+			.subpass(0);
+		
+		let pipeline_create_infos = [basic_pipeline_create_info.build(), lambert_pipeline_create_info.build()];
 		let pipelines = unsafe { context.logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None).unwrap() };
 
 		unsafe {
-			context.logical_device.destroy_shader_module(vert_shader_module, None);
-			context.logical_device.destroy_shader_module(frag_shader_module, None);
+			context.logical_device.destroy_shader_module(basic_shader_modules[0], None);
+			context.logical_device.destroy_shader_module(basic_shader_modules[1], None);
+			context.logical_device.destroy_shader_module(lambert_shader_modules[0], None);
+			context.logical_device.destroy_shader_module(lambert_shader_modules[1], None);
 		}
 
-		pipelines[0]
+		(pipelines[0], pipelines[1])
+	}
+
+	fn create_pipeline_stages(context: &Context, filename: &str, entry_point: &CStr) -> ([vk::ShaderModule; 2], [vk::PipelineShaderStageCreateInfo; 2]) {
+		let mut curr_dir = std::env::current_exe().unwrap();
+		curr_dir.pop();
+
+		let mut vert_file = std::fs::File::open(curr_dir.join(filename.to_owned() + ".vert.spv").as_path()).unwrap();
+		let mut frag_file = std::fs::File::open(curr_dir.join(filename.to_owned() + ".frag.spv").as_path()).unwrap();
+		let vert_file_contents = ash::util::read_spv(&mut vert_file).unwrap();
+		let frag_file_contents = ash::util::read_spv(&mut frag_file).unwrap();
+		
+		let vert_create_info = vk::ShaderModuleCreateInfo::builder().code(&vert_file_contents);
+		let frag_create_info = vk::ShaderModuleCreateInfo::builder().code(&frag_file_contents);
+		let vert_shader_module = unsafe { context.logical_device.create_shader_module(&vert_create_info, None).unwrap() };
+		let frag_shader_module = unsafe { context.logical_device.create_shader_module(&frag_create_info, None).unwrap() };
+
+		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.module(vert_shader_module)
+			.name(entry_point);
+
+		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.module(frag_shader_module)
+			.name(entry_point);
+		
+		([vert_shader_module, frag_shader_module], [vert_stage_create_info.build(), frag_stage_create_info.build()])
 	}
 
 	fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
@@ -507,9 +523,18 @@ impl<'a> Renderer<'a> {
 		unsafe { context.logical_device.create_descriptor_pool(&create_info, None).unwrap() }
 	}
 
+	fn create_command_pool(context: &Context) -> vk::CommandPool {
+		let create_info = vk::CommandPoolCreateInfo::builder()
+			.queue_family_index(context.physical_device.graphics_queue_family)
+			.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
+
+		unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
+	}
+
 	fn create_in_flight_frames(
 		context: &Context,
 		descriptor_pool: &vk::DescriptorPool,
+		command_pool: &vk::CommandPool,
 		static_descriptor_set_layout: &vk::DescriptorSetLayout,
 		dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT]
 	{
@@ -517,13 +542,27 @@ impl<'a> Renderer<'a> {
 		let fence_create_info = vk::FenceCreateInfo::builder()
 			.flags(vk::FenceCreateFlags::SIGNALED);
 
+		let primary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+			.command_pool(*command_pool)
+			.level(vk::CommandBufferLevel::PRIMARY)
+			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32);
+		
+		let primary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&primary_command_buffer_allocate_info).unwrap() };
+
+		let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+			.command_pool(*command_pool)
+			.level(vk::CommandBufferLevel::SECONDARY)
+			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 2);
+		
+		let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info).unwrap() };
+
 		let dynamic_descriptor_set_layouts = [*static_descriptor_set_layout, *dynamic_descriptor_set_layout];
 		let dynamic_descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 			.descriptor_pool(*descriptor_pool)
 			.set_layouts(&dynamic_descriptor_set_layouts);
 
 		let mut frames: [mem::MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { mem::MaybeUninit::uninit().assume_init() };
-		for frame in &mut frames {
+		for (i, frame) in frames.iter_mut().enumerate() {
 			let image_available = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None).unwrap() };
@@ -548,6 +587,9 @@ impl<'a> Renderer<'a> {
 				image_available,
 				render_finished,
 				fence,
+				primary_command_buffer: primary_command_buffers[i],
+				basic_secondary_command_buffer: secondary_command_buffers[i * 2],
+				lambert_secondary_command_buffer: secondary_command_buffers[i * 2 + 1],
 				buffer,
 				projection_view_matrix_descriptor_set,
 				model_matrix_descriptor_set
@@ -600,7 +642,7 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
-	fn create_static_mesh_content(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshResouces<'a> {
+	fn create_static_mesh_resources(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshResouces<'a> {
 		let buffer = Buffer::null(
 			context,
 			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
@@ -616,7 +658,7 @@ impl<'a> Renderer<'a> {
 		StaticMeshResouces {
 			buffer,
 			model_matrix_descriptor_set,
-			chunk_sizes: vec![]
+			render_info: vec![]
 		}
 	}
 
@@ -625,24 +667,26 @@ impl<'a> Renderer<'a> {
 
 		unsafe {
 			logical_device.device_wait_idle().unwrap();
-			logical_device.destroy_pipeline(self.pipeline.handle, None);
-			let mut command_buffers: Vec<vk::CommandBuffer> = Vec::with_capacity(self.swapchain.frames.len());
+			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 
 			for frame in &self.swapchain.frames {
-				command_buffers.push(frame.command_buffer);
 				logical_device.destroy_framebuffer(frame.framebuffer, None);
 				logical_device.destroy_image_view(frame.image_view, None);
 			}
 
-			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 			logical_device.free_memory(self.swapchain.depth_image_resources.memory, None);
 			logical_device.destroy_image_view(self.swapchain.depth_image_resources.image_view, None);
 			logical_device.destroy_image(self.swapchain.depth_image_resources.image, None);
 			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 		}
 
-		self.swapchain = Self::create_swapchain(&self.context, width, height, &self.command_pool, &self.render_pass);
-		self.pipeline.handle = Self::create_pipeline_handle(&self.context, &self.swapchain, &self.pipeline.pipeline_layout, &self.render_pass);
+		self.swapchain = Self::create_swapchain(&self.context, width, height, &self.render_pass);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(self.context, self.swapchain.extent, &self.shared_pipeline_resources.pipeline_layout, &self.render_pass);
+		self.basic_pipeline = basic_pipeline;
+		self.lambert_pipeline = lambert_pipeline;
+
+		println!("Swapchain recreated");
 	}
 
 	pub fn submit_static_meshes(&mut self, meshes: &[Mesh]) {
@@ -651,22 +695,34 @@ impl<'a> Renderer<'a> {
 		// Wait for rendering operations to finish
 		unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
 
-		// Calculate total memory size and chunk sizes
+		// Calculate total memory size and render info
 		let mut total_size = 0;
-		let mut chunk_sizes: Vec<[usize; 5]> = Vec::with_capacity(meshes.len());
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
+		self.static_mesh_resources.render_info.clear();
 
 		for mesh in meshes {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
+			let index_count = indices.len();
 			let index_size = indices.len() * size_of::<u16>();
 			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
 			let attribute_size = attributes.len() * size_of::<f32>();
-			let attribute_padding = uniform_alignment - (total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
+			let attribute_padding_size = uniform_alignment - (total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
 			let uniform_size = 16 * size_of::<f32>();
-			chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding, indices.len()]);
-			total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
+
+			self.static_mesh_resources.render_info.push(RenderInfo {
+				base_offset: total_size,
+				index_count,
+				index_size,
+				index_padding_size,
+				attribute_size,
+				attribute_padding_size,
+				material: mesh.material
+			});
+
+			total_size += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
+
 		let total_size = total_size as u64;
 
 		// Create a host visible staging buffer
@@ -678,33 +734,26 @@ impl<'a> Renderer<'a> {
 		
 		// Copy mesh data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
-		let mut mesh_offset = 0;
 
 		for (i, mesh) in meshes.iter().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
-			let index_size = chunk_sizes[i][0];
-			let index_padding_size = chunk_sizes[i][1];
-			let attribute_size = chunk_sizes[i][2];
-			let attribute_padding_size = chunk_sizes[i][3];
-			let uniform_size = 16 * size_of::<f32>();
+			let render_info = &self.static_mesh_resources.render_info[i];
 
 			unsafe {
-				let index_offset = mesh_offset;
+				let index_offset = render_info.base_offset;
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_offset = index_offset + index_size + index_padding_size;
+				let attribute_offset = index_offset + render_info.index_size + render_info.index_padding_size;
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
+				let model_matrix_offset = attribute_offset + render_info.attribute_size + render_info.attribute_padding_size;
 				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
 				let model_matrix = &mesh.model_matrix.elements;
 				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 			}
-
-			mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
 
 		unsafe {
@@ -718,8 +767,8 @@ impl<'a> Renderer<'a> {
 		}
 		
 		// Resize device local memory buffer if necessary
-		if total_size > self.static_mesh_content.buffer.capacity {
-			self.static_mesh_content.buffer.reallocate(total_size);
+		if total_size > self.static_mesh_resources.buffer.capacity {
+			self.static_mesh_resources.buffer.reallocate(total_size);
 		}
 		
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
@@ -739,7 +788,7 @@ impl<'a> Renderer<'a> {
 		
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_content.buffer.handle, &regions);
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_resources.buffer.handle, &regions);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
@@ -756,13 +805,13 @@ impl<'a> Renderer<'a> {
 		
 		// Update the descriptor set to reference the device local buffer
 		let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(self.static_mesh_content.buffer.handle)
+			.buffer(self.static_mesh_resources.buffer.handle)
 			.offset(0)
 			.range(16 * size_of::<f32>() as u64);
 		let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
 
 		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.static_mesh_content.model_matrix_descriptor_set)
+			.dst_set(self.static_mesh_resources.model_matrix_descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -772,9 +821,6 @@ impl<'a> Renderer<'a> {
 		let copy_descriptor_sets = [];
 		
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
-
-		// Save chunk sizes for recording command buffers later
-		self.static_mesh_content.chunk_sizes = chunk_sizes;
 	}
 
 	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &[Mesh]) {
@@ -846,50 +892,9 @@ impl<'a> Renderer<'a> {
 				&in_flight_frame.buffer.handle);
 		}
 
-		// Record the command buffers
-		let color_attachment_clear_value = vk::ClearValue {
-			color: vk::ClearColorValue {
-				float32: [0.0, 0.0, 0.0, 1.0]
-			}
-		};
-		let depth_attachment_clear_value = vk::ClearValue {
-			depth_stencil: vk::ClearDepthStencilValue {
-				depth: 1.0,
-				stencil: 0,
-			}
-		};
-		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder();
-
-		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-			.render_pass(self.render_pass)
-			.framebuffer(swapchain_frame.framebuffer)
-			.render_area(vk::Rect2D::builder()
-				.offset(vk::Offset2D::builder().x(0).y(0).build())
-				.extent(self.swapchain.extent)
-				.build())
-			.clear_values(&clear_colors);
-		
-		unsafe {
-			logical_device.begin_command_buffer(swapchain_frame.command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_begin_render_pass(swapchain_frame.command_buffer, &render_pass_begin_info, vk::SubpassContents::INLINE);
-			logical_device.cmd_bind_pipeline(swapchain_frame.command_buffer, vk::PipelineBindPoint::GRAPHICS, self.pipeline.handle);
-			
-			let descriptor_sets = [in_flight_frame.projection_view_matrix_descriptor_set];
-			let dynamic_offsets = [];
-			logical_device.cmd_bind_descriptor_sets(
-				swapchain_frame.command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline.pipeline_layout,
-				0,
-				&descriptor_sets,
-				&dynamic_offsets);
-		}
-		
+		// Copy projection and view matrix into dynamic memory buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 		
-		// Copy projection and view matrix into dynamic memory buffer
 		unsafe {
 			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
 			let projection_matrix = &camera.projection_matrix.elements;
@@ -900,45 +905,49 @@ impl<'a> Renderer<'a> {
 			std::ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
 		}
 
-		// Record static mesh command buffers
-		let mut static_mesh_offset = 0;
-		for chunk_size in &self.static_mesh_content.chunk_sizes {
-			let index_size = chunk_size[0];
-			let index_padding_size = chunk_size[1];
-			let attribute_size = chunk_size[2];
-			let attribute_padding_size = chunk_size[3];
-			let uniform_size = 16 * size_of::<f32>();
-			let index_count = chunk_size[4];
+		// Begin the secondary command buffers
+		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
+			.render_pass(self.render_pass)
+			.subpass(0)
+			.framebuffer(swapchain_frame.framebuffer);
 
-			unsafe {
-				logical_device.cmd_bind_index_buffer(
-					swapchain_frame.command_buffer,
-					self.static_mesh_content.buffer.handle,
-					static_mesh_offset as u64,
-					vk::IndexType::UINT16);
-				
-				let vertex_buffers = [self.static_mesh_content.buffer.handle];
-				let vertex_offsets = [(static_mesh_offset + index_size + index_padding_size) as u64];
-				logical_device.cmd_bind_vertex_buffers(swapchain_frame.command_buffer, 0, &vertex_buffers, &vertex_offsets);
-				
-				let descriptor_sets = [self.static_mesh_content.model_matrix_descriptor_set];
-				let dynamic_offsets = [(static_mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
-				logical_device.cmd_bind_descriptor_sets(
-					swapchain_frame.command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.pipeline.pipeline_layout,
-					1,
-					&descriptor_sets,
-					&dynamic_offsets);
-				
-				logical_device.cmd_draw_indexed(swapchain_frame.command_buffer, index_count as u32, 1, 0, 0, 0);
-			}
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+			.inheritance_info(&command_buffer_inheritance_info);
+		
+		let descriptor_sets = [in_flight_frame.projection_view_matrix_descriptor_set];
+		let dynamic_offsets = [];
+		
+		unsafe {
+			logical_device.begin_command_buffer(in_flight_frame.basic_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				in_flight_frame.basic_secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.shared_pipeline_resources.pipeline_layout,
+				0,
+				&descriptor_sets,
+				&dynamic_offsets);
 
-			static_mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
+			logical_device.begin_command_buffer(in_flight_frame.lambert_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				in_flight_frame.lambert_secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.shared_pipeline_resources.pipeline_layout,
+				0,
+				&descriptor_sets,
+				&dynamic_offsets);
 		}
 
-		// Copy dynamic mesh data into buffer and record dynamic mesh command buffers
-		let mut dynamic_mesh_offset = dynamic_mesh_initial_chunk_size;
+		let find_secondary_command_buffer_from_material = |m: mesh::Material|
+			match m {
+				mesh::Material::Basic => in_flight_frame.basic_secondary_command_buffer,
+				mesh::Material::Lambert => in_flight_frame.lambert_secondary_command_buffer
+			};
+
+		// Record dynamic mesh commands and copy dynamic mesh data into dynamic buffer
+		let mut base_offset = dynamic_mesh_initial_chunk_size;
 		for (i, mesh) in dynamic_meshes.iter().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
@@ -950,7 +959,7 @@ impl<'a> Renderer<'a> {
 
 			unsafe {
 				// Copy index, attribute and uniform buffer objects into memory buffer
-				let index_offset = dynamic_mesh_offset;
+				let index_offset = base_offset;
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
@@ -964,35 +973,67 @@ impl<'a> Renderer<'a> {
 				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 
 				// Record draw commands
+				let secondary_command_buffer = find_secondary_command_buffer_from_material(mesh.material);
+
 				logical_device.cmd_bind_index_buffer(
-					swapchain_frame.command_buffer,
+					secondary_command_buffer,
 					in_flight_frame.buffer.handle,
-					dynamic_mesh_offset as u64,
+					base_offset as u64,
 					vk::IndexType::UINT16);
 				
 				let vertex_buffers = [in_flight_frame.buffer.handle];
-				let vertex_offsets = [(dynamic_mesh_offset + index_size + index_padding_size) as u64];
-				logical_device.cmd_bind_vertex_buffers(swapchain_frame.command_buffer, 0, &vertex_buffers, &vertex_offsets);
+				let vertex_offsets = [(base_offset + index_size + index_padding_size) as u64];
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
 				
 				let descriptor_sets = [in_flight_frame.model_matrix_descriptor_set];
-				let dynamic_offsets = [(dynamic_mesh_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
+				let dynamic_offsets = [(base_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
 				logical_device.cmd_bind_descriptor_sets(
-					swapchain_frame.command_buffer,
+					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
-					self.pipeline.pipeline_layout,
+					self.shared_pipeline_resources.pipeline_layout,
 					1,
 					&descriptor_sets,
 					&dynamic_offsets);
 				
-				logical_device.cmd_draw_indexed(swapchain_frame.command_buffer, indices.len() as u32, 1, 0, 0, 0);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
 
-			dynamic_mesh_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
+			base_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
 
+		// Record static mesh commands
+		for render_info in &self.static_mesh_resources.render_info {
+			let secondary_command_buffer = find_secondary_command_buffer_from_material(render_info.material);
+
+			unsafe {
+				logical_device.cmd_bind_index_buffer(
+					secondary_command_buffer,
+					self.static_mesh_resources.buffer.handle,
+					render_info.base_offset as u64,
+					vk::IndexType::UINT16);
+				
+				let vertex_buffers = [self.static_mesh_resources.buffer.handle];
+				let vertex_offsets = [(render_info.base_offset + render_info.index_size + render_info.index_padding_size) as u64];
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
+				
+				let descriptor_sets = [self.static_mesh_resources.model_matrix_descriptor_set];
+				let dynamic_offsets = [(render_info.base_offset + render_info.index_size + render_info.index_padding_size + render_info.attribute_size + render_info.attribute_padding_size) as u32];
+				logical_device.cmd_bind_descriptor_sets(
+					secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.shared_pipeline_resources.pipeline_layout,
+					1,
+					&descriptor_sets,
+					&dynamic_offsets);
+				
+				logical_device.cmd_draw_indexed(secondary_command_buffer, render_info.index_count as u32, 1, 0, 0, 0);
+			}
+		}
+
+		// End secondary command buffers, flush & unmap dynamic memory buffer
 		unsafe {
-			logical_device.cmd_end_render_pass(swapchain_frame.command_buffer);
-			logical_device.end_command_buffer(swapchain_frame.command_buffer).unwrap();
+			logical_device.end_command_buffer(in_flight_frame.basic_secondary_command_buffer).unwrap();
+			logical_device.end_command_buffer(in_flight_frame.lambert_secondary_command_buffer).unwrap();
 
 			let ranges = [vk::MappedMemoryRange::builder()
 				.memory(in_flight_frame.buffer.memory)
@@ -1004,10 +1045,46 @@ impl<'a> Renderer<'a> {
 			logical_device.unmap_memory(in_flight_frame.buffer.memory);
 		}
 
+		// Record the primary command buffer
+		let color_attachment_clear_value = vk::ClearValue {
+			color: vk::ClearColorValue {
+				float32: [0.0, 0.0, 0.0, 1.0]
+			}
+		};
+		let depth_attachment_clear_value = vk::ClearValue {
+			depth_stencil: vk::ClearDepthStencilValue {
+				depth: 1.0,
+				stencil: 0,
+			}
+		};
+		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+			.render_pass(self.render_pass)
+			.framebuffer(swapchain_frame.framebuffer)
+			.render_area(vk::Rect2D::builder()
+				.offset(vk::Offset2D::builder().x(0).y(0).build())
+				.extent(self.swapchain.extent)
+				.build())
+			.clear_values(&clear_colors);
+		
+		let secondary_command_buffers = [in_flight_frame.basic_secondary_command_buffer, in_flight_frame.lambert_secondary_command_buffer];
+		
+		unsafe {
+			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_begin_render_pass(in_flight_frame.primary_command_buffer, &render_pass_begin_info, vk::SubpassContents::SECONDARY_COMMAND_BUFFERS);
+			logical_device.cmd_execute_commands(in_flight_frame.primary_command_buffer, &secondary_command_buffers);
+			logical_device.cmd_end_render_pass(in_flight_frame.primary_command_buffer);
+			logical_device.end_command_buffer(in_flight_frame.primary_command_buffer).unwrap();
+		}
+
 		// Wait for image to be available then submit command buffer
 		let image_available_semaphores = [in_flight_frame.image_available];
 		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-		let command_buffers = [swapchain_frame.command_buffer];
+		let command_buffers = [in_flight_frame.primary_command_buffer];
 		let render_finished_semaphores = [in_flight_frame.render_finished];
 		let submit_info = vk::SubmitInfo::builder()
 			.wait_semaphores(&image_available_semaphores)
@@ -1063,10 +1140,11 @@ impl<'a> Drop for Renderer<'a> {
 			}
 
 			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
-			logical_device.destroy_descriptor_set_layout(self.pipeline.dynamic_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.pipeline.static_descriptor_set_layout, None);
-			logical_device.destroy_pipeline_layout(self.pipeline.pipeline_layout, None);
-			logical_device.destroy_pipeline(self.pipeline.handle, None);
+			logical_device.destroy_descriptor_set_layout(self.shared_pipeline_resources.dynamic_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.shared_pipeline_resources.static_descriptor_set_layout, None);
+			logical_device.destroy_pipeline_layout(self.shared_pipeline_resources.pipeline_layout, None);
+			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 			
 			for frame in &self.swapchain.frames {
 				logical_device.destroy_framebuffer(frame.framebuffer, None);
