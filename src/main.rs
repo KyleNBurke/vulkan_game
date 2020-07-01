@@ -21,7 +21,7 @@ use camera::Camera;
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
-	let (mut window, events) = glfw.create_window(400, 400, "Vulkan", glfw::WindowMode::Windowed).unwrap();
+	let (mut window, events) = glfw.create_window(1280, 720, "Vulkan", glfw::WindowMode::Windowed).unwrap();
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
 
@@ -50,10 +50,13 @@ fn main() {
 	let mut dynamic_plane = Mesh::new(Box::new(geometry::Plane {}), mesh::Material::Lambert);
 	dynamic_plane.position = math::Vector3::from(0.5, -0.6, 2.0);
 
-	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane];
+	let mut dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	dynamic_box.position = math::Vector3::from(2.0, 0.0, 0.0);
+
+	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane, dynamic_box];
 
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
-	let mut camera = Camera::new(1.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
+	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -91,6 +94,9 @@ fn main() {
 
 		dynamic_meshes[1].rotate_y(0.0005);
 		dynamic_meshes[1].update_matrix();
+
+		dynamic_meshes[2].rotate_y(-0.0005);
+		dynamic_meshes[2].update_matrix();
 
 		camera.update(&window);
 

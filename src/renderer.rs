@@ -371,7 +371,7 @@ impl<'a> Renderer<'a> {
 
 		let vert_input_binding_description = vk::VertexInputBindingDescription::builder()
 			.binding(0)
-			.stride(12)
+			.stride(24)
 			.input_rate(vk::VertexInputRate::VERTEX);
 		let vert_input_binding_descriptions = [vert_input_binding_description.build()];
 		
@@ -379,13 +379,27 @@ impl<'a> Renderer<'a> {
 			.binding(0)
 			.location(0)
 			.format(vk::Format::R32G32B32_SFLOAT)
-			.offset(0);
-		let vert_input_attribute_descriptions = [vert_input_attribute_description_position.build()];
+			.offset(0)
+			.build();
+		
+		let vert_input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
+			.binding(0)
+			.location(1)
+			.format(vk::Format::R32G32B32_SFLOAT)
+			.offset(12)
+			.build();
 
-		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+		let basic_vert_input_attribute_descriptions = [vert_input_attribute_description_position];
+		let lambert_vert_input_attribute_descriptions = [vert_input_attribute_description_position, vert_input_attribute_description_normal];
+
+		let basic_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
 			.vertex_binding_descriptions(&vert_input_binding_descriptions)
-			.vertex_attribute_descriptions(&vert_input_attribute_descriptions);
+			.vertex_attribute_descriptions(&basic_vert_input_attribute_descriptions);
 
+		let lambert_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&vert_input_binding_descriptions)
+			.vertex_attribute_descriptions(&lambert_vert_input_attribute_descriptions);
+		
 		let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
 			.topology(vk::PrimitiveTopology::TRIANGLE_LIST)
 			.primitive_restart_enable(false);
@@ -439,7 +453,7 @@ impl<'a> Renderer<'a> {
 
 		let basic_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
 			.stages(&basic_stages)
-			.vertex_input_state(&vert_input_state_create_info)
+			.vertex_input_state(&basic_vert_input_state_create_info)
 			.input_assembly_state(&input_assembly_state_create_info)
 			.viewport_state(&viewport_state_create_info)
 			.rasterization_state(&rasterization_state_create_info)
@@ -452,7 +466,7 @@ impl<'a> Renderer<'a> {
 		
 		let lambert_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
 			.stages(&lambert_stages)
-			.vertex_input_state(&vert_input_state_create_info)
+			.vertex_input_state(&lambert_vert_input_state_create_info)
 			.input_assembly_state(&input_assembly_state_create_info)
 			.viewport_state(&viewport_state_create_info)
 			.rasterization_state(&rasterization_state_create_info)

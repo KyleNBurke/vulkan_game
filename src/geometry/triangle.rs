@@ -4,10 +4,10 @@ const VERTEX_INDICES: [u16; 3] = [
 	0, 1, 2
 ];
 
-const VERTEX_ATTRIBUTES: [f32; 9] = [
-	0.0, -0.5, 0.0,
-	0.5, 0.5, 0.0,
-	-0.5, 0.5, 0.0
+const VERTEX_ATTRIBUTES: [f32; 18] = [
+	 0.0, -0.5, 0.0, 0.0, 0.0, 1.0,
+	 0.5,  0.5, 0.0, 0.0, 0.0, 1.0,
+	-0.5,  0.5, 0.0, 0.0, 0.0, 1.0,
 ];
 
 pub struct Triangle {}
