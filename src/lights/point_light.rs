@@ -19,6 +19,15 @@ impl PointLight {
 			intensity: 1.0
 		}
 	}
+
+	pub fn from(color: Vector3, intensity: f32) -> Self {
+		Self {
+			position: Vector3::new(),
+			matrix: Matrix4::new(),
+			color,
+			intensity
+		}
+	}
 }
 
 impl Object3D for PointLight {

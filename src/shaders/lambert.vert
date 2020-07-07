@@ -26,6 +26,17 @@ layout(location = 1) in vec3 inNormal;
 layout(location = 0) out vec3 fragColor;
 
 void main() {
-	gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(inPosition, 1.0);
-	fragColor = vec3(1.0, 0.0, 0.0);
+	vec4 vertexPositionObjectSpaceVec4 = modelMatrix * vec4(inPosition, 1.0);
+	vec3 vertexPositionObjectSpaceVec3 = vec3(vertexPositionObjectSpaceVec4);
+	vec3 vertexNormalObjectSpace = mat3(transpose(inverse(modelMatrix))) * inNormal;
+	
+	gl_Position = projectionMatrix * viewMatrix * vertexPositionObjectSpaceVec4;
+
+	fragColor = ambientLight;
+
+	for (int i = 0; i < pointLightCount; i++) {
+		vec3 lightDirection = normalize(pointLights[i].position - vertexPositionObjectSpaceVec3);
+		float diffuse = max(dot(vertexNormalObjectSpace, lightDirection), 0.0f);
+		fragColor += pointLights[i].color * diffuse;
+	}
 }

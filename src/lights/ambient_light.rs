@@ -12,4 +12,11 @@ impl AmbientLight {
 			intensity: 1.0
 		}
 	}
+
+	pub fn from(color: Vector3, intensity: f32) -> Self {
+		Self {
+			color,
+			intensity
+		}
+	}
 }

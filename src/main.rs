@@ -43,16 +43,27 @@ fn main() {
 	static_box.position = math::Vector3::from(-2.0, 0.0, 0.0);
 	static_box.update_matrix();
 
-	let static_meshes = vec![static_triangle, static_plane, static_box];
+	let mut point_light_box1 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	point_light_box1.translate_y(-1.0);
+	*point_light_box1.scale_mut() = math::Vector3::from_scalar(0.2);
+	point_light_box1.update_matrix();
+
+	let mut point_light_box2 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	point_light_box2.translate_x(-1.0);
+	point_light_box2.translate_y(-1.0);
+	*point_light_box2.scale_mut() = math::Vector3::from_scalar(0.2);
+	point_light_box2.update_matrix();
+
+	let static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
 	renderer.submit_static_meshes(&static_meshes);
 
-	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Basic);
+	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Lambert);
 	dynamic_triangle.position = math::Vector3::from(-0.5, -0.6, 2.0);
 
 	let mut dynamic_plane = Mesh::new(Box::new(geometry::Plane {}), mesh::Material::Lambert);
 	dynamic_plane.position = math::Vector3::from(0.5, -0.6, 2.0);
 
-	let mut dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	let mut dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Lambert);
 	dynamic_box.position = math::Vector3::from(2.0, 0.0, 0.0);
 
 	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane, dynamic_box];
@@ -60,9 +71,14 @@ fn main() {
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
 
-	let ambient_light = lights::AmbientLight::new();
-	let point_light = lights::PointLight::new();
-	let point_lights = [point_light];
+	let ambient_light = lights::AmbientLight::from(math::Vector3::from_scalar(1.0), 0.01);
+
+	let mut point_light1 = lights::PointLight::from(math::Vector3::from_scalar(1.0), 0.3);
+	let mut point_light2 = lights::PointLight::from(math::Vector3::from_scalar(1.0), 0.3);
+	point_light1.translate_y(-1.0);
+	point_light2.translate_x(-1.0);
+	point_light2.translate_y(-1.0);
+	let point_lights = [point_light1, point_light2];
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -101,7 +117,7 @@ fn main() {
 		dynamic_meshes[1].rotate_y(0.0005);
 		dynamic_meshes[1].update_matrix();
 
-		dynamic_meshes[2].rotate_y(-0.0005);
+		dynamic_meshes[2].rotate_y(-0.0001);
 		dynamic_meshes[2].update_matrix();
 
 		camera.update(&window);
