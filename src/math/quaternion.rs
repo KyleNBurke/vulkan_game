@@ -2,6 +2,8 @@ use super::{Vector3, Euler, Order, ApproxEq};
 use std::ops::{Mul, MulAssign};
 use std::fmt::Display;
 
+pub const ZERO: Quaternion = Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 };
+
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct Quaternion {
 	pub x: f32,

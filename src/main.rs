@@ -18,6 +18,8 @@ use object3d::Object3D;
 mod camera;
 use camera::Camera;
 
+mod lights;
+
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
@@ -57,6 +59,10 @@ fn main() {
 
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
+
+	let ambient_light = lights::AmbientLight::new();
+	let point_light = lights::PointLight::new();
+	let point_lights = [point_light];
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -100,6 +106,6 @@ fn main() {
 
 		camera.update(&window);
 
-		renderer.render(&window, &camera, &dynamic_meshes);
+		renderer.render(&window, &camera, &dynamic_meshes, &ambient_light, &point_lights);
 	}
 }

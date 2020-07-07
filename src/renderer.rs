@@ -1,8 +1,16 @@
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
-use crate::{vulkan::Context, vulkan::Buffer, mesh, Mesh, Camera};
-use std::{mem, mem::size_of, ffi::CStr, ffi::CString};
+use crate::{
+	vulkan::{Context, Buffer},
+	mesh, Mesh,
+	Camera,
+	math::Vector3,
+	lights::{AmbientLight, PointLight}
+};
+use std::{mem, mem::size_of, ffi::CStr, ffi::CString, ptr};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
+const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
+const MAX_POINT_LIGHTS: usize = 5;
 
 pub struct Renderer<'a> {
 	context: &'a Context,
@@ -52,7 +60,7 @@ struct InFlightFrame<'a> {
 	basic_secondary_command_buffer: vk::CommandBuffer,
 	lambert_secondary_command_buffer: vk::CommandBuffer,
 	buffer: Buffer<'a>,
-	projection_view_matrix_descriptor_set: vk::DescriptorSet,
+	frame_data_descriptor_set: vk::DescriptorSet,
 	model_matrix_descriptor_set: vk::DescriptorSet
 }
 
@@ -583,17 +591,17 @@ impl<'a> Renderer<'a> {
 			
 			let buffer = Buffer::new(
 				context,
-				128,
+				FRAME_DATA_MEMORY_SIZE as u64,
 				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 				vk::MemoryPropertyFlags::HOST_VISIBLE);
 			
 			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&dynamic_descriptor_set_allocate_info).unwrap() };
-			let projection_view_matrix_descriptor_set = descriptor_sets[0];
+			let frame_data_descriptor_set = descriptor_sets[0];
 			let model_matrix_descriptor_set = descriptor_sets[1];
 
 			Self::update_in_flight_frame_descriptor_sets(
 				&context.logical_device,
-				&projection_view_matrix_descriptor_set,
+				&frame_data_descriptor_set,
 				&model_matrix_descriptor_set,
 				&buffer.handle);
 
@@ -605,7 +613,7 @@ impl<'a> Renderer<'a> {
 				basic_secondary_command_buffer: secondary_command_buffers[i * 2],
 				lambert_secondary_command_buffer: secondary_command_buffers[i * 2 + 1],
 				buffer,
-				projection_view_matrix_descriptor_set,
+				frame_data_descriptor_set,
 				model_matrix_descriptor_set
 			});
 		}
@@ -615,29 +623,29 @@ impl<'a> Renderer<'a> {
 
 	fn update_in_flight_frame_descriptor_sets(
 		logical_device: &ash::Device,
-		projection_view_matrix_descriptor_set: &vk::DescriptorSet,
+		frame_data_descriptor_set: &vk::DescriptorSet,
 		model_matrix_descriptor_set: &vk::DescriptorSet,
 		buffer: &vk::Buffer)
 	{
-		// Projection & view
-		let projection_view_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+		// Frame data
+		let frame_data_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
 			.buffer(*buffer)
 			.offset(0)
-			.range(32 * std::mem::size_of::<f32>() as u64);
-		let projection_view_matrix_descriptor_buffer_infos = [projection_view_matrix_descriptor_buffer_info.build()];
+			.range(FRAME_DATA_MEMORY_SIZE as u64);
+		let frame_data_descriptor_buffer_infos = [frame_data_descriptor_buffer_info.build()];
 
-		let projection_view_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(*projection_view_matrix_descriptor_set)
+		let frame_data_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(*frame_data_descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-			.buffer_info(&projection_view_matrix_descriptor_buffer_infos);
+			.buffer_info(&frame_data_descriptor_buffer_infos);
 
 		// Model
 		let model_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
 			.buffer(*buffer)
 			.offset(0)
-			.range(16 * std::mem::size_of::<f32>() as u64);
+			.range(16 * size_of::<f32>() as u64);
 		let model_matrix_descriptor_buffer_infos = [model_matrix_descriptor_buffer_info.build()];
 
 		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
@@ -648,7 +656,7 @@ impl<'a> Renderer<'a> {
 			.buffer_info(&model_matrix_descriptor_buffer_infos);
 
 		let write_descriptor_sets = [
-			projection_view_matrix_write_descriptor_set.build(),
+			frame_data_write_descriptor_set.build(),
 			model_matrix_write_descriptor_set.build()
 		];
 		let copy_descriptor_sets = [];
@@ -837,7 +845,9 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &[Mesh]) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &[Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight]) {
+		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
@@ -875,7 +885,7 @@ impl<'a> Renderer<'a> {
 		swapchain_frame.fence = in_flight_frame.fence;
 
 		// Calculate total required dynamic mesh memory size and chunk sizes
-		let dynamic_mesh_initial_chunk_size = 32 * size_of::<f32>();
+		let dynamic_mesh_initial_chunk_size = FRAME_DATA_MEMORY_SIZE;
 		let mut dynamic_mesh_total_size = dynamic_mesh_initial_chunk_size;
 		let mut dynamic_mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(dynamic_meshes.len());
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
@@ -901,22 +911,43 @@ impl<'a> Renderer<'a> {
 			// Update descriptor sets to refer to new memory buffer
 			Self::update_in_flight_frame_descriptor_sets(
 				&self.context.logical_device,
-				&in_flight_frame.projection_view_matrix_descriptor_set,
+				&in_flight_frame.frame_data_descriptor_set,
 				&in_flight_frame.model_matrix_descriptor_set,
 				&in_flight_frame.buffer.handle);
 		}
 
-		// Copy projection and view matrix into dynamic memory buffer
+		// Copy frame data into dynamic memory buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 		
 		unsafe {
 			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
 			let projection_matrix = &camera.projection_matrix.elements;
-			std::ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
+			ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
 
 			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
 			let inverse_view_matrix = &camera.inverse_view_matrix;
-			std::ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
+			ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
+
+			let ambient_light_dst_ptr = buffer_ptr.add(32 * size_of::<f32>()) as *mut Vector3;
+			let ambient_light_vec = ambient_light.color * ambient_light.intensity;
+			ptr::copy_nonoverlapping(&ambient_light_vec as *const Vector3, ambient_light_dst_ptr, 1);
+
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
+			let point_light_count = point_lights.len() as u32;
+			ptr::copy_nonoverlapping(&point_light_count as *const u32, point_light_count_dst_ptr, 1);
+
+			let position_base_offest = 36 * size_of::<f32>();
+			let color_base_offest = 40 * size_of::<f32>();
+			let stride = 8 * size_of::<f32>();
+
+			for (i, light) in point_lights.iter().enumerate() {
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * i) as *mut Vector3;
+				ptr::copy_nonoverlapping(&light.position as *const Vector3, position_dst_ptr, 1);
+
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * i) as *mut Vector3;
+				let color_vec = light.color * light.intensity;
+				ptr::copy_nonoverlapping(&color_vec as *const Vector3, color_dst_ptr, 1);
+			}
 		}
 
 		// Begin the secondary command buffers
@@ -929,7 +960,7 @@ impl<'a> Renderer<'a> {
 			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
 			.inheritance_info(&command_buffer_inheritance_info);
 		
-		let descriptor_sets = [in_flight_frame.projection_view_matrix_descriptor_set];
+		let descriptor_sets = [in_flight_frame.frame_data_descriptor_set];
 		let dynamic_offsets = [];
 		
 		unsafe {

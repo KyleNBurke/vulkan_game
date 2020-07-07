@@ -1,12 +1,22 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(set = 0, binding = 0, row_major) uniform ProjectionViewMatrix {
-	mat4 projectionMatrix;
-	mat4 viewMatrix;
+#define MAX_POINT_LIGHTS 5
+
+struct PointLight {
+	vec3 position;
+	vec3 color;
 };
 
-layout(set = 1, binding = 0, row_major) uniform ModelMatrix {
+layout(set = 0, binding = 0, std140, row_major) uniform FrameData {
+	mat4 projectionMatrix;
+	mat4 viewMatrix;
+	vec3 ambientLight;
+	uint pointLightCount;
+	PointLight pointLights[MAX_POINT_LIGHTS];
+};
+
+layout(set = 1, binding = 0, std140, row_major) uniform MeshData {
 	mat4 modelMatrix;
 };
 

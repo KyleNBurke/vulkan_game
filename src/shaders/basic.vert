@@ -1,12 +1,12 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(set = 0, binding = 0, row_major) uniform ProjectionViewMatrix {
+layout(set = 0, binding = 0, std140, row_major) uniform FrameData {
 	mat4 projectionMatrix;
 	mat4 viewMatrix;
 };
 
-layout(set = 1, binding = 0, row_major) uniform ModelMatrix {
+layout(set = 1, binding = 0, std140, row_major) uniform ModelMatrix {
 	mat4 modelMatrix;
 };
 
