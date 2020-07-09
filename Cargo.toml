@@ -6,11 +6,11 @@ edition = "2018"
 
 [lib]
 name = "engine"
-path = "src/engine/lib.rs"
+path = "engine/lib.rs"
 
 [[bin]]
 name = "game"
-path = "src/game/bin.rs"
+path = "game/bin.rs"
 
 [dependencies]
 ash = "0.31.0"
