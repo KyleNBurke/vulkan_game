@@ -1,6 +1,6 @@
 use crate::geometry::Geometry;
 use crate::math::{Vector3, Quaternion, Matrix4};
-use crate::Object3D;
+use crate::object3d::Object3D;
 
 #[derive(Copy, Clone)]
 pub enum Material {

@@ -1,8 +1,8 @@
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
 	vulkan::{Context, Buffer},
-	mesh, Mesh,
-	Camera,
+	mesh::{self, Mesh},
+	camera::Camera,
 	math::Vector3,
 	lights::{AmbientLight, PointLight}
 };

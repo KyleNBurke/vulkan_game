@@ -1,5 +1,5 @@
 use crate::math::{Vector3, Quaternion, Matrix4, euler, Euler};
-use crate::Object3D;
+use crate::object3d::Object3D;
 
 const TRANSLATION_SPEED: f32 = 0.001;
 const ROTATION_SPEED: f32 = 0.003;

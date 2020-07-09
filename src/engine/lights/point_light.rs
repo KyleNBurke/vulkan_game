@@ -1,5 +1,5 @@
 use crate::{
-	Object3D,
+	object3d::Object3D,
 	math::{vector3, Vector3, quaternion, Quaternion, Matrix4}
 };
 

@@ -1,25 +1,13 @@
-mod vulkan;
-use vulkan::Context;
-
-mod renderer;
-use renderer::Renderer;
-
-mod mesh;
-use mesh::Mesh;
-
-mod geometry;
-
-#[allow(dead_code)]
-mod math;
-
-mod object3d;
-use object3d::Object3D;
-
-mod camera;
-use camera::Camera;
-
-#[allow(dead_code)]
-mod lights;
+use engine::{
+	vulkan::Context,
+	Renderer,
+	mesh::{self, Mesh},
+	geometry,
+	math,
+	Object3D,
+	Camera,
+	lights
+};
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();

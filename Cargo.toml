@@ -4,6 +4,14 @@ version = "0.1.0"
 authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = "2018"
 
+[lib]
+name = "engine"
+path = "src/engine/lib.rs"
+
+[[bin]]
+name = "game"
+path = "src/game/bin.rs"
+
 [dependencies]
 ash = "0.31.0"
 
