@@ -82,35 +82,35 @@ impl Camera {
 }
 
 impl Object3D for Camera {
-	fn position(&self) -> &Vector3 {
+	fn get_position(&self) -> &Vector3 {
 		&self.position
 	}
 
-	fn position_mut(&mut self) -> &mut Vector3 {
+	fn get_position_mut(&mut self) -> &mut Vector3 {
 		&mut self.position
 	}
 
-	fn rotation(&self) -> &Quaternion {
+	fn get_rotation(&self) -> &Quaternion {
 		&self.rotation
 	}
 
-	fn rotation_mut(&mut self) -> &mut Quaternion {
+	fn get_rotation_mut(&mut self) -> &mut Quaternion {
 		&mut self.rotation
 	}
 
-	fn scale(&self) -> &Vector3 {
+	fn get_scale(&self) -> &Vector3 {
 		&self.scale
 	}
 
-	fn scale_mut(&mut self) -> &mut Vector3 {
+	fn get_scale_mut(&mut self) -> &mut Vector3 {
 		&mut self.scale
 	}
 
-	fn matrix(&self) -> &Matrix4 {
+	fn get_matrix(&self) -> &Matrix4 {
 		&self.view_matrix
 	}
 
-	fn matrix_mut(&mut self) -> &mut Matrix4 {
+	fn get_matrix_mut(&mut self) -> &mut Matrix4 {
 		&mut self.view_matrix
 	}
 }

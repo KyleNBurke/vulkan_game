@@ -18,6 +18,7 @@ use object3d::Object3D;
 mod camera;
 use camera::Camera;
 
+#[allow(dead_code)]
 mod lights;
 
 fn main() {
@@ -45,13 +46,13 @@ fn main() {
 
 	let mut point_light_box1 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
 	point_light_box1.translate_y(-1.0);
-	*point_light_box1.scale_mut() = math::Vector3::from_scalar(0.2);
+	*point_light_box1.get_scale_mut() = math::Vector3::from_scalar(0.2);
 	point_light_box1.update_matrix();
 
 	let mut point_light_box2 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
 	point_light_box2.translate_x(-1.0);
 	point_light_box2.translate_y(-1.0);
-	*point_light_box2.scale_mut() = math::Vector3::from_scalar(0.2);
+	*point_light_box2.get_scale_mut() = math::Vector3::from_scalar(0.2);
 	point_light_box2.update_matrix();
 
 	let static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];

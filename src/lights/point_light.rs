@@ -31,35 +31,35 @@ impl PointLight {
 }
 
 impl Object3D for PointLight {
-	fn position(&self) -> &Vector3 {
+	fn get_position(&self) -> &Vector3 {
 		&self.position
 	}
 
-	fn position_mut(&mut self) -> &mut Vector3 {
+	fn get_position_mut(&mut self) -> &mut Vector3 {
 		&mut self.position
 	}
 
-	fn rotation(&self) -> &Quaternion {
+	fn get_rotation(&self) -> &Quaternion {
 		&quaternion::ZERO
 	}
 
-	fn rotation_mut(&mut self) -> &mut Quaternion {
+	fn get_rotation_mut(&mut self) -> &mut Quaternion {
 		panic!("Point lights cannot be rotated");
 	}
 
-	fn scale(&self) -> &Vector3 {
+	fn get_scale(&self) -> &Vector3 {
 		&vector3::ONE
 	}
 
-	fn scale_mut(&mut self) -> &mut Vector3 {
+	fn get_scale_mut(&mut self) -> &mut Vector3 {
 		panic!("Point lights cannot be scaled");
 	}
 
-	fn matrix(&self) -> &Matrix4 {
+	fn get_matrix(&self) -> &Matrix4 {
 		&self.matrix
 	}
 
-	fn matrix_mut(&mut self) -> &mut Matrix4 {
+	fn get_matrix_mut(&mut self) -> &mut Matrix4 {
 		&mut self.matrix
 	}
 }

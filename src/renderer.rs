@@ -82,14 +82,14 @@ struct RenderInfo {
 
 impl<'a> Renderer<'a> {
 	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
-		let render_pass = Self::create_render_pass(&context);
-		let swapchain = Self::create_swapchain(&context, width, height, &render_pass);
+		let render_pass = Self::create_render_pass(context);
+		let swapchain = Self::create_swapchain(context, width, height, &render_pass);
 		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context);
 		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, swapchain.extent, &shared_pipeline_resources.pipeline_layout, &render_pass);
-		let descriptor_pool = Self::create_descriptor_pool(&context);
-		let command_pool = Self::create_command_pool(&context);
-		let in_flight_frames = Self::create_in_flight_frames(&context, &descriptor_pool, &command_pool, &shared_pipeline_resources.static_descriptor_set_layout, &shared_pipeline_resources.dynamic_descriptor_set_layout);
-		let static_mesh_resources = Self::create_static_mesh_resources(&context, &descriptor_pool, &shared_pipeline_resources.dynamic_descriptor_set_layout);
+		let descriptor_pool = Self::create_descriptor_pool(context);
+		let command_pool = Self::create_command_pool(context);
+		let in_flight_frames = Self::create_in_flight_frames(context, &descriptor_pool, &command_pool, &shared_pipeline_resources.static_descriptor_set_layout, &shared_pipeline_resources.dynamic_descriptor_set_layout);
+		let static_mesh_resources = Self::create_static_mesh_resources(context, &descriptor_pool, &shared_pipeline_resources.dynamic_descriptor_set_layout);
 
 		Self {
 			context,
