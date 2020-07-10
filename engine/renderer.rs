@@ -2,8 +2,9 @@ use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh},
+	Object3D,
 	camera::Camera,
-	math::Vector3,
+	math::{Vector3, Matrix4},
 	lights::{AmbientLight, PointLight}
 };
 use std::{mem, mem::size_of, ffi::CStr, ffi::CString, ptr};
@@ -23,7 +24,8 @@ pub struct Renderer<'a> {
 	command_pool: vk::CommandPool,
 	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	static_mesh_resources: StaticMeshResouces<'a>
+	static_mesh_resources: StaticMeshResouces<'a>,
+	inverse_view_matrix: Matrix4
 }
 
 struct Swapchain {
@@ -102,7 +104,8 @@ impl<'a> Renderer<'a> {
 			descriptor_pool,
 			in_flight_frames,
 			current_in_flight_frame: 0,
-			static_mesh_resources
+			static_mesh_resources,
+			inverse_view_matrix: Matrix4::new()
 		}
 	}
 
@@ -711,7 +714,7 @@ impl<'a> Renderer<'a> {
 		println!("Swapchain recreated");
 	}
 
-	pub fn submit_static_meshes(&mut self, meshes: &[Mesh]) {
+	pub fn submit_static_meshes(&mut self, meshes: &mut [Mesh]) {
 		let logical_device = &self.context.logical_device;
 
 		// Wait for rendering operations to finish
@@ -722,7 +725,7 @@ impl<'a> Renderer<'a> {
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 		self.static_mesh_resources.render_info.clear();
 
-		for mesh in meshes {
+		for mesh in meshes.iter() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
 			let index_count = indices.len();
@@ -757,7 +760,7 @@ impl<'a> Renderer<'a> {
 		// Copy mesh data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
-		for (i, mesh) in meshes.iter().enumerate() {
+		for (i, mesh) in meshes.iter_mut().enumerate() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
 			let render_info = &self.static_mesh_resources.render_info[i];
@@ -765,16 +768,20 @@ impl<'a> Renderer<'a> {
 			unsafe {
 				let index_offset = render_info.base_offset;
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
-				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attribute_offset = index_offset + render_info.index_size + render_info.index_padding_size;
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
-				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+
+				if mesh.auto_update_model_matrix {
+					mesh.update_matrix();
+				}
 
 				let model_matrix_offset = attribute_offset + render_info.attribute_size + render_info.attribute_padding_size;
 				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
 				let model_matrix = &mesh.model_matrix.elements;
-				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
+				ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 			}
 		}
 
@@ -845,7 +852,7 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &Camera, dynamic_meshes: &[Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight]) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight]) {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;
@@ -890,7 +897,7 @@ impl<'a> Renderer<'a> {
 		let mut dynamic_mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(dynamic_meshes.len());
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
-		for mesh in dynamic_meshes {
+		for mesh in dynamic_meshes.iter() {
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
 			let index_size = indices.len() * size_of::<u16>();
@@ -924,9 +931,15 @@ impl<'a> Renderer<'a> {
 			let projection_matrix = &camera.projection_matrix.elements;
 			ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
 
+			if camera.auto_update_view_matrix {
+				camera.update_matrix();
+			}
+
+			self.inverse_view_matrix = *camera.get_matrix();
+			self.inverse_view_matrix.invert();
+
 			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
-			let inverse_view_matrix = &camera.inverse_view_matrix;
-			ptr::copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, inverse_view_matrix.elements.len());
+			ptr::copy_nonoverlapping(self.inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, self.inverse_view_matrix.elements.len());
 
 			let ambient_light_dst_ptr = buffer_ptr.add(32 * size_of::<f32>()) as *mut Vector3;
 			let ambient_light_vec = ambient_light.color * ambient_light.intensity;
@@ -993,7 +1006,11 @@ impl<'a> Renderer<'a> {
 
 		// Record dynamic mesh commands and copy dynamic mesh data into dynamic buffer
 		let mut base_offset = dynamic_mesh_initial_chunk_size;
-		for (i, mesh) in dynamic_meshes.iter().enumerate() {
+		for (i, mesh) in dynamic_meshes.iter_mut().enumerate() {
+			if mesh.auto_update_model_matrix {
+				mesh.update_matrix();
+			}
+
 			let indices = mesh.geometry.get_vertex_indices();
 			let attributes = mesh.geometry.get_vertex_attributes();
 			let index_size = dynamic_mesh_chunk_sizes[i][0];

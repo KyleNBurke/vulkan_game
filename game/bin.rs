@@ -22,29 +22,24 @@ fn main() {
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Basic);
 	static_triangle.position = math::Vector3::from(0.0, 1.0, 1.7);
-	static_triangle.update_matrix();
 
 	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}), mesh::Material::Basic);
 	static_plane.position = math::Vector3::from(0.0, 1.0, 2.0);
-	static_plane.update_matrix();
 
 	let mut static_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Lambert);
 	static_box.position = math::Vector3::from(-2.0, 0.0, 0.0);
-	static_box.update_matrix();
 
 	let mut point_light_box1 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
 	point_light_box1.translate_y(-1.0);
 	*point_light_box1.get_scale_mut() = math::Vector3::from_scalar(0.2);
-	point_light_box1.update_matrix();
 
 	let mut point_light_box2 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
 	point_light_box2.translate_x(-1.0);
 	point_light_box2.translate_y(-1.0);
 	*point_light_box2.get_scale_mut() = math::Vector3::from_scalar(0.2);
-	point_light_box2.update_matrix();
 
-	let static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
-	renderer.submit_static_meshes(&static_meshes);
+	let mut static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
+	renderer.submit_static_meshes(&mut static_meshes);
 
 	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Lambert);
 	dynamic_triangle.position = math::Vector3::from(-0.5, -0.6, 2.0);
@@ -82,7 +77,7 @@ fn main() {
 					framebuffer_resized = true;
 				},
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
-					renderer.submit_static_meshes(&static_meshes);
+					renderer.submit_static_meshes(&mut static_meshes);
 					println!("Static meshes submitted");
 				},
 				_ => {}
@@ -101,16 +96,11 @@ fn main() {
 		}
 		
 		dynamic_meshes[0].rotate_y(0.0005);
-		dynamic_meshes[0].update_matrix();
-
 		dynamic_meshes[1].rotate_y(0.0005);
-		dynamic_meshes[1].update_matrix();
-
 		dynamic_meshes[2].rotate_y(-0.0001);
-		dynamic_meshes[2].update_matrix();
 
 		camera.update(&window);
 
-		renderer.render(&window, &camera, &dynamic_meshes, &ambient_light, &point_lights);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights);
 	}
 }
