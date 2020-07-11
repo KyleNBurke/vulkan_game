@@ -10,7 +10,7 @@ path = "engine/lib.rs"
 
 [[bin]]
 name = "game"
-path = "game/bin.rs"
+path = "game/main.rs"
 
 [dependencies]
 ash = "0.31.0"
