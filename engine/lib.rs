@@ -1,8 +1,5 @@
 pub mod vulkan;
 
-pub mod renderer;
-pub use renderer::Renderer;
-
 pub mod mesh;
 pub use mesh::Mesh;
 

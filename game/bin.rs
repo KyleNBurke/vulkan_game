@@ -1,6 +1,5 @@
 use engine::{
-	vulkan::Context,
-	Renderer,
+	vulkan::{Context, Renderer},
 	mesh::{self, Mesh},
 	geometry,
 	math,
