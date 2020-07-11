@@ -49,6 +49,7 @@ struct SwapchainFrame {
 }
 
 struct SharedPipelineResources {
+	shader_src_dir: String,
 	static_descriptor_set_layout: vk::DescriptorSetLayout,
 	dynamic_descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout
@@ -83,11 +84,11 @@ struct RenderInfo {
 }
 
 impl<'a> Renderer<'a> {
-	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
+	pub fn new(context: &'a Context, shader_src_dir: &str, width: u32, height: u32) -> Self {
 		let render_pass = Self::create_render_pass(context);
 		let swapchain = Self::create_swapchain(context, width, height, &render_pass);
-		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context);
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, swapchain.extent, &shared_pipeline_resources.pipeline_layout, &render_pass);
+		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context, shader_src_dir);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, &shared_pipeline_resources, swapchain.extent, &render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(context);
 		let command_pool = Self::create_command_pool(context);
 		let in_flight_frames = Self::create_in_flight_frames(context, &descriptor_pool, &command_pool, &shared_pipeline_resources.static_descriptor_set_layout, &shared_pipeline_resources.dynamic_descriptor_set_layout);
@@ -332,7 +333,7 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	fn create_shared_pipeline_resouces(context: &Context) -> SharedPipelineResources {
+	fn create_shared_pipeline_resouces(context: &Context, shader_src_dir: &str) -> SharedPipelineResources {
 		// Create static descriptor set layout
 		let static_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
@@ -368,17 +369,18 @@ impl<'a> Renderer<'a> {
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
 		SharedPipelineResources {
+			shader_src_dir: shader_src_dir.to_owned(),
 			static_descriptor_set_layout,
 			dynamic_descriptor_set_layout,
 			pipeline_layout
 		}
 	}
 
-	fn create_pipelines(context: &Context, swapchain_extent: vk::Extent2D, pipeline_layout: &vk::PipelineLayout, render_pass: &vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
+	fn create_pipelines(context: &Context, shared_pipeline_resources: &SharedPipelineResources, swapchain_extent: vk::Extent2D, render_pass: &vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
 		let shader_entry_point_cstring = CString::new("main").unwrap();
 		let shader_entry_point_cstr = shader_entry_point_cstring.as_c_str();
-		let (basic_shader_modules, basic_stages) = Self::create_pipeline_stages(context, "basic", shader_entry_point_cstr);
-		let (lambert_shader_modules, lambert_stages) = Self::create_pipeline_stages(context, "lambert", shader_entry_point_cstr);
+		let (basic_shader_modules, basic_stages) = Self::create_pipeline_stages(context, &shared_pipeline_resources.shader_src_dir, "basic", shader_entry_point_cstr);
+		let (lambert_shader_modules, lambert_stages) = Self::create_pipeline_stages(context, &shared_pipeline_resources.shader_src_dir, "lambert", shader_entry_point_cstr);
 
 		let vert_input_binding_description = vk::VertexInputBindingDescription::builder()
 			.binding(0)
@@ -471,7 +473,7 @@ impl<'a> Renderer<'a> {
 			.multisample_state(&multisample_state_create_info)
 			.depth_stencil_state(&depth_stencil_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
-			.layout(*pipeline_layout)
+			.layout(shared_pipeline_resources.pipeline_layout)
 			.render_pass(*render_pass)
 			.subpass(0);
 		
@@ -484,7 +486,7 @@ impl<'a> Renderer<'a> {
 			.multisample_state(&multisample_state_create_info)
 			.depth_stencil_state(&depth_stencil_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
-			.layout(*pipeline_layout)
+			.layout(shared_pipeline_resources.pipeline_layout)
 			.render_pass(*render_pass)
 			.subpass(0);
 		
@@ -501,12 +503,13 @@ impl<'a> Renderer<'a> {
 		(pipelines[0], pipelines[1])
 	}
 
-	fn create_pipeline_stages(context: &Context, filename: &str, entry_point: &CStr) -> ([vk::ShaderModule; 2], [vk::PipelineShaderStageCreateInfo; 2]) {
-		let mut curr_dir = std::env::current_exe().unwrap();
-		curr_dir.pop();
+	fn create_pipeline_stages(context: &Context, src_dir: &str, filename: &str, entry_point: &CStr) -> ([vk::ShaderModule; 2], [vk::PipelineShaderStageCreateInfo; 2]) {
+		let mut src_dir_path_buf = std::env::current_exe().unwrap();
+		src_dir_path_buf.pop();
+		src_dir_path_buf.push(src_dir);
 
-		let mut vert_file = std::fs::File::open(curr_dir.join(filename.to_owned() + ".vert.spv").as_path()).unwrap();
-		let mut frag_file = std::fs::File::open(curr_dir.join(filename.to_owned() + ".frag.spv").as_path()).unwrap();
+		let mut vert_file = std::fs::File::open(src_dir_path_buf.join(filename.to_owned() + ".vert.spv").as_path()).unwrap();
+		let mut frag_file = std::fs::File::open(src_dir_path_buf.join(filename.to_owned() + ".frag.spv").as_path()).unwrap();
 		let vert_file_contents = ash::util::read_spv(&mut vert_file).unwrap();
 		let frag_file_contents = ash::util::read_spv(&mut frag_file).unwrap();
 		
@@ -707,7 +710,7 @@ impl<'a> Renderer<'a> {
 		}
 
 		self.swapchain = Self::create_swapchain(&self.context, width, height, &self.render_pass);
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(self.context, self.swapchain.extent, &self.shared_pipeline_resources.pipeline_layout, &self.render_pass);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(self.context, &self.shared_pipeline_resources, self.swapchain.extent, &self.render_pass);
 		self.basic_pipeline = basic_pipeline;
 		self.lambert_pipeline = lambert_pipeline;
 

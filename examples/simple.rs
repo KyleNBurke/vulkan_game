@@ -19,7 +19,7 @@ fn main() {
 
 	let context = Context::new(&glfw, &window);
 	let (width, height) = window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, width as u32, height as u32);
+	let mut renderer = Renderer::new(&context, "../../../compiled_shaders", width as u32, height as u32);
 
 	let dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
 	let mut dynamic_meshes = vec![dynamic_box];
