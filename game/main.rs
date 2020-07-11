@@ -8,6 +8,9 @@ use engine::{
 	lights
 };
 
+mod camera_controller;
+use camera_controller::CameraController;
+
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
@@ -51,8 +54,9 @@ fn main() {
 
 	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane, dynamic_box];
 
+	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0);
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
-	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0, mouse_pos_x as f32, mouse_pos_y as f32);
+	let mut camera_controller = CameraController::new(mouse_pos_x as f32, mouse_pos_y as f32);
 
 	let ambient_light = lights::AmbientLight::from(math::Vector3::from_scalar(1.0), 0.01);
 
@@ -97,8 +101,8 @@ fn main() {
 		dynamic_meshes[0].rotate_y(0.0005);
 		dynamic_meshes[1].rotate_y(0.0005);
 		dynamic_meshes[2].rotate_y(-0.0001);
-
-		camera.update(&window);
+		
+		camera_controller.update(&window, &mut camera);
 
 		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights);
 	}
