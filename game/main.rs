@@ -20,7 +20,7 @@ fn main() {
 
 	let context = Context::new(&glfw, &window);
 	let (width, height) = window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, "../../compiled_shaders", width as u32, height as u32);
+	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
 	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Basic);
 	static_triangle.position = math::Vector3::from(0.0, 1.0, 1.7);

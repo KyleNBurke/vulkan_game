@@ -7,7 +7,7 @@ use crate::{
 	math::{Vector3, Matrix4},
 	lights::{AmbientLight, PointLight}
 };
-use std::{mem, mem::size_of, ffi::CStr, ffi::CString, ptr};
+use std::{mem, mem::size_of, ffi::CString, ptr};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
@@ -49,7 +49,6 @@ struct SwapchainFrame {
 }
 
 struct SharedPipelineResources {
-	shader_src_dir: String,
 	static_descriptor_set_layout: vk::DescriptorSetLayout,
 	dynamic_descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout
@@ -84,11 +83,11 @@ struct RenderInfo {
 }
 
 impl<'a> Renderer<'a> {
-	pub fn new(context: &'a Context, shader_src_dir: &str, width: u32, height: u32) -> Self {
+	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
 		let render_pass = Self::create_render_pass(context);
 		let swapchain = Self::create_swapchain(context, width, height, &render_pass);
-		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context, shader_src_dir);
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, &shared_pipeline_resources, swapchain.extent, &render_pass);
+		let shared_pipeline_resources = Self::create_shared_pipeline_resouces(context);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(context, &shared_pipeline_resources.pipeline_layout, &swapchain.extent, &render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(context);
 		let command_pool = Self::create_command_pool(context);
 		let in_flight_frames = Self::create_in_flight_frames(context, &descriptor_pool, &command_pool, &shared_pipeline_resources.static_descriptor_set_layout, &shared_pipeline_resources.dynamic_descriptor_set_layout);
@@ -333,7 +332,7 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	fn create_shared_pipeline_resouces(context: &Context, shader_src_dir: &str) -> SharedPipelineResources {
+	fn create_shared_pipeline_resouces(context: &Context) -> SharedPipelineResources {
 		// Create static descriptor set layout
 		let static_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
@@ -369,49 +368,29 @@ impl<'a> Renderer<'a> {
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
 		SharedPipelineResources {
-			shader_src_dir: shader_src_dir.to_owned(),
 			static_descriptor_set_layout,
 			dynamic_descriptor_set_layout,
 			pipeline_layout
 		}
 	}
 
-	fn create_pipelines(context: &Context, shared_pipeline_resources: &SharedPipelineResources, swapchain_extent: vk::Extent2D, render_pass: &vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
-		let shader_entry_point_cstring = CString::new("main").unwrap();
-		let shader_entry_point_cstr = shader_entry_point_cstring.as_c_str();
-		let (basic_shader_modules, basic_stages) = Self::create_pipeline_stages(context, &shared_pipeline_resources.shader_src_dir, "basic", shader_entry_point_cstr);
-		let (lambert_shader_modules, lambert_stages) = Self::create_pipeline_stages(context, &shared_pipeline_resources.shader_src_dir, "lambert", shader_entry_point_cstr);
+	fn create_pipelines(context: &Context, layout: &vk::PipelineLayout, extent: &vk::Extent2D, render_pass: &vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
+		let entry_point_cstring = CString::new("main").unwrap();
+		let entry_point_cstr = entry_point_cstring.as_c_str();
 
-		let vert_input_binding_description = vk::VertexInputBindingDescription::builder()
+		// Shared
+		let input_binding_description = vk::VertexInputBindingDescription::builder()
 			.binding(0)
 			.stride(24)
 			.input_rate(vk::VertexInputRate::VERTEX);
-		let vert_input_binding_descriptions = [vert_input_binding_description.build()];
-		
-		let vert_input_attribute_description_position = vk::VertexInputAttributeDescription::builder()	
+		let input_binding_descriptions = [input_binding_description.build()];
+
+		let input_attribute_description_position = vk::VertexInputAttributeDescription::builder()	
 			.binding(0)
 			.location(0)
 			.format(vk::Format::R32G32B32_SFLOAT)
 			.offset(0)
 			.build();
-		
-		let vert_input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
-			.binding(0)
-			.location(1)
-			.format(vk::Format::R32G32B32_SFLOAT)
-			.offset(12)
-			.build();
-
-		let basic_vert_input_attribute_descriptions = [vert_input_attribute_description_position];
-		let lambert_vert_input_attribute_descriptions = [vert_input_attribute_description_position, vert_input_attribute_description_normal];
-
-		let basic_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-			.vertex_binding_descriptions(&vert_input_binding_descriptions)
-			.vertex_attribute_descriptions(&basic_vert_input_attribute_descriptions);
-
-		let lambert_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-			.vertex_binding_descriptions(&vert_input_binding_descriptions)
-			.vertex_attribute_descriptions(&lambert_vert_input_attribute_descriptions);
 		
 		let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
 			.topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -420,21 +399,21 @@ impl<'a> Renderer<'a> {
 		let viewport = vk::Viewport::builder()
 			.x(0.0)
 			.y(0.0)
-			.width(swapchain_extent.width as f32)
-			.height(swapchain_extent.height as f32)
+			.width(extent.width as f32)
+			.height(extent.height as f32)
 			.min_depth(0.0)
 			.max_depth(1.0);
 		let viewports = [viewport.build()];
-		
+
 		let scissor = vk::Rect2D::builder()
 			.offset(vk::Offset2D::builder().x(0).y(0).build())
-			.extent(swapchain_extent);
+			.extent(*extent);
 		let scissors = [scissor.build()];
-		
+
 		let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
 			.viewports(&viewports)
 			.scissors(&scissors);
-		
+
 		let rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
 			.depth_clamp_enable(false)
 			.rasterizer_discard_enable(false)
@@ -443,92 +422,126 @@ impl<'a> Renderer<'a> {
 			.cull_mode(vk::CullModeFlags::BACK)
 			.front_face(vk::FrontFace::CLOCKWISE)
 			.depth_bias_enable(false);
-		
+
 		let multisample_state_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
 			.sample_shading_enable(false)
 			.rasterization_samples(vk::SampleCountFlags::TYPE_1);
-		
+
 		let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder()
 			.depth_test_enable(true)
 			.depth_write_enable(true)
 			.depth_compare_op(vk::CompareOp::LESS)
 			.depth_bounds_test_enable(false)
 			.stencil_test_enable(false);
-		
+
 		let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
 			.color_write_mask(vk::ColorComponentFlags::all())
 			.blend_enable(false);
 		let color_blend_attachment_states = [color_blend_attachment_state.build()];
-		
+
 		let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
 			.logic_op_enable(false)
 			.attachments(&color_blend_attachment_states);
 
+		// Basic
+		let basic_vert_module = Self::create_pipeline_module(context, "basic.vert.spv");
+		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.module(basic_vert_module)
+			.name(entry_point_cstr);
+		
+		let basic_frag_module =  Self::create_pipeline_module(context, "basic.frag.spv");
+		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.module(basic_frag_module)
+			.name(entry_point_cstr);
+		
+		let stage_create_infos = [vert_stage_create_info.build(), frag_stage_create_info.build()];
+
+		let input_attribute_descriptions = [input_attribute_description_position];
+
+		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&input_binding_descriptions)
+			.vertex_attribute_descriptions(&input_attribute_descriptions);
+
 		let basic_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-			.stages(&basic_stages)
-			.vertex_input_state(&basic_vert_input_state_create_info)
+			.stages(&stage_create_infos)
+			.vertex_input_state(&vert_input_state_create_info)
 			.input_assembly_state(&input_assembly_state_create_info)
 			.viewport_state(&viewport_state_create_info)
 			.rasterization_state(&rasterization_state_create_info)
 			.multisample_state(&multisample_state_create_info)
 			.depth_stencil_state(&depth_stencil_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
-			.layout(shared_pipeline_resources.pipeline_layout)
+			.layout(*layout)
 			.render_pass(*render_pass)
 			.subpass(0);
+
+		// Lambert
+		let lambert_vert_module =  Self::create_pipeline_module(context, "lambert.vert.spv");
+		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.module(lambert_vert_module)
+			.name(entry_point_cstr);
+
+		let lambert_frag_module =  Self::create_pipeline_module(context, "lambert.frag.spv");
+		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.module(lambert_frag_module)
+			.name(entry_point_cstr);
+
+		let stage_create_infos = [vert_stage_create_info.build(), frag_stage_create_info.build()];
 		
+		let input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
+			.binding(0)
+			.location(1)
+			.format(vk::Format::R32G32B32_SFLOAT)
+			.offset(12)
+			.build();
+
+		let input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
+
+		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&input_binding_descriptions)
+			.vertex_attribute_descriptions(&input_attribute_descriptions);
+
 		let lambert_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-			.stages(&lambert_stages)
-			.vertex_input_state(&lambert_vert_input_state_create_info)
+			.stages(&stage_create_infos)
+			.vertex_input_state(&vert_input_state_create_info)
 			.input_assembly_state(&input_assembly_state_create_info)
 			.viewport_state(&viewport_state_create_info)
 			.rasterization_state(&rasterization_state_create_info)
 			.multisample_state(&multisample_state_create_info)
 			.depth_stencil_state(&depth_stencil_state_create_info)
 			.color_blend_state(&color_blend_state_create_info)
-			.layout(shared_pipeline_resources.pipeline_layout)
+			.layout(*layout)
 			.render_pass(*render_pass)
 			.subpass(0);
-		
+
 		let pipeline_create_infos = [basic_pipeline_create_info.build(), lambert_pipeline_create_info.build()];
 		let pipelines = unsafe { context.logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None).unwrap() };
 
 		unsafe {
-			context.logical_device.destroy_shader_module(basic_shader_modules[0], None);
-			context.logical_device.destroy_shader_module(basic_shader_modules[1], None);
-			context.logical_device.destroy_shader_module(lambert_shader_modules[0], None);
-			context.logical_device.destroy_shader_module(lambert_shader_modules[1], None);
+			context.logical_device.destroy_shader_module(basic_vert_module, None);
+			context.logical_device.destroy_shader_module(basic_frag_module, None);
+			context.logical_device.destroy_shader_module(lambert_vert_module, None);
+			context.logical_device.destroy_shader_module(lambert_frag_module, None);
 		}
 
 		(pipelines[0], pipelines[1])
 	}
 
-	fn create_pipeline_stages(context: &Context, src_dir: &str, filename: &str, entry_point: &CStr) -> ([vk::ShaderModule; 2], [vk::PipelineShaderStageCreateInfo; 2]) {
-		let mut src_dir_path_buf = std::env::current_exe().unwrap();
-		src_dir_path_buf.pop();
-		src_dir_path_buf.push(src_dir);
-
-		let mut vert_file = std::fs::File::open(src_dir_path_buf.join(filename.to_owned() + ".vert.spv").as_path()).unwrap();
-		let mut frag_file = std::fs::File::open(src_dir_path_buf.join(filename.to_owned() + ".frag.spv").as_path()).unwrap();
-		let vert_file_contents = ash::util::read_spv(&mut vert_file).unwrap();
-		let frag_file_contents = ash::util::read_spv(&mut frag_file).unwrap();
-		
-		let vert_create_info = vk::ShaderModuleCreateInfo::builder().code(&vert_file_contents);
-		let frag_create_info = vk::ShaderModuleCreateInfo::builder().code(&frag_file_contents);
-		let vert_shader_module = unsafe { context.logical_device.create_shader_module(&vert_create_info, None).unwrap() };
-		let frag_shader_module = unsafe { context.logical_device.create_shader_module(&frag_create_info, None).unwrap() };
-
-		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::VERTEX)
-			.module(vert_shader_module)
-			.name(entry_point);
-
-		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::FRAGMENT)
-			.module(frag_shader_module)
-			.name(entry_point);
-		
-		([vert_shader_module, frag_shader_module], [vert_stage_create_info.build(), frag_stage_create_info.build()])
+	fn create_pipeline_module(context: &Context, filename: &str) -> vk::ShaderModule {
+		let mut file_path = String::from("./compiled_shaders/");
+		file_path.push_str(filename);
+	
+		let mut file = std::fs::File::open(file_path).unwrap();
+		let file_contents = ash::util::read_spv(&mut file).unwrap();
+	
+		let create_info = vk::ShaderModuleCreateInfo::builder()
+			.code(&file_contents);
+	
+		unsafe { context.logical_device.create_shader_module(&create_info, None).unwrap() }
 	}
 
 	fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
@@ -710,7 +723,7 @@ impl<'a> Renderer<'a> {
 		}
 
 		self.swapchain = Self::create_swapchain(&self.context, width, height, &self.render_pass);
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(self.context, &self.shared_pipeline_resources, self.swapchain.extent, &self.render_pass);
+		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(self.context, &self.shared_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
 		self.basic_pipeline = basic_pipeline;
 		self.lambert_pipeline = lambert_pipeline;
 
