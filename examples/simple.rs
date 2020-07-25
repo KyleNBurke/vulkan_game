@@ -29,6 +29,8 @@ fn main() {
 
 	let ambient_light = AmbientLight::new();
 
+	let text = geometry::Text{};
+
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
 		glfw.poll_events();
@@ -58,6 +60,6 @@ fn main() {
 		
 		dynamic_meshes[0].rotate_y(0.0001);
 
-		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &[]);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &[], &text);
 	}
 }

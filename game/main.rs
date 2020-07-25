@@ -67,6 +67,9 @@ fn main() {
 	point_light2.translate_y(-1.0);
 	let point_lights = [point_light1, point_light2];
 
+	let text = geometry::Text{};
+	renderer.submit_fonts();
+
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
 		glfw.poll_events();
@@ -81,6 +84,7 @@ fn main() {
 				},
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
+					renderer.submit_fonts();
 					println!("Static meshes submitted");
 				},
 				_ => {}
@@ -104,6 +108,6 @@ fn main() {
 		
 		camera_controller.update(&window, &mut camera);
 
-		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights, &text);
 	}
 }
