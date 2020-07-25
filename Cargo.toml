@@ -3,10 +3,15 @@ name = "vulkan_game"
 version = "0.1.0"
 authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = "2018"
+default-run = "game"
 
 [lib]
 name = "engine"
 path = "engine/lib.rs"
+
+[[bin]]
+name = "sdf_gen"
+path = "sdf_gen/main.rs"
 
 [[bin]]
 name = "game"
