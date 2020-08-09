@@ -4,7 +4,9 @@ use engine::{
 	geometry,
 	Object3D,
 	Camera,
-	lights::AmbientLight
+	lights::AmbientLight,
+	Font,
+	Text
 };
 
 const WINDOW_WIDTH: u32 = 1280;
@@ -29,7 +31,8 @@ fn main() {
 
 	let ambient_light = AmbientLight::new();
 
-	let text = geometry::Text{};
+	let font = Font::new(String::from(""));
+	let text = Text::new(&font, 0.0, 0.0, "");
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;

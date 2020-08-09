@@ -5,7 +5,9 @@ use engine::{
 	math,
 	Object3D,
 	Camera,
-	lights
+	lights,
+	Font,
+	Text
 };
 
 mod camera_controller;
@@ -67,8 +69,10 @@ fn main() {
 	point_light2.translate_y(-1.0);
 	let point_lights = [point_light1, point_light2];
 
-	let text = geometry::Text{};
-	renderer.submit_fonts();
+	let font = Font::new(String::from("game/consolas.fdf"));
+	renderer.submit_fonts(&font);
+
+	let text = Text::new(&font, 1280.0, 720.0, "abcjjj");
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -84,7 +88,7 @@ fn main() {
 				},
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
-					renderer.submit_fonts();
+					renderer.submit_fonts(&font);
 					println!("Static meshes submitted");
 				},
 				_ => {}

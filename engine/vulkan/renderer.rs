@@ -1,4 +1,5 @@
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
+use std::{mem, mem::size_of, ffi::CString, ptr, fs, io::{self, Seek, Read}};
 use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh},
@@ -6,9 +7,10 @@ use crate::{
 	camera::Camera,
 	math::{Vector3, Matrix4},
 	lights::{AmbientLight, PointLight},
-	geometry::{Geometry, Text}
+	Font,
+	Text,
+	geometry::Geometry
 };
-use std::{mem, mem::size_of, ffi::CString, ptr};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
@@ -436,7 +438,7 @@ impl<'a> Renderer<'a> {
 
 		let image_create_info = vk::ImageCreateInfo::builder()
 			.image_type(vk::ImageType::TYPE_2D)
-			.extent(vk::Extent3D::builder().width(4).height(4).depth(1).build())
+			.extent(vk::Extent3D::builder().width(167).height(156).depth(1).build())
 			.mip_levels(1)
 			.array_layers(1)
 			.format(vk::Format::R8_UNORM)
@@ -480,7 +482,7 @@ impl<'a> Renderer<'a> {
 			.address_mode_w(vk::SamplerAddressMode::CLAMP_TO_BORDER)
 			.anisotropy_enable(false)
 			.border_color(vk::BorderColor::FLOAT_OPAQUE_BLACK)
-			.unnormalized_coordinates(false)
+			.unnormalized_coordinates(true)
 			.compare_enable(false)
 			.mipmap_mode(vk::SamplerMipmapMode::NEAREST)
 			.mip_lod_bias(0.0)
@@ -1060,13 +1062,14 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
-	pub fn submit_fonts(&mut self) {
+	pub fn submit_fonts(&mut self, font: &Font) {
 		let logical_device = &self.context.logical_device;
+		let atlas_size = font.atlas_width * font.atlas_height;
 
 		// Create a host visible staging buffer
 		let staging_buffer = Buffer::new(
 			self.context,
-			16,
+			atlas_size as u64,
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE);
 		
@@ -1080,8 +1083,13 @@ impl<'a> Renderer<'a> {
 			[215, 190, 240, 16]
 		];
 
+		let mut file = fs::File::open(&font.file_path).unwrap();
+		file.seek(io::SeekFrom::Start(2 * size_of::<u32>() as u64)).unwrap();
+		let mut texture = vec![0u8; atlas_size as usize];
+		file.read_exact(&mut texture).unwrap();
+
 		unsafe {
-			ptr::copy_nonoverlapping(data.as_ptr(), buffer_ptr as *mut [u8; 4], data.len());
+			ptr::copy_nonoverlapping(texture.as_ptr(), buffer_ptr as *mut u8, atlas_size as usize);
 
 			let ranges = [vk::MappedMemoryRange::builder()
 				.memory(staging_buffer.memory)
@@ -1131,7 +1139,7 @@ impl<'a> Renderer<'a> {
 				.layer_count(1)
 				.build())
 			.image_offset(vk::Offset3D::builder().x(0).y(0).z(0).build())
-			.image_extent(vk::Extent3D::builder().width(4).height(4).depth(1).build());
+			.image_extent(vk::Extent3D::builder().width(font.atlas_width).height(font.atlas_height).depth(1).build());
 		let regions = [region.build()];
 
 		let shader_read_image_memory_barrier = vk::ImageMemoryBarrier::builder()
@@ -1229,7 +1237,7 @@ impl<'a> Renderer<'a> {
 			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 
-		let dynamic_mesh_total_size = (dynamic_mesh_total_size + 78) as vk::DeviceSize;
+		let dynamic_mesh_total_size = (dynamic_mesh_total_size + 1000) as vk::DeviceSize;
 
 		// Allocate more memory in buffer for dynamic meshes if necessary
 		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
