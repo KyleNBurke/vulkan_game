@@ -3,8 +3,8 @@ use freetype::freetype::*;
 
 struct Glyph {
 	char_code: u32,
-	tex_pos: (usize, usize),
-	tex_size: (usize, usize),
+	tex_pos: (u32, u32),
+	tex_size: (u32, u32),
 	pitch: i32,
 	buffer: Vec<u8>,
 	pen_offset: (i32, i32),
@@ -32,7 +32,7 @@ fn main() {
 		save_to_bitmap(file_path, &atlas);
 	}
 
-	save_to_font_file(output_font_file_path, &glyphs, &atlas);
+	save_to_font_file(output_font_file_path, &mut glyphs, &atlas);
 }
 
 fn rasterize_font(file_path: &str, font_size: u32) -> Vec<Glyph> {
@@ -64,20 +64,16 @@ fn rasterize_font(file_path: &str, font_size: u32) -> Vec<Glyph> {
 		};
 
 		let bitmap = glyph.bitmap;
-		let rows = bitmap.rows as usize;
-		let width = bitmap.width as usize;
-		let pitch = bitmap.pitch;
-
-		let buffer = unsafe { slice::from_raw_parts(bitmap.buffer, rows * pitch.abs() as usize).to_vec() };
+		let buffer = unsafe { slice::from_raw_parts(bitmap.buffer, bitmap.rows as usize * bitmap.pitch.abs() as usize).to_vec() };
 
 		glyphs.push(Glyph {
 			char_code,
 			tex_pos: (0, 0),
-			tex_size: (width, rows),
-			pitch,
+			tex_size: (bitmap.width, bitmap.rows),
+			pitch: bitmap.pitch,
 			buffer,
-			pen_offset: (glyph.bitmap_left, glyph.bitmap_top),
-			pen_advance: glyph.advance.x * 64
+			pen_offset: (glyph.bitmap_left, -glyph.bitmap_top),
+			pen_advance: glyph.advance.x / 64
 		});
 	}
 
@@ -92,8 +88,8 @@ fn create_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 		let atlas_height = atlas.len();
 		let atlas_width = if atlas_height == 0 { 0 } else { atlas[0].len() };
 
-		let glyph_width = glyph.tex_size.0;
-		let glyph_height = glyph.tex_size.1;
+		let glyph_width = glyph.tex_size.0 as usize;
+		let glyph_height = glyph.tex_size.1 as usize;
 
 		let atlas_col_bound = atlas_width.saturating_sub(glyph_width - 1);
 		let atlas_row_bound = atlas_height.saturating_sub(glyph_height - 1);
@@ -147,8 +143,8 @@ fn create_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, glyph: &mut Glyph) {
 	let glyph_pitch_abs = glyph.pitch.abs() as usize;
 
-	for glyph_row in 0..glyph.tex_size.1 {
-		for glyph_col in 0..glyph.tex_size.0 {
+	for glyph_row in 0..glyph.tex_size.1 as usize {
+		for glyph_col in 0..glyph.tex_size.0 as usize {
 			let glyph_byte = glyph.buffer[glyph_row * glyph_pitch_abs + glyph_col / 8];
 			let mask = 0b1000_0000 >> glyph_col % 8;
 			let byte_value = if glyph_byte & mask != 0 { 255 } else { 0 };
@@ -156,7 +152,7 @@ fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, gly
 		}
 	}
 
-	glyph.tex_pos = (atlas_col, atlas_row);
+	glyph.tex_pos = (atlas_col as u32, atlas_row as u32);
 }
 
 fn expand_atlas(atlas: &mut Vec<Vec<u8>>, vertical_len: usize, horizontal_len: usize) {
@@ -249,29 +245,30 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	let file_size = (buffer.len() as u32).to_ne_bytes();
 	for i in 0..4 { buffer[2 + i] = file_size[i] };
 
-	// Write buffer to file
 	let mut file = fs::File::create(file_path).unwrap();
 	file.write_all(&buffer).unwrap();
 }
 
-fn save_to_font_file(file_path: &str, glyphs: &Vec<Glyph>, atlas: &Vec<Vec<u8>>) {
+fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, atlas: &Vec<Vec<u8>>) {
+	glyphs.sort_unstable_by_key(|g| g.char_code);
+
 	let atlas_width = atlas[0].len();
 	let atlas_height = atlas.len();
 	let glyph_count = glyphs.len();
 
 	let mut buffer: Vec<u8> = Vec::with_capacity(12 + atlas_width * atlas_height + 32 * glyph_count);
 	
-	let atlas_width = atlas_width.to_ne_bytes();
+	let atlas_width = (atlas_width as u32).to_ne_bytes();
 	buffer.extend_from_slice(&atlas_width);
 
-	let atlas_height = atlas_height.to_ne_bytes();
+	let atlas_height = (atlas_height as u32).to_ne_bytes();
 	buffer.extend_from_slice(&atlas_height);
 
 	for row in atlas {
 		buffer.extend_from_slice(row);
 	}
 	
-	let glyph_count = glyph_count.to_ne_bytes();
+	let glyph_count = (glyph_count as u32).to_ne_bytes();
 	buffer.extend_from_slice(&glyph_count);
 
 	for glyph in glyphs {
