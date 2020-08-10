@@ -2,16 +2,17 @@ use std::{fs, io::{self, Read, Seek}};
 
 pub struct Glyph {
 	pub char_code: u32,
-	pub tex_pos: (u32, u32),
-	pub tex_size: (u32, u32),
-	pub pen_offset: (i32, i32),
-	pub pen_advance: i32
+	pub position: (u32, u32),
+	pub size: (u32, u32),
+	pub bearing: (i32, i32),
+	pub advance: i32
 }
 
 pub struct Font {
 	pub file_path: String,
 	pub atlas_width: u32,
 	pub atlas_height: u32,
+	pub space_advance: i32,
 	pub glyphs: Vec<Glyph>
 }
 
@@ -29,6 +30,9 @@ impl Font {
 		file.seek(io::SeekFrom::Current((atlas_width * atlas_height) as i64)).unwrap();
 
 		file.read_exact(&mut bytes).unwrap();
+		let space_advance = i32::from_ne_bytes(bytes);
+
+		file.read_exact(&mut bytes).unwrap();
 		let glyph_count = u32::from_ne_bytes(bytes) as usize;
 
 		let mut buffer: Vec<u8> = Vec::with_capacity(glyph_count * 32);
@@ -43,32 +47,32 @@ impl Font {
 			let char_code = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 4..glyph_offset + 8]);
-			let tex_pos_x = u32::from_ne_bytes(bytes);
+			let position_x = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 8..glyph_offset + 12]);
-			let tex_pos_y = u32::from_ne_bytes(bytes);
+			let position_y = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 12..glyph_offset + 16]);
-			let tex_width = u32::from_ne_bytes(bytes);
+			let width = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 16..glyph_offset + 20]);
-			let tex_height = u32::from_ne_bytes(bytes);
+			let height = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 20..glyph_offset + 24]);
-			let pen_offset_x = i32::from_ne_bytes(bytes);
+			let bearing_x = i32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 24..glyph_offset + 28]);
-			let pen_offset_y = i32::from_ne_bytes(bytes);
+			let bearing_y = i32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 28..glyph_offset + 32]);
-			let pen_advance = i32::from_ne_bytes(bytes);
+			let advance = i32::from_ne_bytes(bytes);
 
 			glyphs.push(Glyph {
 				char_code,
-				tex_pos: (tex_pos_x, tex_pos_y),
-				tex_size: (tex_width, tex_height),
-				pen_offset: (pen_offset_x, pen_offset_y),
-				pen_advance
+				position: (position_x, position_y),
+				size: (width, height),
+				bearing: (bearing_x, bearing_y),
+				advance
 			});
 		}
 
@@ -76,6 +80,7 @@ impl Font {
 			file_path,
 			atlas_width,
 			atlas_height,
+			space_advance,
 			glyphs
 		}
 	}

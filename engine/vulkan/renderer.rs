@@ -1076,13 +1076,6 @@ impl<'a> Renderer<'a> {
 		// Copy image data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
-		let data: [[u8; 4]; 4] = [
-			[0, 85, 170, 255],
-			[200, 32, 45, 160],
-			[100, 50, 123, 210],
-			[215, 190, 240, 16]
-		];
-
 		let mut file = fs::File::open(&font.file_path).unwrap();
 		file.seek(io::SeekFrom::Start(2 * size_of::<u32>() as u64)).unwrap();
 		let mut texture = vec![0u8; atlas_size as usize];

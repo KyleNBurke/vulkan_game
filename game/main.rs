@@ -72,7 +72,7 @@ fn main() {
 	let font = Font::new(String::from("game/consolas.fdf"));
 	renderer.submit_fonts(&font);
 
-	let text = Text::new(&font, 1280.0, 720.0, "abcjjj");
+	let text = Text::new(&font, 1280.0, 720.0, "abc 1 2 3");
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;

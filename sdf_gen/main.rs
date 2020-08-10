@@ -3,12 +3,12 @@ use freetype::freetype::*;
 
 struct Glyph {
 	char_code: u32,
-	tex_pos: (u32, u32),
-	tex_size: (u32, u32),
+	position: (u32, u32),
+	size: (u32, u32),
 	pitch: i32,
 	buffer: Vec<u8>,
-	pen_offset: (i32, i32),
-	pen_advance: i32
+	bearing: (i32, i32),
+	advance: i32
 }
 
 fn main() {
@@ -25,17 +25,17 @@ fn main() {
 	let output_bmp_file_path_index = args.iter().position(|a| a.as_str() == "-bmp");
 	let output_bmp_file_path = if let Some(i) = output_bmp_file_path_index { Some(&args[i + 1]) } else { None };
 
-	let mut glyphs = rasterize_font(input_font_file_path, font_size);
+	let (mut glyphs, space_advance) = rasterize_font(input_font_file_path, font_size);
 	let atlas = create_atlas(&mut glyphs);
 
 	if let Some(file_path) = output_bmp_file_path {
 		save_to_bitmap(file_path, &atlas);
 	}
 
-	save_to_font_file(output_font_file_path, &mut glyphs, &atlas);
+	save_to_font_file(output_font_file_path, &mut glyphs, space_advance, &atlas);
 }
 
-fn rasterize_font(file_path: &str, font_size: u32) -> Vec<Glyph> {
+fn rasterize_font(file_path: &str, font_size: u32) -> (Vec<Glyph>, i32) {
 	let mut library: FT_Library = ptr::null_mut();
 	let error = unsafe { FT_Init_FreeType(&mut library) };
 	assert!(error == 0, "Error code {} while initializing library", error);
@@ -47,6 +47,14 @@ fn rasterize_font(file_path: &str, font_size: u32) -> Vec<Glyph> {
 
 	let error = unsafe { FT_Set_Pixel_Sizes(face, 0, font_size) };
 	assert!(error == 0, "Error code {} while setting the font size", error);
+	
+	let space_advance = unsafe {
+		let glyph_index = FT_Get_Char_Index(face, 32);
+		let error = FT_Load_Glyph(face, glyph_index, 0);
+		assert!(error == 0, "Error code {} while loading the space glyph", error);
+
+		(*(*face).glyph).advance.x / 64
+	};
 
 	let char_codes = 33u32..127;
 	let mut glyphs: Vec<Glyph> = Vec::with_capacity(char_codes.len());
@@ -68,28 +76,28 @@ fn rasterize_font(file_path: &str, font_size: u32) -> Vec<Glyph> {
 
 		glyphs.push(Glyph {
 			char_code,
-			tex_pos: (0, 0),
-			tex_size: (bitmap.width, bitmap.rows),
+			position: (0, 0),
+			size: (bitmap.width, bitmap.rows),
 			pitch: bitmap.pitch,
 			buffer,
-			pen_offset: (glyph.bitmap_left, -glyph.bitmap_top),
-			pen_advance: glyph.advance.x / 64
+			bearing: (glyph.bitmap_left, -glyph.bitmap_top),
+			advance: glyph.advance.x / 64
 		});
 	}
 
-	glyphs
+	(glyphs, space_advance)
 }
 
 fn create_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
-	glyphs.sort_unstable_by(|a, b| (b.tex_size.0 * b.tex_size.1).cmp(&(a.tex_size.0 * a.tex_size.1)));
+	glyphs.sort_unstable_by(|a, b| (b.size.0 * b.size.1).cmp(&(a.size.0 * a.size.1)));
 	let mut atlas: Vec<Vec<u8>> = Vec::new();
 
 	'glyph_loop: for glyph in glyphs {
 		let atlas_height = atlas.len();
 		let atlas_width = if atlas_height == 0 { 0 } else { atlas[0].len() };
 
-		let glyph_width = glyph.tex_size.0 as usize;
-		let glyph_height = glyph.tex_size.1 as usize;
+		let glyph_width = glyph.size.0 as usize;
+		let glyph_height = glyph.size.1 as usize;
 
 		let atlas_col_bound = atlas_width.saturating_sub(glyph_width - 1);
 		let atlas_row_bound = atlas_height.saturating_sub(glyph_height - 1);
@@ -143,8 +151,8 @@ fn create_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, glyph: &mut Glyph) {
 	let glyph_pitch_abs = glyph.pitch.abs() as usize;
 
-	for glyph_row in 0..glyph.tex_size.1 as usize {
-		for glyph_col in 0..glyph.tex_size.0 as usize {
+	for glyph_row in 0..glyph.size.1 as usize {
+		for glyph_col in 0..glyph.size.0 as usize {
 			let glyph_byte = glyph.buffer[glyph_row * glyph_pitch_abs + glyph_col / 8];
 			let mask = 0b1000_0000 >> glyph_col % 8;
 			let byte_value = if glyph_byte & mask != 0 { 255 } else { 0 };
@@ -152,7 +160,7 @@ fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, gly
 		}
 	}
 
-	glyph.tex_pos = (atlas_col as u32, atlas_row as u32);
+	glyph.position = (atlas_col as u32, atlas_row as u32);
 }
 
 fn expand_atlas(atlas: &mut Vec<Vec<u8>>, vertical_len: usize, horizontal_len: usize) {
@@ -249,7 +257,7 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	file.write_all(&buffer).unwrap();
 }
 
-fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, atlas: &Vec<Vec<u8>>) {
+fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: i32, atlas: &Vec<Vec<u8>>) {
 	glyphs.sort_unstable_by_key(|g| g.char_code);
 
 	let atlas_width = atlas[0].len();
@@ -267,6 +275,9 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, atlas: &Vec<Vec<u
 	for row in atlas {
 		buffer.extend_from_slice(row);
 	}
+
+	let space_advance = space_advance.to_ne_bytes();
+	buffer.extend_from_slice(&space_advance);
 	
 	let glyph_count = (glyph_count as u32).to_ne_bytes();
 	buffer.extend_from_slice(&glyph_count);
@@ -275,26 +286,26 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, atlas: &Vec<Vec<u
 		let char_code = glyph.char_code.to_ne_bytes();
 		buffer.extend_from_slice(&char_code);
 
-		let tex_pos_x = glyph.tex_pos.0.to_ne_bytes();
-		buffer.extend_from_slice(&tex_pos_x);
+		let position_x = glyph.position.0.to_ne_bytes();
+		buffer.extend_from_slice(&position_x);
 
-		let tex_pos_y = glyph.tex_pos.1.to_ne_bytes();
-		buffer.extend_from_slice(&tex_pos_y);
+		let position_y = glyph.position.1.to_ne_bytes();
+		buffer.extend_from_slice(&position_y);
 
-		let tex_width = glyph.tex_size.0.to_ne_bytes();
-		buffer.extend_from_slice(&tex_width);
+		let width = glyph.size.0.to_ne_bytes();
+		buffer.extend_from_slice(&width);
 
-		let tex_height = glyph.tex_size.1.to_ne_bytes();
-		buffer.extend_from_slice(&tex_height);
+		let height = glyph.size.1.to_ne_bytes();
+		buffer.extend_from_slice(&height);
 
-		let pen_offset_x = glyph.pen_offset.0.to_ne_bytes();
-		buffer.extend_from_slice(&pen_offset_x);
+		let bearing_x = glyph.bearing.0.to_ne_bytes();
+		buffer.extend_from_slice(&bearing_x);
 
-		let pen_offset_y = glyph.pen_offset.1.to_ne_bytes();
-		buffer.extend_from_slice(&pen_offset_y);
+		let bearing_y = glyph.bearing.1.to_ne_bytes();
+		buffer.extend_from_slice(&bearing_y);
 
-		let pen_advance = glyph.pen_advance.to_ne_bytes();
-		buffer.extend_from_slice(&pen_advance);
+		let advance = glyph.advance.to_ne_bytes();
+		buffer.extend_from_slice(&advance);
 	}
 
 	let mut file = fs::File::create(file_path).unwrap();
