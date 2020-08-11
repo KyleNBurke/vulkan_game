@@ -62,11 +62,11 @@ struct MeshRenderingPipelineResources {
 struct UIRenderingPipelineResources {
 	descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout,
+	sampler: vk::Sampler,
+	descriptor_set: vk::DescriptorSet,
 	image: vk::Image,
 	image_view: vk::ImageView,
-	memory: vk::DeviceMemory,
-	sampler: vk::Sampler,
-	descriptor_set: vk::DescriptorSet
+	memory: vk::DeviceMemory
 }
 
 struct InFlightFrame<'a> {
@@ -436,44 +436,6 @@ impl<'a> Renderer<'a> {
 
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
-		let image_create_info = vk::ImageCreateInfo::builder()
-			.image_type(vk::ImageType::TYPE_2D)
-			.extent(vk::Extent3D::builder().width(167).height(156).depth(1).build())
-			.mip_levels(1)
-			.array_layers(1)
-			.format(vk::Format::R8_UNORM)
-			.tiling(vk::ImageTiling::OPTIMAL)
-			.initial_layout(vk::ImageLayout::UNDEFINED)
-			.usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
-			.sharing_mode(vk::SharingMode::EXCLUSIVE)
-			.samples(vk::SampleCountFlags::TYPE_1);
-		
-		let image = unsafe { context.logical_device.create_image(&image_create_info, None).unwrap() };
-
-		let memory_requirements = unsafe { context.logical_device.get_image_memory_requirements(image) };
-		let memory_type_index = context.physical_device.find_memory_type_index(memory_requirements.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL);
-
-		let memory_allocate_info = vk::MemoryAllocateInfo::builder()
-			.allocation_size(memory_requirements.size)
-			.memory_type_index(memory_type_index as u32);
-	
-		let memory = unsafe { context.logical_device.allocate_memory(&memory_allocate_info, None).unwrap() };
-		unsafe { context.logical_device.bind_image_memory(image, memory, 0).unwrap() };
-
-		let image_view_create_info = vk::ImageViewCreateInfo::builder()
-			.image(image)
-			.view_type(vk::ImageViewType::TYPE_2D)
-			.format(vk::Format::R8_UNORM)
-			.subresource_range(vk::ImageSubresourceRange::builder()
-				.aspect_mask(vk::ImageAspectFlags::COLOR)
-				.base_mip_level(0)
-				.level_count(1)
-				.base_array_layer(0)
-				.layer_count(1)
-				.build());
-		
-		let image_view = unsafe { context.logical_device.create_image_view(&image_view_create_info, None).unwrap() };
-
 		let sampler_create_info = vk::SamplerCreateInfo::builder()
 			.mag_filter(vk::Filter::NEAREST)
 			.min_filter(vk::Filter::NEAREST)
@@ -497,30 +459,14 @@ impl<'a> Renderer<'a> {
 		
 		let descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
 
-		let descriptor_image_info = vk::DescriptorImageInfo::builder()
-			.image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-			.image_view(image_view)
-			.sampler(sampler);
-		let descriptor_image_infos = [descriptor_image_info.build()];
-		
-		let write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(descriptor_set)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-			.image_info(&descriptor_image_infos);
-		let write_descriptor_sets = [write_descriptor_set.build()];
-		
-		unsafe { context.logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
-
 		UIRenderingPipelineResources {
 			descriptor_set_layout,
 			pipeline_layout,
-			image,
-			image_view,
-			memory,
 			sampler,
-			descriptor_set
+			descriptor_set,
+			image: vk::Image::null(),
+			image_view: vk::ImageView::null(),
+			memory: vk::DeviceMemory::null()
 		}
 	}
 
@@ -1093,6 +1039,47 @@ impl<'a> Renderer<'a> {
 			logical_device.unmap_memory(staging_buffer.memory);
 		}
 
+		// Create image
+		let image_create_info = vk::ImageCreateInfo::builder()
+			.image_type(vk::ImageType::TYPE_2D)
+			.extent(vk::Extent3D::builder().width(font.atlas_width).height(font.atlas_height).depth(1).build())
+			.mip_levels(1)
+			.array_layers(1)
+			.format(vk::Format::R8_UNORM)
+			.tiling(vk::ImageTiling::OPTIMAL)
+			.initial_layout(vk::ImageLayout::UNDEFINED)
+			.usage(vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED)
+			.sharing_mode(vk::SharingMode::EXCLUSIVE)
+			.samples(vk::SampleCountFlags::TYPE_1);
+		
+		let image = unsafe { logical_device.create_image(&image_create_info, None).unwrap() };
+
+		// Allocate and bind device local memory
+		let memory_requirements = unsafe { logical_device.get_image_memory_requirements(image) };
+		let memory_type_index = self.context.physical_device.find_memory_type_index(memory_requirements.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL);
+
+		let memory_allocate_info = vk::MemoryAllocateInfo::builder()
+			.allocation_size(memory_requirements.size)
+			.memory_type_index(memory_type_index as u32);
+	
+		let memory = unsafe { logical_device.allocate_memory(&memory_allocate_info, None).unwrap() };
+		unsafe { logical_device.bind_image_memory(image, memory, 0).unwrap() };
+
+		// Create image view
+		let image_view_create_info = vk::ImageViewCreateInfo::builder()
+			.image(image)
+			.view_type(vk::ImageViewType::TYPE_2D)
+			.format(vk::Format::R8_UNORM)
+			.subresource_range(vk::ImageSubresourceRange::builder()
+				.aspect_mask(vk::ImageAspectFlags::COLOR)
+				.base_mip_level(0)
+				.level_count(1)
+				.base_array_layer(0)
+				.layer_count(1)
+				.build());
+		
+		let image_view = unsafe { logical_device.create_image_view(&image_view_create_info, None).unwrap() };
+
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.level(vk::CommandBufferLevel::PRIMARY)
@@ -1109,7 +1096,7 @@ impl<'a> Renderer<'a> {
 			.new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
 			.src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
 			.dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-			.image(self.ui_rendering_pipeline_resources.image)
+			.image(image)
 			.subresource_range(vk::ImageSubresourceRange::builder()
 				.aspect_mask(vk::ImageAspectFlags::COLOR)
 				.base_mip_level(0)
@@ -1140,7 +1127,7 @@ impl<'a> Renderer<'a> {
 			.new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
 			.src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
 			.dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-			.image(self.ui_rendering_pipeline_resources.image)
+			.image(image)
 			.subresource_range(vk::ImageSubresourceRange::builder()
 				.aspect_mask(vk::ImageAspectFlags::COLOR)
 				.base_mip_level(0)
@@ -1156,7 +1143,7 @@ impl<'a> Renderer<'a> {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_pipeline_barrier(command_buffer, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &transfer_image_memory_barriers);
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
-			logical_device.cmd_copy_buffer_to_image(command_buffer, staging_buffer.handle, self.ui_rendering_pipeline_resources.image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions);
+			logical_device.cmd_copy_buffer_to_image(command_buffer, staging_buffer.handle, image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions);
 			logical_device.cmd_pipeline_barrier(command_buffer, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::FRAGMENT_SHADER, vk::DependencyFlags::empty(), &[], &[], &shader_read_image_memory_barriers);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
@@ -1171,6 +1158,28 @@ impl<'a> Renderer<'a> {
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 		}
+
+		// Update the descriptor set to reference the device local memory
+		let descriptor_image_info = vk::DescriptorImageInfo::builder()
+			.image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+			.image_view(image_view)
+			.sampler(self.ui_rendering_pipeline_resources.sampler);
+		let descriptor_image_infos = [descriptor_image_info.build()];
+		
+		let write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.ui_rendering_pipeline_resources.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+			.image_info(&descriptor_image_infos);
+		let write_descriptor_sets = [write_descriptor_set.build()];
+		
+		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+
+		// Assign resources
+		self.ui_rendering_pipeline_resources.image = image;
+		self.ui_rendering_pipeline_resources.image_view = image_view;
+		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
 	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], text: &Text) {
