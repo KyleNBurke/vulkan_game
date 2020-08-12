@@ -1239,7 +1239,11 @@ impl<'a> Renderer<'a> {
 			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 
-		let dynamic_mesh_total_size = (dynamic_mesh_total_size + 1000) as vk::DeviceSize;
+		let text_index_size = text.get_vertex_indices().len() * size_of::<u16>();
+		let text_index_padding_size = 2;
+		let text_attribute_size = text.get_vertex_attributes().len() * size_of::<f32>();
+		
+		let dynamic_mesh_total_size = (dynamic_mesh_total_size + text_index_size + text_index_padding_size + text_attribute_size) as vk::DeviceSize;
 
 		// Allocate more memory in buffer for dynamic meshes if necessary
 		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
