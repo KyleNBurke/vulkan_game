@@ -8,8 +8,7 @@ use crate::{
 	math::{Vector3, Matrix4},
 	lights::{AmbientLight, PointLight},
 	Font,
-	Text,
-	geometry::Geometry
+	UIElement
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -1182,7 +1181,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], text: &Text) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &[UIElement]) {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;
@@ -1239,11 +1238,21 @@ impl<'a> Renderer<'a> {
 			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
 		}
 
-		let text_index_size = text.get_vertex_indices().len() * size_of::<u16>();
-		let text_index_padding_size = 2;
-		let text_attribute_size = text.get_vertex_attributes().len() * size_of::<f32>();
+		let mut ui_element_offset = dynamic_mesh_total_size;
+		let mut ui_element_offsets: Vec<(usize, usize, usize)> = Vec::with_capacity(ui_elements.len());
+
+		for ui_element in ui_elements {
+			let index_offset = ui_element_offset;
+			let index_size = mem::size_of_val(ui_element.geometry.get_vertex_indices());
+			let index_padding_size = (size_of::<f32>() - (ui_element_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = index_offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(ui_element.geometry.get_vertex_attributes());
+
+			ui_element_offsets.push((ui_element_offset, index_offset, attribute_offset));
+			ui_element_offset += attribute_offset + attribute_size;
+		}
 		
-		let dynamic_mesh_total_size = (dynamic_mesh_total_size + text_index_size + text_index_padding_size + text_attribute_size) as vk::DeviceSize;
+		let dynamic_mesh_total_size = ui_element_offset as vk::DeviceSize;
 
 		// Allocate more memory in buffer for dynamic meshes if necessary
 		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
@@ -1401,39 +1410,39 @@ impl<'a> Renderer<'a> {
 		}
 
 		// Copy UI data into dynamic buffer and record draw commands
-		unsafe {
-			let index_offset = base_offset;
-			let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
-			let indices = text.get_vertex_indices();
-			std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+		for (i, ui_element) in ui_elements.iter().enumerate() {
+			let (element_offset, index_offset, attribute_offset) = ui_element_offsets[i];
 
-			let index_size = indices.len() * size_of::<u16>();
-			let index_padding_size = (size_of::<f32>() - (index_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = index_offset + index_size + index_padding_size;
-			let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
-			let attributes = text.get_vertex_attributes();
-			std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
-			
-			logical_device.cmd_bind_index_buffer(
-				in_flight_frame.ui_secondary_command_buffer,
-				in_flight_frame.buffer.handle,
-				base_offset as u64,
-				vk::IndexType::UINT16);
-			
-			let vertex_buffers = [in_flight_frame.buffer.handle];
-			let vertex_offsets = [attribute_offset as u64];
-			logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
+			unsafe {
+				let indices = ui_element.geometry.get_vertex_indices();
+				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
+				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-			let descriptor_sets = [self.ui_rendering_pipeline_resources.descriptor_set];
-			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.ui_secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.ui_rendering_pipeline_resources.pipeline_layout,
-				0,
-				&descriptor_sets,
-				&[]);
+				let attributes = ui_element.geometry.get_vertex_attributes();
+				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
+				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-			logical_device.cmd_draw_indexed(in_flight_frame.ui_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
+				logical_device.cmd_bind_index_buffer(
+					in_flight_frame.ui_secondary_command_buffer,
+					in_flight_frame.buffer.handle,
+					element_offset as u64,
+					vk::IndexType::UINT16);
+				
+				let vertex_buffers = [in_flight_frame.buffer.handle];
+				let vertex_offsets = [attribute_offset as u64];
+				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
+
+				let descriptor_sets = [self.ui_rendering_pipeline_resources.descriptor_set];
+				logical_device.cmd_bind_descriptor_sets(
+					in_flight_frame.ui_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.ui_rendering_pipeline_resources.pipeline_layout,
+					0,
+					&descriptor_sets,
+					&[]);
+
+				logical_device.cmd_draw_indexed(in_flight_frame.ui_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
+			}
 		}
 
 		// Record static mesh commands

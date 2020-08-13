@@ -4,9 +4,7 @@ use engine::{
 	geometry,
 	Object3D,
 	Camera,
-	lights::AmbientLight,
-	Font,
-	Text
+	lights::AmbientLight
 };
 
 const WINDOW_WIDTH: u32 = 1280;
@@ -30,9 +28,6 @@ fn main() {
 	camera.translate_z(-2.0);
 
 	let ambient_light = AmbientLight::new();
-
-	let font = Font::new(String::from(""));
-	let text = Text::new(&font, 0.0, 0.0, "");
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -63,6 +58,6 @@ fn main() {
 		
 		dynamic_meshes[0].rotate_y(0.0001);
 
-		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &[], &text);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &[], &[]);
 	}
 }

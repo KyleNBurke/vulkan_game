@@ -2,12 +2,13 @@ use engine::{
 	vulkan::{Context, Renderer},
 	mesh::{self, Mesh},
 	geometry,
+	geometry2d,
 	math,
 	Object3D,
 	Camera,
 	lights,
 	Font,
-	Text
+	UIElement
 };
 
 mod camera_controller;
@@ -72,7 +73,8 @@ fn main() {
 	let font = Font::new(String::from("game/consolas.fdf"));
 	renderer.submit_fonts(&font);
 
-	let text = Text::new(&font, 1280.0, 720.0, "abc 1 2 3");
+	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, 1280.0, 720.0, "abc 1 2 3")));
+	let ui_elements = [text];
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -112,6 +114,6 @@ fn main() {
 		
 		camera_controller.update(&window, &mut camera);
 
-		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights, &text);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights, &ui_elements);
 	}
 }

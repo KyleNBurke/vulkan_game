@@ -1,4 +1,4 @@
-use crate::{geometry::Geometry, Font};
+use crate::{geometry2d::Geometry2D, Font};
 
 pub struct Text {
 	indices: Vec<u16>,
@@ -61,7 +61,7 @@ impl Text {
 	}
 }
 
-impl Geometry for Text {
+impl Geometry2D for Text {
 	fn get_vertex_indices(&self) -> &[u16] {
 		&self.indices
 	}
