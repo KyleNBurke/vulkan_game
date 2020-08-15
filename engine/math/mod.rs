@@ -7,6 +7,9 @@ pub use vector3::Vector3;
 pub mod quaternion;
 pub use quaternion::Quaternion;
 
+pub mod matrix3;
+pub use matrix3::Matrix3;
+
 pub mod matrix4;
 pub use matrix4::Matrix4;
 

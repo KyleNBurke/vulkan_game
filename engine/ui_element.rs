@@ -1,5 +1,5 @@
 use crate::{
-	math::Vector2,
+	math::{Vector2, Matrix3},
 	geometry2d::Geometry2D,
 	Object2D
 };
@@ -8,6 +8,7 @@ pub struct UIElement {
 	pub position: Vector2,
 	pub rotation: f32,
 	pub scale: Vector2,
+	pub matrix: Matrix3,
 	pub geometry: Box<dyn Geometry2D>,
 }
 
@@ -16,7 +17,8 @@ impl UIElement {
 		Self {
 			position: Vector2 { x: 0.0, y: 0.0 },
 			rotation: 0.0,
-			scale: Vector2 { x: 1.0, y: 1.0 },
+			scale: Vector2::new(),
+			matrix: Matrix3::new(),
 			geometry
 		}
 	}
