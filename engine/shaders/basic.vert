@@ -6,7 +6,7 @@ layout(set = 0, binding = 0, std140, row_major) uniform FrameData {
 	mat4 viewMatrix;
 };
 
-layout(set = 1, binding = 0, std140, row_major) uniform ModelMatrix {
+layout(set = 1, binding = 0, std140, row_major) uniform MeshData {
 	mat4 modelMatrix;
 };
 

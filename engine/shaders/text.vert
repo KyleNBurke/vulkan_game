@@ -1,7 +1,7 @@
 #version 450
 #extension GL_ARB_separate_shader_objects : enable
 
-layout(set = 1, binding = 0, std140, row_major) uniform UIElement {
+layout(set = 1, binding = 0, std140, row_major) uniform UIElementData {
 	mat3 matrix;
 };
 

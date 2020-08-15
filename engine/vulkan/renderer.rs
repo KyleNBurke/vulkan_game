@@ -53,14 +53,14 @@ struct SwapchainFrame {
 }
 
 struct MeshRenderingPipelineResources {
-	static_descriptor_set_layout: vk::DescriptorSetLayout,
-	dynamic_descriptor_set_layout: vk::DescriptorSetLayout,
+	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
+	mesh_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout
 }
 
 struct UIRenderingPipelineResources {
 	sampler_descriptor_set_layout: vk::DescriptorSetLayout,
-	matrix_descriptor_set_layout: vk::DescriptorSetLayout,
+	ui_element_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout,
 	sampler: vk::Sampler,
 	sampler_descriptor_set: vk::DescriptorSet,
@@ -78,9 +78,9 @@ struct InFlightFrame<'a> {
 	lambert_secondary_command_buffer: vk::CommandBuffer,
 	ui_secondary_command_buffer: vk::CommandBuffer,
 	buffer: Buffer<'a>,
-	frame_descriptor_set: vk::DescriptorSet,
-	mesh_descriptor_set: vk::DescriptorSet,
-	ui_element_descriptor_set: vk::DescriptorSet
+	frame_data_descriptor_set: vk::DescriptorSet,
+	mesh_data_descriptor_set: vk::DescriptorSet,
+	ui_element_data_descriptor_set: vk::DescriptorSet
 }
 
 struct StaticMeshResouces<'a> {
@@ -113,11 +113,11 @@ impl<'a> Renderer<'a> {
 			context,
 			&descriptor_pool,
 			&command_pool,
-			&mesh_rendering_pipeline_resources.static_descriptor_set_layout,
-			&mesh_rendering_pipeline_resources.dynamic_descriptor_set_layout,
-			&ui_rendering_pipeline_resources.matrix_descriptor_set_layout);
+			&mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout,
+			&mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout,
+			&ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout);
 
-		let static_mesh_resources = Self::create_static_mesh_resources(context, &descriptor_pool, &mesh_rendering_pipeline_resources.dynamic_descriptor_set_layout);
+		let static_mesh_resources = Self::create_static_mesh_resources(context, &descriptor_pool, &mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout);
 
 		Self {
 			context,
@@ -361,34 +361,34 @@ impl<'a> Renderer<'a> {
 	}
 
 	fn create_mesh_rendering_pipeline_resources(context: &Context) -> MeshRenderingPipelineResources {
-		// Create static descriptor set layout
-		let static_binding = vk::DescriptorSetLayoutBinding::builder()
+		// Create frame data descriptor set layout
+		let frame_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
 			.descriptor_count(1)
 			.stage_flags(vk::ShaderStageFlags::VERTEX);
-		let static_bindings = [static_binding.build()];
+		let frame_data_descriptor_set_layout_bindings = [frame_data_descriptor_set_layout_binding.build()];
 
-		let static_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-			.bindings(&static_bindings);
+		let frame_data_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+			.bindings(&frame_data_descriptor_set_layout_bindings);
 
-		let static_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&static_create_info, None).unwrap() };
+		let frame_data_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&frame_data_descriptor_set_layout_create_info, None).unwrap() };
 
-		// Create dynamic descriptor set layout
-		let dynamic_binding = vk::DescriptorSetLayoutBinding::builder()
+		// Create mesh data descriptor set layout
+		let mesh_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
 			.descriptor_count(1)
 			.stage_flags(vk::ShaderStageFlags::VERTEX);
-		let dynamic_bindings = [dynamic_binding.build()];
+		let mesh_data_descriptor_set_layout_bindings = [mesh_data_descriptor_set_layout_binding.build()];
 
-		let dynamic_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-			.bindings(&dynamic_bindings);
+		let mesh_data_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+			.bindings(&mesh_data_descriptor_set_layout_bindings);
 
-		let dynamic_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&dynamic_create_info, None).unwrap() };
+		let mesh_data_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&mesh_data_descriptor_set_layout_create_info, None).unwrap() };
 
 		// Create pipeline layout
-		let descriptor_set_layouts = [static_descriptor_set_layout, dynamic_descriptor_set_layout];
+		let descriptor_set_layouts = [frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout];
 
 		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
 			.set_layouts(&descriptor_set_layouts);
@@ -396,8 +396,8 @@ impl<'a> Renderer<'a> {
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
 		MeshRenderingPipelineResources {
-			static_descriptor_set_layout,
-			dynamic_descriptor_set_layout,
+			frame_data_descriptor_set_layout,
+			mesh_data_descriptor_set_layout,
 			pipeline_layout
 		}
 	}
@@ -440,21 +440,21 @@ impl<'a> Renderer<'a> {
 		
 		let sampler_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&sampler_descriptor_set_layout_create_info, None).unwrap() };
 
-		// Create matrix descriptor set layout
-		let matrix_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
+		// Create ui element data descriptor set layout
+		let ui_element_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
 			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
 			.descriptor_count(1)
 			.stage_flags(vk::ShaderStageFlags::VERTEX);
-		let matrix_descriptor_set_layout_bindings = [matrix_descriptor_set_layout_binding.build()];
+		let ui_element_data_descriptor_set_layout_bindings = [ui_element_data_descriptor_set_layout_binding.build()];
 
-		let matrix_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-			.bindings(&matrix_descriptor_set_layout_bindings);
+		let ui_element_data_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
+			.bindings(&ui_element_data_descriptor_set_layout_bindings);
 		
-		let matrix_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&matrix_descriptor_set_layout_create_info, None).unwrap() };
+		let ui_element_data_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&ui_element_data_descriptor_set_layout_create_info, None).unwrap() };
 
 		// Create pipeline layout
-		let descriptor_set_layouts = [sampler_descriptor_set_layout, matrix_descriptor_set_layout];
+		let descriptor_set_layouts = [sampler_descriptor_set_layout, ui_element_data_descriptor_set_layout];
 		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
 			.set_layouts(&descriptor_set_layouts);
 
@@ -488,7 +488,7 @@ impl<'a> Renderer<'a> {
 
 		UIRenderingPipelineResources {
 			sampler_descriptor_set_layout,
-			matrix_descriptor_set_layout,
+			ui_element_data_descriptor_set_layout,
 			pipeline_layout,
 			sampler,
 			sampler_descriptor_set,
@@ -741,11 +741,12 @@ impl<'a> Renderer<'a> {
 		context: &Context,
 		descriptor_pool: &vk::DescriptorPool,
 		command_pool: &vk::CommandPool,
-		frame_descriptor_set_layout: &vk::DescriptorSetLayout,
-		mesh_descriptor_set_layout: &vk::DescriptorSetLayout,
-		ui_element_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT]
+		frame_data_descriptor_set_layout: &vk::DescriptorSetLayout,
+		mesh_data_descriptor_set_layout: &vk::DescriptorSetLayout,
+		ui_element_data_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT]
 	{
 		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
+
 		let fence_create_info = vk::FenceCreateInfo::builder()
 			.flags(vk::FenceCreateFlags::SIGNALED);
 
@@ -763,47 +764,52 @@ impl<'a> Renderer<'a> {
 		
 		let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info).unwrap() };
 
-		let descriptor_set_layouts = [*frame_descriptor_set_layout, *mesh_descriptor_set_layout, *ui_element_descriptor_set_layout];
+		let descriptor_set_layouts = [*frame_data_descriptor_set_layout, *mesh_data_descriptor_set_layout, *ui_element_data_descriptor_set_layout];
 		let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 			.descriptor_pool(*descriptor_pool)
 			.set_layouts(&descriptor_set_layouts);
 
 		let mut frames: [mem::MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+		
 		for (i, frame) in frames.iter_mut().enumerate() {
 			let image_available = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None).unwrap() };
+			let primary_command_buffer = primary_command_buffers[i];
+			let basic_secondary_command_buffer = secondary_command_buffers[i * 3];
+			let lambert_secondary_command_buffer = secondary_command_buffers[i * 3 + 1];
+			let ui_secondary_command_buffer = secondary_command_buffers[i * 3 + 2];
 			
+			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap() };
+			let frame_data_descriptor_set = descriptor_sets[0];
+			let mesh_data_descriptor_set = descriptor_sets[1];
+			let ui_element_data_descriptor_set = descriptor_sets[2];
+
 			let buffer = Buffer::new(
 				context,
 				FRAME_DATA_MEMORY_SIZE as u64,
 				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 				vk::MemoryPropertyFlags::HOST_VISIBLE);
-			
-			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap() };
-			let frame_descriptor_set = descriptor_sets[0];
-			let mesh_descriptor_set = descriptor_sets[1];
-			let ui_element_descriptor_set = descriptor_sets[2];
 
 			Self::update_in_flight_frame_descriptor_sets(
 				&context.logical_device,
-				&frame_descriptor_set,
-				&mesh_descriptor_set,
-				&ui_element_descriptor_set,
+				&frame_data_descriptor_set,
+				&mesh_data_descriptor_set,
+				&ui_element_data_descriptor_set,
 				&buffer.handle);
 
 			*frame = mem::MaybeUninit::new(InFlightFrame {
 				image_available,
 				render_finished,
 				fence,
-				primary_command_buffer: primary_command_buffers[i],
-				basic_secondary_command_buffer: secondary_command_buffers[i * 3],
-				lambert_secondary_command_buffer: secondary_command_buffers[i * 3 + 1],
-				ui_secondary_command_buffer: secondary_command_buffers[i * 3 + 2],
+				primary_command_buffer,
+				basic_secondary_command_buffer,
+				lambert_secondary_command_buffer,
+				ui_secondary_command_buffer,
 				buffer,
-				frame_descriptor_set,
-				mesh_descriptor_set,
-				ui_element_descriptor_set
+				frame_data_descriptor_set,
+				mesh_data_descriptor_set,
+				ui_element_data_descriptor_set
 			});
 		}
 
@@ -1314,9 +1320,9 @@ impl<'a> Renderer<'a> {
 			// Update descriptor sets to refer to new memory buffer
 			Self::update_in_flight_frame_descriptor_sets(
 				&self.context.logical_device,
-				&in_flight_frame.frame_descriptor_set,
-				&in_flight_frame.mesh_descriptor_set,
-				&in_flight_frame.ui_element_descriptor_set,
+				&in_flight_frame.frame_data_descriptor_set,
+				&in_flight_frame.mesh_data_descriptor_set,
+				&in_flight_frame.ui_element_data_descriptor_set,
 				&in_flight_frame.buffer.handle);
 		}
 
@@ -1371,9 +1377,6 @@ impl<'a> Renderer<'a> {
 			.inheritance_info(&command_buffer_inheritance_info);
 		
 		unsafe {
-			let descriptor_sets = [in_flight_frame.frame_descriptor_set];
-			let dynamic_offsets = [];
-
 			logical_device.begin_command_buffer(in_flight_frame.basic_secondary_command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
@@ -1381,8 +1384,8 @@ impl<'a> Renderer<'a> {
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_rendering_pipeline_resources.pipeline_layout,
 				0,
-				&descriptor_sets,
-				&dynamic_offsets);
+				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
 
 			logical_device.begin_command_buffer(in_flight_frame.lambert_secondary_command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
@@ -1391,11 +1394,18 @@ impl<'a> Renderer<'a> {
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_rendering_pipeline_resources.pipeline_layout,
 				0,
-				&descriptor_sets,
-				&dynamic_offsets);
+				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
 			
 			logical_device.begin_command_buffer(in_flight_frame.ui_secondary_command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(in_flight_frame.ui_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.ui_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				in_flight_frame.ui_secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.ui_rendering_pipeline_resources.pipeline_layout,
+				0,
+				&[self.ui_rendering_pipeline_resources.sampler_descriptor_set],
+				&[]);
 		}
 
 		let find_mesh_rendering_secondary_command_buffer_from_material = |m: mesh::Material|
@@ -1447,15 +1457,13 @@ impl<'a> Renderer<'a> {
 				let vertex_offsets = [(base_offset + index_size + index_padding_size) as u64];
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
 				
-				let descriptor_sets = [in_flight_frame.mesh_descriptor_set];
-				let dynamic_offsets = [(base_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32];
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_rendering_pipeline_resources.pipeline_layout,
 					1,
-					&descriptor_sets,
-					&dynamic_offsets);
+					&[in_flight_frame.mesh_data_descriptor_set],
+					&[(base_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
@@ -1490,24 +1498,13 @@ impl<'a> Renderer<'a> {
 				let vertex_offsets = [attribute_offset as u64];
 				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
 
-				let descriptor_sets = [in_flight_frame.ui_element_descriptor_set];
-				let dynamic_offsets = [uniform_offset as u32];
 				logical_device.cmd_bind_descriptor_sets(
 					in_flight_frame.ui_secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.ui_rendering_pipeline_resources.pipeline_layout,
 					1,
-					&descriptor_sets,
-					&dynamic_offsets);
-
-				let descriptor_sets = [self.ui_rendering_pipeline_resources.sampler_descriptor_set];
-				logical_device.cmd_bind_descriptor_sets(
-					in_flight_frame.ui_secondary_command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.ui_rendering_pipeline_resources.pipeline_layout,
-					0,
-					&descriptor_sets,
-					&[]);
+					&[in_flight_frame.ui_element_data_descriptor_set],
+					&[uniform_offset as u32]);
 
 				logical_device.cmd_draw_indexed(in_flight_frame.ui_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
@@ -1653,14 +1650,14 @@ impl<'a> Drop for Renderer<'a> {
 			}
 
 			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.dynamic_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.static_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout, None);
 			logical_device.destroy_pipeline_layout(self.mesh_rendering_pipeline_resources.pipeline_layout, None);
 			logical_device.destroy_pipeline_layout(self.ui_rendering_pipeline_resources.pipeline_layout, None);
 			logical_device.free_memory(self.ui_rendering_pipeline_resources.memory, None);
 			logical_device.destroy_sampler(self.ui_rendering_pipeline_resources.sampler, None);
 			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.sampler_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.matrix_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout, None);
 			logical_device.destroy_image_view(self.ui_rendering_pipeline_resources.image_view, None);
 			logical_device.destroy_image(self.ui_rendering_pipeline_resources.image, None);
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
