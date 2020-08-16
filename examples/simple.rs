@@ -1,7 +1,7 @@
 use engine::{
 	vulkan::{Context, Renderer},
 	mesh::{self, Mesh},
-	geometry,
+	geometry3d,
 	Object3D,
 	Camera,
 	lights::AmbientLight
@@ -21,7 +21,7 @@ fn main() {
 	let (width, height) = window.get_framebuffer_size();
 	let mut renderer = Renderer::new(&context, width as u32, height as u32);
 
-	let dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	let dynamic_box = Mesh::new(Box::new(geometry3d::Box {}), mesh::Material::Basic);
 	let mut dynamic_meshes = vec![dynamic_box];
 
 	let mut camera = Camera::new(WINDOW_WIDTH as f32 / WINDOW_HEIGHT as f32, 75.0, 0.1, 10.0);

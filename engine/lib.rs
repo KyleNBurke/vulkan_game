@@ -3,8 +3,11 @@ pub mod vulkan;
 pub mod mesh;
 pub use mesh::Mesh;
 
-pub mod geometry;
 pub mod geometry2d;
+pub use geometry2d::Geometry2D;
+
+pub mod geometry3d;
+pub use geometry3d::Geometry3D;
 
 pub mod math;
 

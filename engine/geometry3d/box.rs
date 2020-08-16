@@ -1,4 +1,4 @@
-use super::Geometry;
+use super::Geometry3D;
 
 const VERTEX_INDICES: [u16; 36] = [
 	0,  1,  2,  // top
@@ -44,7 +44,7 @@ const VERTEX_ATTRIBUTES: [f32; 144] = [
 
 pub struct Box {}
 
-impl Geometry for Box {
+impl Geometry3D for Box {
 	fn get_vertex_indices(&self) -> &[u16] {
 		&VERTEX_INDICES
 	}

@@ -4,10 +4,10 @@
 layout(set = 0, binding = 0) uniform sampler2D texSampler;
 
 layout(location = 0) in vec3 fragColor;
-layout(location = 1) in vec2 fragTexPos;
+layout(location = 1) in vec2 fragTexPosition;
 
 layout(location = 0) out vec4 outColor;
 
 void main() {
-	outColor = texture(texSampler, fragTexPos);
+	outColor = texture(texSampler, fragTexPosition);
 }

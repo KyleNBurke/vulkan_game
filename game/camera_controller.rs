@@ -1,8 +1,6 @@
 use engine::{
 	Camera,
-	math::{
-		euler::{self, Euler}
-	},
+	math::{Euler, Order},
 	Object3D
 };
 
@@ -21,7 +19,7 @@ impl CameraController {
 		Self {
 			prev_mouse_pos_x: mouse_pos_x,
 			prev_mouse_pos_y: mouse_pos_y,
-			euler: Euler::from(0.0, 0.0, 0.0, euler::Order::YXZ)
+			euler: Euler::from(0.0, 0.0, 0.0, Order::YXZ)
 		}
 	}
 

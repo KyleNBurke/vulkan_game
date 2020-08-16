@@ -1,7 +1,9 @@
 use ash::{vk, version::EntryV1_0, version::InstanceV1_0, version::DeviceV1_0, extensions::ext, extensions::khr, vk::Handle};
 use glfw::Context as glfwContext;
-use std::ffi::{CString, CStr};
-use std::os::raw::{c_void, c_char};
+use std::{
+	ffi::{CString, CStr},
+	os::raw::{c_void, c_char}
+};
 use super::PhysicalDevice;
 
 const REQUIRED_LAYERS: &[&str] = &["VK_LAYER_KHRONOS_validation"];

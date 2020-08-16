@@ -49,7 +49,7 @@ impl<'a> Buffer<'a> {
 	}
 
 	fn allocate(
-		context: &'a Context,
+		context: &Context,
 		capacity: vk::DeviceSize,
 		usage: vk::BufferUsageFlags,
 		properties: vk::MemoryPropertyFlags) -> (vk::Buffer, vk::DeviceMemory)

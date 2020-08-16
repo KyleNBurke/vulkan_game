@@ -1,12 +1,13 @@
 use engine::{
 	vulkan::{Context, Renderer},
-	mesh::{self, Mesh},
-	geometry,
+	Mesh,
+	mesh::Material,
+	geometry3d,
 	geometry2d,
-	math,
+	math::{Vector3},
 	Object3D,
 	Camera,
-	lights,
+	lights::{AmbientLight, PointLight},
 	Font,
 	UIElement
 };
@@ -18,62 +19,64 @@ fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
 	let (mut window, events) = glfw.create_window(1280, 720, "Vulkan", glfw::WindowMode::Windowed).unwrap();
+	let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size(); // consider calling this framebuffer_width, framebuffer_height
 	window.set_key_polling(true);
 	window.set_framebuffer_size_polling(true);
 
 	let context = Context::new(&glfw, &window);
-	let (width, height) = window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, width as u32, height as u32);
+	let mut renderer = Renderer::new(&context, framebuffer_width as u32, framebuffer_height as u32);
 
-	let mut static_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Basic);
-	static_triangle.position = math::Vector3::from(0.0, 1.0, 1.7);
+	let mut static_triangle = Mesh::new(Box::new(geometry3d::Triangle {}), Material::Basic);
+	static_triangle.position.set(0.0, 1.0, 1.7);
 
-	let mut static_plane = Mesh::new(Box::new(geometry::Plane {}), mesh::Material::Basic);
-	static_plane.position = math::Vector3::from(0.0, 1.0, 2.0);
+	let mut static_plane = Mesh::new(Box::new(geometry3d::Plane {}), Material::Basic);
+	static_plane.position.set(0.0, 1.0, 2.0);
 
-	let mut static_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Lambert);
-	static_box.position = math::Vector3::from(-2.0, 0.0, 0.0);
+	let mut static_box = Mesh::new(Box::new(geometry3d::Box {}), Material::Lambert);
+	static_box.position.set(-2.0, 0.0, 0.0);
 
-	let mut point_light_box1 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	let mut point_light_box1 = Mesh::new(Box::new(geometry3d::Box {}), Material::Basic);
 	point_light_box1.translate_y(-1.0);
-	*point_light_box1.get_scale_mut() = math::Vector3::from_scalar(0.2);
+	point_light_box1.scale.set_from_scalar(0.2);
 
-	let mut point_light_box2 = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Basic);
+	let mut point_light_box2 = Mesh::new(Box::new(geometry3d::Box {}), Material::Basic);
 	point_light_box2.translate_x(-1.0);
 	point_light_box2.translate_y(-1.0);
-	*point_light_box2.get_scale_mut() = math::Vector3::from_scalar(0.2);
+	point_light_box2.scale.set_from_scalar(0.2);
 
 	let mut static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let mut dynamic_triangle = Mesh::new(Box::new(geometry::Triangle {}), mesh::Material::Lambert);
-	dynamic_triangle.position = math::Vector3::from(-0.5, -0.6, 2.0);
+	let mut dynamic_triangle = Mesh::new(Box::new(geometry3d::Triangle {}), Material::Lambert);
+	dynamic_triangle.position.set(-0.5, -0.6, 2.0);
 
-	let mut dynamic_plane = Mesh::new(Box::new(geometry::Plane {}), mesh::Material::Lambert);
-	dynamic_plane.position = math::Vector3::from(0.5, -0.6, 2.0);
+	let mut dynamic_plane = Mesh::new(Box::new(geometry3d::Plane {}), Material::Lambert);
+	dynamic_plane.position.set(0.5, -0.6, 2.0);
 
-	let mut dynamic_box = Mesh::new(Box::new(geometry::Box {}), mesh::Material::Lambert);
-	dynamic_box.position = math::Vector3::from(2.0, 0.0, 0.0);
+	let mut dynamic_box = Mesh::new(Box::new(geometry3d::Box {}), Material::Lambert);
+	dynamic_box.position.set(2.0, 0.0, 0.0);
 
 	let mut dynamic_meshes = vec![dynamic_triangle, dynamic_plane, dynamic_box];
 
-	let mut camera = Camera::new(1280.0 / 720.0, 75.0, 0.1, 10.0);
+	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 	let mut camera_controller = CameraController::new(mouse_pos_x as f32, mouse_pos_y as f32);
 
-	let ambient_light = lights::AmbientLight::from(math::Vector3::from_scalar(1.0), 0.01);
+	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
 
-	let mut point_light1 = lights::PointLight::from(math::Vector3::from_scalar(1.0), 0.3);
-	let mut point_light2 = lights::PointLight::from(math::Vector3::from_scalar(1.0), 0.3);
+	let mut point_light1 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
 	point_light1.translate_y(-1.0);
+
+	let mut point_light2 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
 	point_light2.translate_x(-1.0);
 	point_light2.translate_y(-1.0);
+
 	let point_lights = [point_light1, point_light2];
 
 	let font = Font::new(String::from("game/consolas.fdf"));
 	renderer.submit_fonts(&font);
 
-	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, 1280.0, 720.0, "abc 1 2 3")));
+	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, framebuffer_width as f32, framebuffer_height as f32, "abc 1 2 3")));
 	let ui_elements = [text];
 
 	while !window.should_close() {
@@ -97,15 +100,15 @@ fn main() {
 			}
 		}
 
-		let (width, height) = window.get_framebuffer_size();
-		if width == 0 || height == 0 {
+		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
+		if framebuffer_width == 0 || framebuffer_height == 0 {
 			glfw.wait_events();
 			continue;
 		}
 
 		if framebuffer_resized {
-			renderer.recreate_swapchain(width as u32, height as u32);
-			camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			renderer.recreate_swapchain(framebuffer_width as u32, framebuffer_height as u32);
+			camera.projection_matrix.make_perspective(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 		}
 		
 		dynamic_meshes[0].rotate_y(0.0005);

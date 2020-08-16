@@ -4,7 +4,7 @@ use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh},
 	Object3D,
-	camera::Camera,
+	Camera,
 	math::{Vector3, Matrix4},
 	lights::{AmbientLight, PointLight},
 	Font,
@@ -403,25 +403,25 @@ impl<'a> Renderer<'a> {
 	}
 
 	fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
-		let max_frames_in_flight_u32 = IN_FLIGHT_FRAMES_COUNT as u32;
+		let max_frames = IN_FLIGHT_FRAMES_COUNT as u32;
 
-		let static_pool_size = vk::DescriptorPoolSize::builder()
+		let uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
 			.ty(vk::DescriptorType::UNIFORM_BUFFER)
-			.descriptor_count(max_frames_in_flight_u32);
+			.descriptor_count(max_frames);
 
-		let dynamic_pool_size = vk::DescriptorPoolSize::builder()
+		let dynamic_uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
 			.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.descriptor_count(max_frames_in_flight_u32 * 2 + 1);
+			.descriptor_count(max_frames * 2 + 1);
 		
 		let combined_image_sampler_pool_size = vk::DescriptorPoolSize::builder()
 			.ty(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
 			.descriptor_count(1);
 		
-		let pool_sizes = [static_pool_size.build(), dynamic_pool_size.build(), combined_image_sampler_pool_size.build()];
+		let pool_sizes = [uniform_buffer_pool_size.build(), dynamic_uniform_buffer_pool_size.build(), combined_image_sampler_pool_size.build()];
 		
 		let create_info = vk::DescriptorPoolCreateInfo::builder()
 			.pool_sizes(&pool_sizes)
-			.max_sets(3 * max_frames_in_flight_u32 + 2);
+			.max_sets(3 * max_frames + 2);
 		
 		unsafe { context.logical_device.create_descriptor_pool(&create_info, None).unwrap() }
 	}
@@ -871,9 +871,8 @@ impl<'a> Renderer<'a> {
 			mesh_write_descriptor_set.build(),
 			ui_element_write_descriptor_set.build()
 		];
-		let copy_descriptor_sets = [];
 
-		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
+		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 	}
 
 	fn create_static_mesh_resources(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshResouces<'a> {
@@ -1006,9 +1005,26 @@ impl<'a> Renderer<'a> {
 			logical_device.unmap_memory(staging_buffer.memory);
 		}
 		
-		// Resize device local memory buffer if necessary
+		// Allocate larger device local memory buffer if necessary & update descriptor sets to reference new buffer
 		if total_size > self.static_mesh_resources.buffer.capacity {
 			self.static_mesh_resources.buffer.reallocate(total_size);
+
+			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(self.static_mesh_resources.buffer.handle)
+				.offset(0)
+				.range(16 * size_of::<f32>() as u64);
+			let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
+
+			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(self.static_mesh_resources.model_matrix_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+				.buffer_info(&model_matrix_buffer_infos);
+			
+			let write_descriptor_sets = [model_matrix_write_descriptor_set.build()];
+			
+			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 		}
 		
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
@@ -1042,30 +1058,18 @@ impl<'a> Renderer<'a> {
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 		}
-		
-		// Update the descriptor set to reference the device local buffer
-		let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(self.static_mesh_resources.buffer.handle)
-			.offset(0)
-			.range(16 * size_of::<f32>() as u64);
-		let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
-
-		let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.static_mesh_resources.model_matrix_descriptor_set)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.buffer_info(&model_matrix_buffer_infos);
-		
-		let write_descriptor_sets = [model_matrix_write_descriptor_set.build()];
-		let copy_descriptor_sets = [];
-		
-		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &copy_descriptor_sets) };
 	}
 
 	pub fn submit_fonts(&mut self, font: &Font) {
 		let logical_device = &self.context.logical_device;
 		let atlas_size = font.atlas_width * font.atlas_height;
+
+		// Destroy resources
+		unsafe {
+			logical_device.destroy_image(self.ui_rendering_pipeline_resources.image, None);
+			logical_device.destroy_image_view(self.ui_rendering_pipeline_resources.image_view, None);
+			logical_device.free_memory(self.ui_rendering_pipeline_resources.memory, None);
+		}
 
 		// Create a host visible staging buffer
 		let staging_buffer = Buffer::new(
@@ -1313,11 +1317,10 @@ impl<'a> Renderer<'a> {
 		
 		let dynamic_mesh_total_size = ui_element_offset as vk::DeviceSize;
 
-		// Allocate more memory in buffer for dynamic meshes if necessary
+		// Allocate larger device local memory buffer if necessary & update descriptor sets to reference new buffer
 		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
 			in_flight_frame.buffer.reallocate(dynamic_mesh_total_size);
 
-			// Update descriptor sets to refer to new memory buffer
 			Self::update_in_flight_frame_descriptor_sets(
 				&self.context.logical_device,
 				&in_flight_frame.frame_data_descriptor_set,
@@ -1433,16 +1436,16 @@ impl<'a> Renderer<'a> {
 				// Copy index, attribute and uniform buffer objects into memory buffer
 				let index_offset = base_offset;
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
-				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attribute_offset = index_offset + index_size + index_padding_size;
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
-				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
 				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
 				let model_matrix = &mesh.model_matrix.elements;
-				std::ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
+				ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
 
 				// Record draw commands
 				let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(mesh.material);
@@ -1478,11 +1481,11 @@ impl<'a> Renderer<'a> {
 			unsafe {
 				let indices = ui_element.geometry.get_vertex_indices();
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
-				std::ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attributes = ui_element.geometry.get_vertex_attributes();
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
-				std::ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let matrix = ui_element.matrix.to_padded_array();
 				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];

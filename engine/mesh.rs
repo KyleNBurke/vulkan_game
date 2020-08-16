@@ -1,6 +1,8 @@
-use crate::geometry::Geometry;
-use crate::math::{Vector3, Quaternion, Matrix4};
-use crate::object3d::Object3D;
+use crate:: {
+	Geometry3D,
+	math::{Vector3, Quaternion, Matrix4},
+	Object3D
+};
 
 #[derive(Copy, Clone)]
 pub enum Material {
@@ -14,13 +16,13 @@ pub struct Mesh {
 	pub scale: Vector3,
 	pub model_matrix: Matrix4,
 	pub auto_update_model_matrix: bool,
-	pub geometry: Box<dyn Geometry>,
+	pub geometry: Box<dyn Geometry3D>,
 	pub material: Material
 }
 
 impl Mesh {
-	pub fn new(geometry: Box<dyn Geometry>, material: Material) -> Self {
-		Mesh {
+	pub fn new(geometry: Box<dyn Geometry3D>, material: Material) -> Self {
+		Self {
 			position: Vector3::new(),
 			rotation: Quaternion::new(),
 			scale: Vector3::from_scalar(1.0),

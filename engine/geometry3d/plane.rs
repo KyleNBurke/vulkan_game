@@ -1,4 +1,4 @@
-use super::Geometry;
+use super::Geometry3D;
 
 const VERTEX_INDICES: [u16; 6] = [
 	0, 2, 3,
@@ -14,7 +14,7 @@ const VERTEX_ATTRIBUTES: [f32; 24] = [
 
 pub struct Plane {}
 
-impl Geometry for Plane {
+impl Geometry3D for Plane {
 	fn get_vertex_indices(&self) -> &[u16] {
 		&VERTEX_INDICES
 	}

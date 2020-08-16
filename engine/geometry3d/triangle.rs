@@ -1,4 +1,4 @@
-use super::Geometry;
+use super::Geometry3D;
 
 const VERTEX_INDICES: [u16; 3] = [
 	0, 1, 2
@@ -12,7 +12,7 @@ const VERTEX_ATTRIBUTES: [f32; 18] = [
 
 pub struct Triangle {}
 
-impl Geometry for Triangle {
+impl Geometry3D for Triangle {
 	fn get_vertex_indices(&self) -> &[u16] {
 		&VERTEX_INDICES
 	}
