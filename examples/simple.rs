@@ -17,10 +17,10 @@ fn main() {
 	let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
 	let mut renderer = Renderer::new(&context, framebuffer_width as u32, framebuffer_height as u32);
 
-	let mut meshes = [Mesh::new(Box::new(geometry3d::Box {}), Material::Basic)];
-
 	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
-	camera.translate_z(-2.0);
+	camera.position.set(0.0, 0.0, -2.0);
+
+	let mut meshes = [Mesh::new(Box::new(geometry3d::Box {}), Material::Basic)];
 
 	let ambient_light = AmbientLight::new();
 
