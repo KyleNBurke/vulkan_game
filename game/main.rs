@@ -94,7 +94,7 @@ fn main() {
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
 					renderer.submit_fonts(&font);
-					println!("Static meshes submitted");
+					println!("Static meshes and font submitted");
 				},
 				_ => {}
 			}

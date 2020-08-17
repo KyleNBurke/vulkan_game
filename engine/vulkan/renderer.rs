@@ -1,5 +1,13 @@
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
-use std::{mem, mem::size_of, ffi::CString, ptr, fs, io::{self, Seek, Read}};
+
+use std::{
+	mem::{self, size_of},
+	ffi::CString,
+	ptr,
+	fs,
+	io::{self, Seek, Read}
+};
+
 use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh, Material},
@@ -19,7 +27,7 @@ pub struct Renderer<'a> {
 	context: &'a Context,
 	render_pass: vk::RenderPass,
 	swapchain: Swapchain,
-	mesh_rendering_pipeline_resources: MeshRenderingPipelineResources,
+	mesh_rendering_pipeline_resources: MeshRenderingPipelineResources<'a>,
 	ui_rendering_pipeline_resources: UIRenderingPipelineResources,
 	basic_pipeline: vk::Pipeline,
 	lambert_pipeline: vk::Pipeline,
@@ -28,7 +36,6 @@ pub struct Renderer<'a> {
 	command_pool: vk::CommandPool,
 	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	static_mesh_resources: StaticMeshResouces<'a>,
 	inverse_view_matrix: Matrix4
 }
 
@@ -52,10 +59,13 @@ struct SwapchainFrame {
 	fence: vk::Fence
 }
 
-struct MeshRenderingPipelineResources {
+struct MeshRenderingPipelineResources<'a> {
 	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	mesh_data_descriptor_set_layout: vk::DescriptorSetLayout,
-	pipeline_layout: vk::PipelineLayout
+	pipeline_layout: vk::PipelineLayout,
+	static_mesh_buffer: Buffer<'a>,
+	static_mesh_data_descriptor_set: vk::DescriptorSet,
+	static_mesh_render_info: Vec<(usize, usize, usize, usize, Material)>
 }
 
 struct UIRenderingPipelineResources {
@@ -83,18 +93,12 @@ struct InFlightFrame<'a> {
 	ui_element_data_descriptor_set: vk::DescriptorSet
 }
 
-struct StaticMeshResouces<'a> {
-	buffer: Buffer<'a>,
-	mesh_data_descriptor_set: vk::DescriptorSet,
-	render_info: Vec<(usize, usize, usize, usize, Material)>
-}
-
 impl<'a> Renderer<'a> {
 	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
 		let render_pass = Self::create_render_pass(context);
 		let swapchain = Self::create_swapchain(context, width, height, &render_pass);
-		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(context);
 		let descriptor_pool = Self::create_descriptor_pool(context);
+		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(context, &descriptor_pool);
 		let ui_rendering_pipeline_resources = Self::create_ui_rendering_pipeline_resources(context, &descriptor_pool);
 		let pipelines = Self::create_pipelines(context, &mesh_rendering_pipeline_resources.pipeline_layout, &ui_rendering_pipeline_resources.pipeline_layout, &swapchain.extent, &render_pass);
 		let command_pool = Self::create_command_pool(context);
@@ -106,8 +110,6 @@ impl<'a> Renderer<'a> {
 			&mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout,
 			&mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout,
 			&ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout);
-
-		let static_mesh_resources = Self::create_static_mesh_resources(context, &descriptor_pool, &mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout);
 
 		Self {
 			context,
@@ -122,7 +124,6 @@ impl<'a> Renderer<'a> {
 			descriptor_pool,
 			in_flight_frames,
 			current_in_flight_frame: 0,
-			static_mesh_resources,
 			inverse_view_matrix: Matrix4::new()
 		}
 	}
@@ -350,7 +351,7 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	fn create_mesh_rendering_pipeline_resources(context: &Context) -> MeshRenderingPipelineResources {
+	fn create_mesh_rendering_pipeline_resources(context: &'a Context, descriptor_pool: &vk::DescriptorPool) -> MeshRenderingPipelineResources<'a> {
 		// Create frame data descriptor set layout
 		let frame_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
@@ -385,10 +386,27 @@ impl<'a> Renderer<'a> {
 
 		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
 
+		// Create static mesh buffer
+		let static_mesh_buffer = Buffer::null(
+			context,
+			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
+			vk::MemoryPropertyFlags::DEVICE_LOCAL);
+		
+		// Create static mesh data descriptor set
+		let static_mesh_data_descriptor_set_layouts = [mesh_data_descriptor_set_layout];
+		let static_mesh_data_descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
+			.descriptor_pool(*descriptor_pool)
+			.set_layouts(&static_mesh_data_descriptor_set_layouts);
+		
+		let static_mesh_data_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&static_mesh_data_descriptor_set_allocate_info).unwrap()[0] };
+
 		MeshRenderingPipelineResources {
 			frame_data_descriptor_set_layout,
 			mesh_data_descriptor_set_layout,
-			pipeline_layout
+			pipeline_layout,
+			static_mesh_buffer,
+			static_mesh_data_descriptor_set,
+			static_mesh_render_info: vec![]
 		}
 	}
 
@@ -865,26 +883,6 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 	}
 
-	fn create_static_mesh_resources(context: &'a Context, descriptor_pool: &vk::DescriptorPool, dynamic_descriptor_set_layout: &vk::DescriptorSetLayout) -> StaticMeshResouces<'a> {
-		let buffer = Buffer::null(
-			context,
-			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
-			vk::MemoryPropertyFlags::DEVICE_LOCAL);
-		
-		let descriptor_set_layout = [*dynamic_descriptor_set_layout];
-		let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
-			.descriptor_pool(*descriptor_pool)
-			.set_layouts(&descriptor_set_layout);
-		
-		let mesh_data_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
-	
-		StaticMeshResouces {
-			buffer,
-			mesh_data_descriptor_set,
-			render_info: vec![]
-		}
-	}
-
 	pub fn recreate_swapchain(&mut self, width: u32, height: u32) {
 		let logical_device = &self.context.logical_device;
 
@@ -916,13 +914,14 @@ impl<'a> Renderer<'a> {
 
 	pub fn submit_static_meshes(&mut self, meshes: &mut [Mesh]) {
 		let logical_device = &self.context.logical_device;
+		let render_info = &mut self.mesh_rendering_pipeline_resources.static_mesh_render_info;
 
 		// Wait for rendering operations to finish
 		unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
 
 		// Calculate total memory size and render info
 		let mut mesh_offset = 0;
-		self.static_mesh_resources.render_info.clear();
+		render_info.clear();
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
@@ -935,7 +934,7 @@ impl<'a> Renderer<'a> {
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			self.static_mesh_resources.render_info.push((mesh_offset, attribute_offset, uniform_offset, indices.len(), mesh.material));
+			render_info.push((mesh_offset, attribute_offset, uniform_offset, indices.len(), mesh.material));
 			mesh_offset += uniform_offset + uniform_size;
 		}
 
@@ -956,7 +955,7 @@ impl<'a> Renderer<'a> {
 				mesh.update_matrix();
 			}
 
-			let (index_offset, attribute_offset, uniform_offset, _, _) = self.static_mesh_resources.render_info[i];
+			let (index_offset, attribute_offset, uniform_offset, _, _) = render_info[i];
 
 			unsafe {
 				let indices = mesh.geometry.get_vertex_indices();
@@ -984,17 +983,19 @@ impl<'a> Renderer<'a> {
 		}
 		
 		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
-		if buffer_size > self.static_mesh_resources.buffer.capacity {
-			self.static_mesh_resources.buffer.reallocate(buffer_size);
+		let static_mesh_buffer = &mut self.mesh_rendering_pipeline_resources.static_mesh_buffer;
+
+		if buffer_size > static_mesh_buffer.capacity {
+			static_mesh_buffer.reallocate(buffer_size);
 
 			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(self.static_mesh_resources.buffer.handle)
+				.buffer(static_mesh_buffer.handle)
 				.offset(0)
 				.range(16 * size_of::<f32>() as u64);
 			let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
 
 			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.static_mesh_resources.mesh_data_descriptor_set)
+				.dst_set(self.mesh_rendering_pipeline_resources.static_mesh_data_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -1022,7 +1023,7 @@ impl<'a> Renderer<'a> {
 		
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_resources.buffer.handle, &regions);
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, static_mesh_buffer.handle, &regions);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
@@ -1032,6 +1033,7 @@ impl<'a> Renderer<'a> {
 		let submit_infos = [submit_info.build()];
 		
 		unsafe {
+			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, vk::Fence::null()).unwrap();
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
@@ -1179,7 +1181,6 @@ impl<'a> Renderer<'a> {
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_pipeline_barrier(command_buffer, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::TRANSFER, vk::DependencyFlags::empty(), &[], &[], &transfer_image_memory_barriers);
-			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.cmd_copy_buffer_to_image(command_buffer, staging_buffer.handle, image, vk::ImageLayout::TRANSFER_DST_OPTIMAL, &regions);
 			logical_device.cmd_pipeline_barrier(command_buffer, vk::PipelineStageFlags::TRANSFER, vk::PipelineStageFlags::FRAGMENT_SHADER, vk::DependencyFlags::empty(), &[], &[], &shader_read_image_memory_barriers);
 			logical_device.end_command_buffer(command_buffer).unwrap();
@@ -1191,6 +1192,7 @@ impl<'a> Renderer<'a> {
 		let submit_infos = [submit_info.build()];
 		
 		unsafe {
+			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, vk::Fence::null()).unwrap();
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
@@ -1464,20 +1466,21 @@ impl<'a> Renderer<'a> {
 		}
 
 		// Record static mesh draw commands
-		for render_info in &self.static_mesh_resources.render_info {
+		for render_info in &self.mesh_rendering_pipeline_resources.static_mesh_render_info {
 			let (index_offset, attribute_offset, uniform_offset, index_count, material) = *render_info;
 			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(material);
 
 			unsafe {
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.static_mesh_resources.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.static_mesh_resources.buffer.handle], &[attribute_offset as u64]);
+				let static_mesh_buffer_handle = self.mesh_rendering_pipeline_resources.static_mesh_buffer.handle;
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[attribute_offset as u64]);
 				
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_rendering_pipeline_resources.pipeline_layout,
 					1,
-					&[self.static_mesh_resources.mesh_data_descriptor_set],
+					&[self.mesh_rendering_pipeline_resources.static_mesh_data_descriptor_set],
 					&[uniform_offset as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, index_count as u32, 1, 0, 0, 0);
@@ -1588,37 +1591,49 @@ impl<'a> Drop for Renderer<'a> {
 		unsafe {
 			logical_device.device_wait_idle().unwrap();
 
+			// In flight frames
 			for frame in &self.in_flight_frames {
 				logical_device.destroy_fence(frame.fence, None);
 				logical_device.destroy_semaphore(frame.render_finished, None);
 				logical_device.destroy_semaphore(frame.image_available, None);
 			}
+			
+			// Command pool
+			logical_device.destroy_command_pool(self.command_pool, None);
 
-			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout, None);
-			logical_device.destroy_pipeline_layout(self.mesh_rendering_pipeline_resources.pipeline_layout, None);
-			logical_device.destroy_pipeline_layout(self.ui_rendering_pipeline_resources.pipeline_layout, None);
-			logical_device.free_memory(self.ui_rendering_pipeline_resources.memory, None);
-			logical_device.destroy_sampler(self.ui_rendering_pipeline_resources.sampler, None);
-			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.sampler_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout, None);
-			logical_device.destroy_image_view(self.ui_rendering_pipeline_resources.image_view, None);
-			logical_device.destroy_image(self.ui_rendering_pipeline_resources.image, None);
+			// Pipelines
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 			logical_device.destroy_pipeline(self.ui_pipeline, None);
+
+			// UI rendering pipeline resources
+			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.sampler_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout, None);
+			logical_device.destroy_pipeline_layout(self.ui_rendering_pipeline_resources.pipeline_layout, None);
+			logical_device.destroy_sampler(self.ui_rendering_pipeline_resources.sampler, None);
+			logical_device.destroy_image(self.ui_rendering_pipeline_resources.image, None);
+			logical_device.destroy_image_view(self.ui_rendering_pipeline_resources.image_view, None);
+			logical_device.free_memory(self.ui_rendering_pipeline_resources.memory, None);
+
+			// Mesh rendering pipeline resources
+			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout, None);
+			logical_device.destroy_pipeline_layout(self.mesh_rendering_pipeline_resources.pipeline_layout, None);
 			
+			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
+
+			// Swapchain
+			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
+			logical_device.destroy_image(self.swapchain.depth_image_resources.image, None);
+			logical_device.destroy_image_view(self.swapchain.depth_image_resources.image_view, None);
+			logical_device.free_memory(self.swapchain.depth_image_resources.memory, None);
+
 			for frame in &self.swapchain.frames {
 				logical_device.destroy_framebuffer(frame.framebuffer, None);
 				logical_device.destroy_image_view(frame.image_view, None);
 			}
 
-			logical_device.free_memory(self.swapchain.depth_image_resources.memory, None);
-			logical_device.destroy_image_view(self.swapchain.depth_image_resources.image_view, None);
-			logical_device.destroy_image(self.swapchain.depth_image_resources.image, None);
-			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
-			logical_device.destroy_command_pool(self.command_pool, None);
+			// Render pass
 			logical_device.destroy_render_pass(self.render_pass, None);
 		}
 	}
