@@ -2,7 +2,7 @@ use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use std::{mem, mem::size_of, ffi::CString, ptr, fs, io::{self, Seek, Read}};
 use crate::{
 	vulkan::{Context, Buffer},
-	mesh::{self, Mesh},
+	mesh::{self, Mesh, Material},
 	Object3D,
 	Camera,
 	math::{Vector3, Matrix4},
@@ -85,18 +85,8 @@ struct InFlightFrame<'a> {
 
 struct StaticMeshResouces<'a> {
 	buffer: Buffer<'a>,
-	model_matrix_descriptor_set: vk::DescriptorSet,
-	render_info: Vec<RenderInfo>
-}
-
-struct RenderInfo {
-	base_offset: usize,
-	index_count: usize,
-	index_size: usize,
-	index_padding_size: usize,
-	attribute_size: usize,
-	attribute_padding_size: usize,
-	material: mesh::Material
+	mesh_data_descriptor_set: vk::DescriptorSet,
+	render_info: Vec<(usize, usize, usize, usize, Material)>
 }
 
 impl<'a> Renderer<'a> {
@@ -886,11 +876,11 @@ impl<'a> Renderer<'a> {
 			.descriptor_pool(*descriptor_pool)
 			.set_layouts(&descriptor_set_layout);
 		
-		let model_matrix_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
+		let mesh_data_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap()[0] };
 	
 		StaticMeshResouces {
 			buffer,
-			model_matrix_descriptor_set,
+			mesh_data_descriptor_set,
 			render_info: vec![]
 		}
 	}
@@ -931,39 +921,30 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
 
 		// Calculate total memory size and render info
-		let mut total_size = 0;
-		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
+		let mut mesh_offset = 0;
 		self.static_mesh_resources.render_info.clear();
+		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
 			let indices = mesh.geometry.get_vertex_indices();
-			let attributes = mesh.geometry.get_vertex_attributes();
-			let index_count = indices.len();
-			let index_size = indices.len() * size_of::<u16>();
-			let index_padding_size = size_of::<f32>() - (total_size + index_size) % size_of::<f32>();
-			let attribute_size = attributes.len() * size_of::<f32>();
-			let attribute_padding_size = uniform_alignment - (total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
+			let index_size = mem::size_of_val(indices);
+			let index_padding_size = (size_of::<f32>() - (mesh_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = mesh_offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(mesh.geometry.get_vertex_attributes());
+			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
+			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			self.static_mesh_resources.render_info.push(RenderInfo {
-				base_offset: total_size,
-				index_count,
-				index_size,
-				index_padding_size,
-				attribute_size,
-				attribute_padding_size,
-				material: mesh.material
-			});
-
-			total_size += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
+			self.static_mesh_resources.render_info.push((mesh_offset, attribute_offset, uniform_offset, indices.len(), mesh.material));
+			mesh_offset += uniform_offset + uniform_size;
 		}
 
-		let total_size = total_size as u64;
-
 		// Create a host visible staging buffer
+		let buffer_size = mesh_offset as vk::DeviceSize;
+
 		let staging_buffer = Buffer::new(
 			self.context,
-			total_size,
+			buffer_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE);
 		
@@ -971,27 +952,24 @@ impl<'a> Renderer<'a> {
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
 		for (i, mesh) in meshes.iter_mut().enumerate() {
-			let indices = mesh.geometry.get_vertex_indices();
-			let attributes = mesh.geometry.get_vertex_attributes();
-			let render_info = &self.static_mesh_resources.render_info[i];
+			if mesh.auto_update_model_matrix {
+				mesh.update_matrix();
+			}
+
+			let (index_offset, attribute_offset, uniform_offset, _, _) = self.static_mesh_resources.render_info[i];
 
 			unsafe {
-				let index_offset = render_info.base_offset;
+				let indices = mesh.geometry.get_vertex_indices();
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_offset = index_offset + render_info.index_size + render_info.index_padding_size;
+				let attributes = mesh.geometry.get_vertex_attributes();
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				if mesh.auto_update_model_matrix {
-					mesh.update_matrix();
-				}
-
-				let model_matrix_offset = attribute_offset + render_info.attribute_size + render_info.attribute_padding_size;
-				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
-				let model_matrix = &mesh.model_matrix.elements;
-				ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
+				let matrix = &mesh.model_matrix.elements;
+				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
+				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 			}
 		}
 
@@ -1005,9 +983,9 @@ impl<'a> Renderer<'a> {
 			logical_device.unmap_memory(staging_buffer.memory);
 		}
 		
-		// Allocate larger device local memory buffer if necessary & update descriptor sets to reference new buffer
-		if total_size > self.static_mesh_resources.buffer.capacity {
-			self.static_mesh_resources.buffer.reallocate(total_size);
+		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
+		if buffer_size > self.static_mesh_resources.buffer.capacity {
+			self.static_mesh_resources.buffer.reallocate(buffer_size);
 
 			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
 				.buffer(self.static_mesh_resources.buffer.handle)
@@ -1016,7 +994,7 @@ impl<'a> Renderer<'a> {
 			let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
 
 			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.static_mesh_resources.model_matrix_descriptor_set)
+				.dst_set(self.static_mesh_resources.mesh_data_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -1039,7 +1017,7 @@ impl<'a> Renderer<'a> {
 			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 		
 		let region = vk::BufferCopy::builder()
-			.size(total_size);
+			.size(buffer_size);
 		let regions = [region.build()];
 		
 		unsafe {
@@ -1241,7 +1219,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, dynamic_meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &[UIElement]) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &[UIElement]) {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;
@@ -1280,46 +1258,44 @@ impl<'a> Renderer<'a> {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
-		// Calculate total required dynamic mesh memory size and chunk sizes
-		let dynamic_mesh_initial_chunk_size = FRAME_DATA_MEMORY_SIZE;
-		let mut dynamic_mesh_total_size = dynamic_mesh_initial_chunk_size;
-		let mut dynamic_mesh_chunk_sizes: Vec<[usize; 4]> = Vec::with_capacity(dynamic_meshes.len());
+		// Calculate required dynamic buffer size and offsets
+		let mut object_offset = FRAME_DATA_MEMORY_SIZE;
+		let mut mesh_offsets = Vec::with_capacity(meshes.len());
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
-		for mesh in dynamic_meshes.iter() {
-			let indices = mesh.geometry.get_vertex_indices();
-			let attributes = mesh.geometry.get_vertex_attributes();
-			let index_size = indices.len() * size_of::<u16>();
-			let index_padding_size = size_of::<f32>() - (dynamic_mesh_total_size + index_size) % size_of::<f32>();
-			let attribute_size = attributes.len() * size_of::<f32>();
-			let attribute_padding = uniform_alignment - (dynamic_mesh_total_size + index_size + index_padding_size + attribute_size) % uniform_alignment;
+		for mesh in meshes.iter() {
+			let index_size = mem::size_of_val(mesh.geometry.get_vertex_indices());
+			let index_padding_size = (size_of::<f32>() - (object_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = object_offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(mesh.geometry.get_vertex_attributes());
+			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
+			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
-			dynamic_mesh_chunk_sizes.push([index_size, index_padding_size, attribute_size, attribute_padding]);
-			dynamic_mesh_total_size += index_size + index_padding_size + attribute_size + attribute_padding + uniform_size;
+
+			mesh_offsets.push((object_offset, attribute_offset, uniform_offset));
+			object_offset += uniform_offset + uniform_size;
 		}
 
-		let mut ui_element_offset = dynamic_mesh_total_size;
 		let mut ui_element_offsets = Vec::with_capacity(ui_elements.len());
 
-		for ui_element in ui_elements {
-			let index_offset = ui_element_offset;
-			let index_size = mem::size_of_val(ui_element.geometry.get_vertex_indices());
-			let index_padding_size = (size_of::<f32>() - (ui_element_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = index_offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(ui_element.geometry.get_vertex_attributes());
+		for element in ui_elements {
+			let index_size = mem::size_of_val(element.geometry.get_vertex_indices());
+			let index_padding_size = (size_of::<f32>() - (object_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = object_offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(element.geometry.get_vertex_attributes());
 			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 12 * size_of::<f32>();
 
-			ui_element_offsets.push((ui_element_offset, index_offset, attribute_offset, uniform_offset));
-			ui_element_offset += uniform_offset + uniform_size;
+			ui_element_offsets.push((object_offset, attribute_offset, uniform_offset));
+			object_offset += uniform_offset + uniform_size;
 		}
 		
-		let dynamic_mesh_total_size = ui_element_offset as vk::DeviceSize;
+		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
+		let buffer_size = object_offset as vk::DeviceSize;
 
-		// Allocate larger device local memory buffer if necessary & update descriptor sets to reference new buffer
-		if dynamic_mesh_total_size > in_flight_frame.buffer.capacity {
-			in_flight_frame.buffer.reallocate(dynamic_mesh_total_size);
+		if buffer_size > in_flight_frame.buffer.capacity {
+			in_flight_frame.buffer.reallocate(buffer_size);
 
 			Self::update_in_flight_frame_descriptor_sets(
 				&self.context.logical_device,
@@ -1417,66 +1393,47 @@ impl<'a> Renderer<'a> {
 				mesh::Material::Lambert => in_flight_frame.lambert_secondary_command_buffer
 			};
 
-		// Record dynamic mesh commands and copy dynamic mesh data into dynamic buffer
-		let mut base_offset = dynamic_mesh_initial_chunk_size;
-		for (i, mesh) in dynamic_meshes.iter_mut().enumerate() {
+		// Copy dynamic mesh data into dynamic buffer and record draw commands
+		for (i, mesh) in meshes.iter_mut().enumerate() {
 			if mesh.auto_update_model_matrix {
 				mesh.update_matrix();
 			}
 
-			let indices = mesh.geometry.get_vertex_indices();
-			let attributes = mesh.geometry.get_vertex_attributes();
-			let index_size = dynamic_mesh_chunk_sizes[i][0];
-			let index_padding_size = dynamic_mesh_chunk_sizes[i][1];
-			let attribute_size = dynamic_mesh_chunk_sizes[i][2];
-			let attribute_padding_size = dynamic_mesh_chunk_sizes[i][3];
-			let uniform_size = 16 * size_of::<f32>();
+			let (index_offset, attribute_offset, uniform_offset) = mesh_offsets[i];
 
 			unsafe {
-				// Copy index, attribute and uniform buffer objects into memory buffer
-				let index_offset = base_offset;
+				let indices = mesh.geometry.get_vertex_indices();
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_offset = index_offset + index_size + index_padding_size;
+				let attributes = mesh.geometry.get_vertex_attributes();
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let model_matrix_offset = attribute_offset + attribute_size + attribute_padding_size;
-				let model_matrix_dst_ptr = buffer_ptr.add(model_matrix_offset) as *mut [f32; 4];
-				let model_matrix = &mesh.model_matrix.elements;
-				ptr::copy_nonoverlapping(model_matrix.as_ptr(), model_matrix_dst_ptr, model_matrix.len());
+				let matrix = &mesh.model_matrix.elements;
+				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
+				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
-				// Record draw commands
 				let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(mesh.material);
 
-				logical_device.cmd_bind_index_buffer(
-					secondary_command_buffer,
-					in_flight_frame.buffer.handle,
-					base_offset as u64,
-					vk::IndexType::UINT16);
-				
-				let vertex_buffers = [in_flight_frame.buffer.handle];
-				let vertex_offsets = [(base_offset + index_size + index_padding_size) as u64];
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
-				
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[attribute_offset as u64]);
+
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_rendering_pipeline_resources.pipeline_layout,
 					1,
 					&[in_flight_frame.mesh_data_descriptor_set],
-					&[(base_offset + index_size + index_padding_size + attribute_size + attribute_padding_size) as u32]);
+					&[uniform_offset as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
-
-			base_offset += index_size + index_padding_size + attribute_size + attribute_padding_size + uniform_size;
 		}
 
 		// Copy UI data into dynamic buffer and record draw commands
 		for (i, ui_element) in ui_elements.iter().enumerate() {
-			let (element_offset, index_offset, attribute_offset, uniform_offset) = ui_element_offsets[i];
+			let (index_offset, attribute_offset, uniform_offset) = ui_element_offsets[i];
 
 			unsafe {
 				let indices = ui_element.geometry.get_vertex_indices();
@@ -1491,15 +1448,8 @@ impl<'a> Renderer<'a> {
 				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
-				logical_device.cmd_bind_index_buffer(
-					in_flight_frame.ui_secondary_command_buffer,
-					in_flight_frame.buffer.handle,
-					element_offset as u64,
-					vk::IndexType::UINT16);
-				
-				let vertex_buffers = [in_flight_frame.buffer.handle];
-				let vertex_offsets = [attribute_offset as u64];
-				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
+				logical_device.cmd_bind_index_buffer(in_flight_frame.ui_secondary_command_buffer, in_flight_frame.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[attribute_offset as u64]);
 
 				logical_device.cmd_bind_descriptor_sets(
 					in_flight_frame.ui_secondary_command_buffer,
@@ -1513,36 +1463,28 @@ impl<'a> Renderer<'a> {
 			}
 		}
 
-		// Record static mesh commands
+		// Record static mesh draw commands
 		for render_info in &self.static_mesh_resources.render_info {
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(render_info.material);
+			let (index_offset, attribute_offset, uniform_offset, index_count, material) = *render_info;
+			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(material);
 
 			unsafe {
-				logical_device.cmd_bind_index_buffer(
-					secondary_command_buffer,
-					self.static_mesh_resources.buffer.handle,
-					render_info.base_offset as u64,
-					vk::IndexType::UINT16);
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.static_mesh_resources.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.static_mesh_resources.buffer.handle], &[attribute_offset as u64]);
 				
-				let vertex_buffers = [self.static_mesh_resources.buffer.handle];
-				let vertex_offsets = [(render_info.base_offset + render_info.index_size + render_info.index_padding_size) as u64];
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &vertex_buffers, &vertex_offsets);
-				
-				let descriptor_sets = [self.static_mesh_resources.model_matrix_descriptor_set];
-				let dynamic_offsets = [(render_info.base_offset + render_info.index_size + render_info.index_padding_size + render_info.attribute_size + render_info.attribute_padding_size) as u32];
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_rendering_pipeline_resources.pipeline_layout,
 					1,
-					&descriptor_sets,
-					&dynamic_offsets);
+					&[self.static_mesh_resources.mesh_data_descriptor_set],
+					&[uniform_offset as u32]);
 				
-				logical_device.cmd_draw_indexed(secondary_command_buffer, render_info.index_count as u32, 1, 0, 0, 0);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, index_count as u32, 1, 0, 0, 0);
 			}
 		}
 
-		// End secondary command buffers, flush & unmap dynamic memory buffer
+		// End secondary command buffers, flush and unmap dynamic memory buffer
 		unsafe {
 			logical_device.end_command_buffer(in_flight_frame.basic_secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(in_flight_frame.lambert_secondary_command_buffer).unwrap();
