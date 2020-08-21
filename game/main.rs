@@ -24,7 +24,7 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 
 	let context = Context::new(&glfw, &window);
-	let mut renderer = Renderer::new(&context, framebuffer_width as u32, framebuffer_height as u32);
+	let mut renderer = Renderer::new(&context, framebuffer_width, framebuffer_height);
 
 	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
@@ -71,10 +71,10 @@ fn main() {
 
 	let point_lights = [point_light1, point_light2];
 
-	let font = Font::new(String::from("game/consolas.fdf"));
+	let font = Font::new(String::from("game/arial.fdf"));
 	renderer.submit_fonts(&font);
 
-	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, framebuffer_width as f32, framebuffer_height as f32, "abc 1 2 3")));
+	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, "abc 1 2 3gq|y")));
 	let ui_elements = [text];
 
 	while !window.should_close() {
@@ -105,7 +105,7 @@ fn main() {
 		}
 
 		if framebuffer_resized {
-			renderer.recreate_swapchain(framebuffer_width as u32, framebuffer_height as u32);
+			renderer.recreate_swapchain(framebuffer_width, framebuffer_height);
 			camera.projection_matrix.make_perspective(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 		}
 		

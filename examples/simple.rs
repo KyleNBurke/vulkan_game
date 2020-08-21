@@ -15,7 +15,7 @@ fn main() {
 
 	let context = Context::new(&glfw, &window);
 	let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, framebuffer_width as u32, framebuffer_height as u32);
+	let mut renderer = Renderer::new(&context, framebuffer_width, framebuffer_height);
 
 	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 	camera.position.set(0.0, 0.0, -2.0);
@@ -47,7 +47,7 @@ fn main() {
 		}
 
 		if framebuffer_resized {
-			renderer.recreate_swapchain(framebuffer_width as u32, framebuffer_height as u32);
+			renderer.recreate_swapchain(framebuffer_width, framebuffer_height);
 			camera.projection_matrix.make_perspective(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 		}
 		

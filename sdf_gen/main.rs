@@ -276,7 +276,7 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: i3
 		buffer.extend_from_slice(row);
 	}
 
-	let space_advance = space_advance.to_ne_bytes();
+	let space_advance = (space_advance as f32).to_ne_bytes();
 	buffer.extend_from_slice(&space_advance);
 	
 	let glyph_count = (glyph_count as u32).to_ne_bytes();
@@ -286,25 +286,25 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: i3
 		let char_code = glyph.char_code.to_ne_bytes();
 		buffer.extend_from_slice(&char_code);
 
-		let position_x = glyph.position.0.to_ne_bytes();
+		let position_x = (glyph.position.0 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&position_x);
 
-		let position_y = glyph.position.1.to_ne_bytes();
+		let position_y = (glyph.position.1 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&position_y);
 
-		let width = glyph.size.0.to_ne_bytes();
+		let width = (glyph.size.0 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&width);
 
-		let height = glyph.size.1.to_ne_bytes();
+		let height = (glyph.size.1 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&height);
 
-		let bearing_x = glyph.bearing.0.to_ne_bytes();
+		let bearing_x = (glyph.bearing.0 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&bearing_x);
 
-		let bearing_y = glyph.bearing.1.to_ne_bytes();
+		let bearing_y = (glyph.bearing.1 as f32).to_ne_bytes();
 		buffer.extend_from_slice(&bearing_y);
 
-		let advance = glyph.advance.to_ne_bytes();
+		let advance = (glyph.advance as f32).to_ne_bytes();
 		buffer.extend_from_slice(&advance);
 	}
 

@@ -13,7 +13,7 @@ use crate::{
 	mesh::{self, Mesh, Material},
 	Object3D,
 	Camera,
-	math::{Vector3, Matrix4},
+	math::{Vector3, Matrix3, Matrix4},
 	lights::{AmbientLight, PointLight},
 	Font,
 	UIElement
@@ -36,7 +36,9 @@ pub struct Renderer<'a> {
 	command_pool: vk::CommandPool,
 	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
-	inverse_view_matrix: Matrix4
+	inverse_view_matrix: Matrix4,
+	ui_projection_matrix: Matrix3,
+	temp_matrix: Matrix3
 }
 
 struct Swapchain {
@@ -94,9 +96,9 @@ struct InFlightFrame<'a> {
 }
 
 impl<'a> Renderer<'a> {
-	pub fn new(context: &'a Context, width: u32, height: u32) -> Self {
+	pub fn new(context: &'a Context, framebuffer_width: i32, framebuffer_height: i32) -> Self {
 		let render_pass = Self::create_render_pass(context);
-		let swapchain = Self::create_swapchain(context, width, height, &render_pass);
+		let swapchain = Self::create_swapchain(context, framebuffer_width as u32, framebuffer_height as u32, &render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(context);
 		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(context, &descriptor_pool);
 		let ui_rendering_pipeline_resources = Self::create_ui_rendering_pipeline_resources(context, &descriptor_pool);
@@ -110,6 +112,12 @@ impl<'a> Renderer<'a> {
 			&mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout,
 			&mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout,
 			&ui_rendering_pipeline_resources.ui_element_data_descriptor_set_layout);
+		
+		let ui_projection_matrix = Matrix3::from([
+			[2.0 / framebuffer_width as f32, 0.0, -1.0],
+			[0.0, 2.0 / framebuffer_height as f32, -1.0],
+			[0.0, 0.0, 1.0]
+		]);
 
 		Self {
 			context,
@@ -124,7 +132,9 @@ impl<'a> Renderer<'a> {
 			descriptor_pool,
 			in_flight_frames,
 			current_in_flight_frame: 0,
-			inverse_view_matrix: Matrix4::new()
+			inverse_view_matrix: Matrix4::new(),
+			ui_projection_matrix,
+			temp_matrix: Matrix3::new()
 		}
 	}
 
@@ -183,7 +193,7 @@ impl<'a> Renderer<'a> {
 		unsafe { context.logical_device.create_render_pass(&render_pass_create_info, None).unwrap() }
 	}
 
-	fn create_swapchain(context: &Context, width: u32, height: u32, render_pass: &vk::RenderPass) -> Swapchain {
+	fn create_swapchain(context: &Context, framebuffer_width: u32, framebuffer_height: u32, render_pass: &vk::RenderPass) -> Swapchain {
 		// Get present mode
 		let present_modes = unsafe { context.surface.extension.get_physical_device_surface_present_modes(context.physical_device.handle, context.surface.handle).unwrap() };
 		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
@@ -193,8 +203,8 @@ impl<'a> Renderer<'a> {
 		let capabilities = unsafe { context.surface.extension.get_physical_device_surface_capabilities(context.physical_device.handle, context.surface.handle).unwrap() };
 		let extent = if capabilities.current_extent.width == std::u32::MAX {
 			vk::Extent2D::builder()
-				.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, width)))
-				.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, height)))
+				.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, framebuffer_width)))
+				.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, framebuffer_height)))
 				.build()
 		}
 		else {
@@ -883,7 +893,7 @@ impl<'a> Renderer<'a> {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 	}
 
-	pub fn recreate_swapchain(&mut self, width: u32, height: u32) {
+	pub fn recreate_swapchain(&mut self, framebuffer_width: i32, framebuffer_height: i32) {
 		let logical_device = &self.context.logical_device;
 
 		unsafe {
@@ -903,11 +913,14 @@ impl<'a> Renderer<'a> {
 			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 		}
 
-		self.swapchain = Self::create_swapchain(&self.context, width, height, &self.render_pass);
+		self.swapchain = Self::create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, &self.render_pass);
 		let pipelines = Self::create_pipelines(self.context, &self.mesh_rendering_pipeline_resources.pipeline_layout, &self.ui_rendering_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
 		self.basic_pipeline = pipelines[0];
 		self.lambert_pipeline = pipelines[1];
 		self.ui_pipeline = pipelines[2];
+
+		self.ui_projection_matrix.elements[0][0] = 2.0 / framebuffer_width as f32;
+		self.ui_projection_matrix.elements[1][1] = 2.0 / framebuffer_height as f32;
 
 		println!("Swapchain recreated");
 	}
@@ -1242,7 +1255,7 @@ impl<'a> Renderer<'a> {
 		if let Err(error) = result {
 			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
 				let (width, height) = window.get_framebuffer_size();
-				self.recreate_swapchain(width as u32, height as u32);
+				self.recreate_swapchain(width, height);
 				return;
 			}
 
@@ -1446,7 +1459,9 @@ impl<'a> Renderer<'a> {
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let matrix = ui_element.matrix.to_padded_array();
+				self.temp_matrix.set(self.ui_projection_matrix.elements);
+				self.temp_matrix *= &ui_element.matrix;
+				let matrix = self.temp_matrix.to_padded_array();
 				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
@@ -1568,12 +1583,12 @@ impl<'a> Renderer<'a> {
 
 		if let Ok(true) = result {
 			let (width, height) = window.get_framebuffer_size();
-			self.recreate_swapchain(width as u32, height as u32);
+			self.recreate_swapchain(width, height);
 		}
 		else if let Err(error) = result {
 			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
 				let (width, height) = window.get_framebuffer_size();
-				self.recreate_swapchain(width as u32, height as u32);
+				self.recreate_swapchain(width, height);
 			}
 			else {
 				panic!("Could not present swapchain image");
