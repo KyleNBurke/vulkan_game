@@ -74,8 +74,9 @@ fn main() {
 	let font = Font::new(String::from("game/arial.fdf"));
 	renderer.submit_fonts(&font);
 
-	let text = UIElement::new(Box::new(geometry2d::Text::new(&font, "abc 1 2 3gq|y")));
-	let ui_elements = [text];
+	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "abc 1 2 3gq|y")));
+	text.position.set(30.0, 30.0);
+	let mut ui_elements = [text];
 
 	while !window.should_close() {
 		let mut framebuffer_resized = false;
@@ -115,6 +116,6 @@ fn main() {
 		dynamic_meshes[1].rotate_y(0.0005);
 		dynamic_meshes[2].rotate_y(-0.0001);
 
-		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights, &ui_elements);
+		renderer.render(&window, &mut camera, &mut dynamic_meshes, &ambient_light, &point_lights, &mut ui_elements);
 	}
 }

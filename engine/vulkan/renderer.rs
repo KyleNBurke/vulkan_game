@@ -11,6 +11,7 @@ use std::{
 use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh, Material},
+	Object2D,
 	Object3D,
 	Camera,
 	math::{Vector3, Matrix3, Matrix4},
@@ -964,7 +965,7 @@ impl<'a> Renderer<'a> {
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
 		for (i, mesh) in meshes.iter_mut().enumerate() {
-			if mesh.auto_update_model_matrix {
+			if mesh.auto_update_matrix {
 				mesh.update_matrix();
 			}
 
@@ -1234,7 +1235,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &[UIElement]) {
+	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement]) {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;
@@ -1293,7 +1294,7 @@ impl<'a> Renderer<'a> {
 
 		let mut ui_element_offsets = Vec::with_capacity(ui_elements.len());
 
-		for element in ui_elements {
+		for element in ui_elements.iter() {
 			let index_size = mem::size_of_val(element.geometry.get_vertex_indices());
 			let index_padding_size = (size_of::<f32>() - (object_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
 			let attribute_offset = object_offset + index_size + index_padding_size;
@@ -1410,7 +1411,7 @@ impl<'a> Renderer<'a> {
 
 		// Copy dynamic mesh data into dynamic buffer and record draw commands
 		for (i, mesh) in meshes.iter_mut().enumerate() {
-			if mesh.auto_update_model_matrix {
+			if mesh.auto_update_matrix {
 				mesh.update_matrix();
 			}
 
@@ -1447,7 +1448,11 @@ impl<'a> Renderer<'a> {
 		}
 
 		// Copy UI data into dynamic buffer and record draw commands
-		for (i, ui_element) in ui_elements.iter().enumerate() {
+		for (i, ui_element) in ui_elements.iter_mut().enumerate() {
+			if ui_element.auto_update_matrix {
+				ui_element.update_matrix();
+			}
+
 			let (index_offset, attribute_offset, uniform_offset) = ui_element_offsets[i];
 
 			unsafe {

@@ -15,7 +15,7 @@ pub struct Mesh {
 	pub rotation: Quaternion,
 	pub scale: Vector3,
 	pub model_matrix: Matrix4,
-	pub auto_update_model_matrix: bool,
+	pub auto_update_matrix: bool,
 	pub geometry: Box<dyn Geometry3D>,
 	pub material: Material
 }
@@ -27,7 +27,7 @@ impl Mesh {
 			rotation: Quaternion::new(),
 			scale: Vector3::from_scalar(1.0),
 			model_matrix: Matrix4::new(),
-			auto_update_model_matrix: true,
+			auto_update_matrix: true,
 			geometry,
 			material
 		}

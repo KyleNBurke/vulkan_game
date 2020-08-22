@@ -9,6 +9,7 @@ pub struct UIElement {
 	pub rotation: f32,
 	pub scale: Vector2,
 	pub matrix: Matrix3,
+	pub auto_update_matrix: bool,
 	pub geometry: Box<dyn Geometry2D>,
 }
 
@@ -17,8 +18,9 @@ impl UIElement {
 		Self {
 			position: Vector2 { x: 0.0, y: 0.0 },
 			rotation: 0.0,
-			scale: Vector2::new(),
+			scale: Vector2::from_scalar(1.0),
 			matrix: Matrix3::new(),
+			auto_update_matrix: true,
 			geometry
 		}
 	}
@@ -47,5 +49,13 @@ impl Object2D for UIElement {
 
 	fn get_scale_mut(&mut self) -> &mut Vector2 {
 		&mut self.scale
+	}
+
+	fn get_matrix(&self) -> &Matrix3 {
+		&self.matrix
+	}
+	
+	fn get_matrix_mut(&mut self) -> &mut Matrix3 {
+		&mut self.matrix
 	}
 }

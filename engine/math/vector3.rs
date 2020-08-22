@@ -310,14 +310,14 @@ mod tests {
 	fn set() {
 		let mut v = Vector3::new();
 		v.set(1.0, 2.0, 3.0);
-		assert_eq!(v, Vector3{ x: 1.0, y: 2.0, z: 3.0 });
+		assert_eq!(v, Vector3 { x: 1.0, y: 2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn set_from_scalar() {
 		let mut v = Vector3::new();
 		v.set_from_scalar(1.0);
-		assert_eq!(v, Vector3{ x: 1.0, y: 1.0, z: 1.0 });
+		assert_eq!(v, Vector3 { x: 1.0, y: 1.0, z: 1.0 });
 	}
 
 	#[test]
@@ -326,7 +326,7 @@ mod tests {
 		v.set_from_index(0, 1.0);
 		v.set_from_index(1, 2.0);
 		v.set_from_index(2, 3.0);
-		assert_eq!(v, Vector3{ x: 1.0, y: 2.0, z: 3.0 });
+		assert_eq!(v, Vector3 { x: 1.0, y: 2.0, z: 3.0 });
 	}
 
 	#[test]

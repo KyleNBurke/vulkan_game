@@ -53,6 +53,6 @@ fn main() {
 		
 		meshes[0].rotate_y(0.0001);
 
-		renderer.render(&window, &mut camera, &mut meshes, &ambient_light, &[], &[]);
+		renderer.render(&window, &mut camera, &mut meshes, &ambient_light, &[], &mut []);
 	}
 }
