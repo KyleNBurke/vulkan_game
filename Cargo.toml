@@ -19,7 +19,7 @@ path = "game/main.rs"
 
 [dependencies]
 ash = "0.31.0"
-freetype = "0.7.0"
+freetype-rs = "0.26.0"
 
 [dependencies.glfw]
 version = "0.34.0"
