@@ -13,7 +13,6 @@ pub struct Glyph {
 
 fn main() {
 	let args: Vec<String> = env::args().collect();
-	println!("{:?}", args);
 
 	if args.len() != 5 && args.len() != 7 {
 		println!("Incorrect number of arguments");
@@ -38,6 +37,8 @@ fn main() {
 }
 
 fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
+	println!("Saving to bitmap");
+
 	let image_width = atlas[0].len();
 	let image_height = atlas.len();
 	let image_row_padding_len = (4 - image_width % 4) % 4;
@@ -124,6 +125,9 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 }
 
 fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: f32, atlas: &Vec<Vec<u8>>) {
+	println!("Saving to fdf file");
+
+	// Sort based on char code for efficient runtime lookup
 	glyphs.sort_unstable_by_key(|g| g.char_code);
 
 	let atlas_width = atlas[0].len();

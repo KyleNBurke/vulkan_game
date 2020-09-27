@@ -1,10 +1,12 @@
 use crate::Glyph;
 
 pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
+	println!("Generating atlas");
+
 	// Heuristically start with glyphs that have a bigger area
 	glyphs.sort_unstable_by(|a, b| (b.field.len() * b.field[0].len()).cmp(&(a.field.len() * a.field[0].len())));
 
-	let mut atlas: Vec<Vec<u8>> = Vec::new();
+	let mut atlas: Vec<Vec<Option<u8>>> = Vec::new();
 
 	'glyph_loop: for glyph in glyphs {
 		let atlas_height = atlas.len();
@@ -23,7 +25,7 @@ pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 					for glyph_col_index in 0..glyph_width {
 						let texel = atlas[atlas_row_index + glyph_row_index][atlas_col_index + glyph_col_index];
 
-						if texel != 127 {
+						if texel.is_some() {
 							// Glyph cannot fit here, move on to the next position
 							continue 'atlas_col_loop;
 						}
@@ -59,28 +61,43 @@ pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 		place_glyph(&mut atlas, pos_row, pos_col, glyph);
 	}
 
-	atlas
+	// Zero out the unused regions
+	let atlas_height = atlas.len();
+	let atlas_width = atlas[0].len();
+	let mut atlas_final = Vec::with_capacity(atlas_height);
+	
+	for row in atlas {
+		let mut row_final = Vec::with_capacity(atlas_width);
+
+		for texel in row {
+			row_final.push(if let Some(dist) = texel { dist } else { 0 });
+		}
+
+		atlas_final.push(row_final);
+	}
+
+	atlas_final
 }
 
-fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, glyph: &mut Glyph) {
+fn place_glyph(atlas: &mut Vec<Vec<Option<u8>>>, atlas_row: usize, atlas_col: usize, glyph: &mut Glyph) {
 	let glyph_height = glyph.field.len();
 	let glyph_width = glyph.field[0].len();
 
 	for glyph_row in 0..glyph_height {
 		for glyph_col in 0..glyph_width {
-			atlas[atlas_row + glyph_row][atlas_col + glyph_col] = glyph.field[glyph_row][glyph_col];
+			atlas[atlas_row + glyph_row][atlas_col + glyph_col] = Some(glyph.field[glyph_row][glyph_col]);
 		}
 	}
 
 	glyph.position = (atlas_col, atlas_row);
 }
 
-fn expand_atlas(atlas: &mut Vec<Vec<u8>>, vertical_len: usize, horizontal_len: usize) {
+fn expand_atlas(atlas: &mut Vec<Vec<Option<u8>>>, vertical_len: usize, horizontal_len: usize) {
 	let atlas_width = if atlas.len() == 0 { 0 } else { atlas[0].len() };
-	let additional_rows = vec![vec![127u8; atlas_width]; vertical_len];
+	let additional_rows = vec![vec![None; atlas_width]; vertical_len];
 	atlas.extend_from_slice(&additional_rows);
 
-	let additional_cols = vec![127u8; horizontal_len];
+	let additional_cols = vec![None; horizontal_len];
 	for row in atlas {
 		row.extend_from_slice(&additional_cols);
 	}

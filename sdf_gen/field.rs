@@ -26,6 +26,7 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 	let space_advance = face.glyph().metrics().horiAdvance as f32 / 64.0;
 
 	// Get glyph metrics and generate a signed distance field
+	println!("Generating {} sdfs", char_codes.len());
 	for char_code in char_codes {
 		face.load_char(char_code, LoadFlag::NO_HINTING).unwrap();
 		let metrics = face.glyph().metrics();
