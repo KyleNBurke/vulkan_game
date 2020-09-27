@@ -1,18 +1,20 @@
 use crate::Glyph;
 
 pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
+	// Heuristically start with glyphs that have a bigger area
 	glyphs.sort_unstable_by(|a, b| (b.field.len() * b.field[0].len()).cmp(&(a.field.len() * a.field[0].len())));
+
 	let mut atlas: Vec<Vec<u8>> = Vec::new();
 
 	'glyph_loop: for glyph in glyphs {
 		let atlas_height = atlas.len();
 		let atlas_width = if atlas_height == 0 { 0 } else { atlas[0].len() };
-
-		let glyph_width = glyph.field[0].len() as usize;
+		
 		let glyph_height = glyph.field.len() as usize;
-
-		let atlas_col_bound = atlas_width.saturating_sub(glyph_width - 1);
+		let glyph_width = glyph.field[0].len() as usize;
+		
 		let atlas_row_bound = atlas_height.saturating_sub(glyph_height - 1);
+		let atlas_col_bound = atlas_width.saturating_sub(glyph_width - 1);
 
 		for atlas_row_index in 0..atlas_row_bound {
 			'atlas_col_loop: for atlas_col_index in 0..atlas_col_bound {
@@ -34,7 +36,7 @@ pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 			}
 		}
 
-		// Glyph cannot fit anywhere, expand atlas in a direction and place the glyph
+		// Glyph cannot fit anywhere, expand atlas in shorter direction and place the glyph
 		let vertical_expansion;
 		let horizontal_expansion;
 		let pos_row;
@@ -61,8 +63,8 @@ pub fn generate_atlas(glyphs: &mut Vec<Glyph>) -> Vec<Vec<u8>> {
 }
 
 fn place_glyph(atlas: &mut Vec<Vec<u8>>, atlas_row: usize, atlas_col: usize, glyph: &mut Glyph) {
-	let glyph_width = glyph.field[0].len();
 	let glyph_height = glyph.field.len();
+	let glyph_width = glyph.field[0].len();
 
 	for glyph_row in 0..glyph_height {
 		for glyph_col in 0..glyph_width {

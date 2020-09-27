@@ -1,7 +1,7 @@
 mod field;
 mod atlas;
 
-use std::{fs, io::Write};
+use std::{env, fs, io::Write};
 
 pub struct Glyph {
 	char_code: usize,
@@ -12,16 +12,28 @@ pub struct Glyph {
 }
 
 fn main() {
-	let input_font_file_path = "../arial.ttf";
-	let output_bitmap_file_path = "../arial_new.bmp";
-	let output_fdf_file_path = "../arial.fdf";
-	let size = 64;
-	let spread = 4;
+	let args: Vec<String> = env::args().collect();
+	println!("{:?}", args);
+
+	if args.len() != 5 && args.len() != 7 {
+		println!("Incorrect number of arguments");
+		println!("Usage: sdf_gen input_font_file output_font_file font_size spread [-bmp ouput_bmp_file]");
+		return;
+	}
+
+	let input_font_file_path = &args[1];
+	let output_fdf_file_path = &args[2];
+	let font_size = args[3].parse::<u32>().unwrap();
+	let spread = args[4].parse::<usize>().unwrap();
+	let output_bmp_file_path_index = args.iter().position(|a| a.as_str() == "-bmp");
 	
-	let (mut glyphs, space_advance) = field::load_glyphs_and_generate_sdfs(input_font_file_path, size, spread);
+	let (mut glyphs, space_advance) = field::load_glyphs_and_generate_sdfs(input_font_file_path, font_size, spread);
 	let atlas = atlas::generate_atlas(&mut glyphs);
 
-	save_to_bitmap(output_bitmap_file_path, &atlas);
+	if let Some(i) = output_bmp_file_path_index {
+		save_to_bitmap(&args[i + 1], &atlas);
+	}
+
 	save_to_font_file(output_fdf_file_path, &mut glyphs, space_advance, &atlas);
 }
 

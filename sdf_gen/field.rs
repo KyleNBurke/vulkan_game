@@ -1,4 +1,8 @@
-use freetype::{self, outline::Curve};
+use freetype::{
+	self,
+	face::LoadFlag,
+	outline::Curve
+};
 use std::f64::consts::PI;
 use crate::Glyph;
 
@@ -12,17 +16,18 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 	let char_codes = 33..127;
 	let mut glyphs: Vec<Glyph> = Vec::with_capacity(char_codes.len());
 
+	// Initialize freetype
 	let library = freetype::Library::init().unwrap();
 	let face = library.new_face(font_file_path, 0).unwrap();
 	face.set_pixel_sizes(0, size).unwrap();
 
 	// Get space advance
-	face.load_char(32, freetype::face::LoadFlag::NO_HINTING).unwrap();
+	face.load_char(32, LoadFlag::NO_HINTING).unwrap();
 	let space_advance = face.glyph().metrics().horiAdvance as f32 / 64.0;
 
 	// Get glyph metrics and generate a signed distance field
 	for char_code in char_codes {
-		face.load_char(char_code, freetype::face::LoadFlag::NO_HINTING).unwrap();
+		face.load_char(char_code, LoadFlag::NO_HINTING).unwrap();
 		let metrics = face.glyph().metrics();
 		let width = metrics.width as usize / 64 + padding * 2 + 1;
 		let height = metrics.height as usize / 64 + padding * 2 + 1;
@@ -50,11 +55,17 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 					let mut start = *contour.start();
 
 					for curve in contour {
-						let s = Vector { x: start.x as f64 / 64.0, y: start.y as f64 / 64.0 };
+						let s = Vector {
+							x: start.x as f64 / 64.0,
+							y: start.y as f64 / 64.0
+						};
 
 						let (end, dist, cross_num) = match curve {
 							Curve::Line(end) => {
-								let e = Vector { x: end.x as f64 / 64.0, y: end.y as f64 / 64.0 };
+								let e = Vector {
+									x: end.x as f64 / 64.0,
+									y: end.y as f64 / 64.0
+								};
 
 								let dist = find_dist_to_line(&p, &s, &e);
 								let cross_num = find_cross_num_of_line(&p, &s, &e);
@@ -62,8 +73,15 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 								(end, dist, cross_num)
 							},
 							Curve::Bezier2(control, end) => {
-								let c = Vector { x: control.x as f64 / 64.0, y: control.y as f64 / 64.0 };
-								let e = Vector { x: end.x as f64 / 64.0, y: end.y as f64 / 64.0 };
+								let c = Vector {
+									x: control.x as f64 / 64.0,
+									y: control.y as f64 / 64.0
+								};
+
+								let e = Vector {
+									x: end.x as f64 / 64.0,
+									y: end.y as f64 / 64.0
+								};
 								
 								let dist = find_dist_to_bezier(&p, &s, &c, &e);
 								let cross_num = find_cross_num_of_bezier(&p, &s, &c, &e);
@@ -192,9 +210,9 @@ fn find_dist_to_bezier(p: &Vector, s: &Vector, c: &Vector, e: &Vector) -> f64 {
 		(0..3).into_iter().map(|k| a * (b - (2.0 * PI * k as f64 / 3.0)).cos()).collect()
 	}
 	else {
-		// 2 solutions
-		println!("2 solutions");
-		vec![0.0]
+		// Find the two solution
+		let a = 3.0 * dq;
+		vec![a / dp, -a / (2.0 * dp)]
 	};
 
 	// Find minimum distance among the roots
@@ -209,7 +227,7 @@ fn find_dist_to_bezier(p: &Vector, s: &Vector, c: &Vector, e: &Vector) -> f64 {
 		}
 
 		// Find the distance to the curve
-		let t = raw_t.min(1.0).max(0.0);
+		let t = raw_t.min(1.0);
 		let dist = (d4 * t.powf(4.0) + 4.0 * d3 * t.powf(3.0) + 2.0 * d2 * t.powf(2.0) + 4.0 * d1 * t + d0).abs().sqrt();
 
 		// Compare with current minimal distance
