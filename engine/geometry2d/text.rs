@@ -27,13 +27,13 @@ impl Text {
 				index_offset, index_offset + 2, index_offset + 3
 			];
 			
-			let left_edge = cursor_pos + glyph.bearing.0;
+			let left_edge = cursor_pos + glyph.bearing_x;
 
 			let glyph_attributes = [
-				left_edge, glyph.bearing.1, glyph.position.0, glyph.position.1,
-				left_edge + glyph.size.0, glyph.bearing.1, glyph.position.0 + glyph.size.0, glyph.position.1,
-				left_edge + glyph.size.0, glyph.bearing.1 + glyph.size.1, glyph.position.0 + glyph.size.0, glyph.position.1 + glyph.size.1,
-				left_edge, glyph.bearing.1 + glyph.size.1, glyph.position.0, glyph.position.1 + glyph.size.1
+				left_edge, glyph.bearing_y, glyph.position_x, glyph.position_y,
+				left_edge + glyph.width, glyph.bearing_y, glyph.position_x + glyph.width, glyph.position_y,
+				left_edge + glyph.width, glyph.bearing_y + glyph.height, glyph.position_x + glyph.width, glyph.position_y + glyph.height,
+				left_edge, glyph.bearing_y + glyph.height, glyph.position_x, glyph.position_y + glyph.height
 			];
 
 			indices.extend_from_slice(&glyph_indices);

@@ -10,8 +10,6 @@ struct Vector { x: f64, y: f64 }
 
 pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: usize) -> (Vec<Glyph>, f32) {
 	let spread_f64 = spread as f64;
-	let padding = spread + 1;
-	let padding_f64 = padding as f64;
 
 	let char_codes = 33..127;
 	let mut glyphs: Vec<Glyph> = Vec::with_capacity(char_codes.len());
@@ -30,26 +28,23 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 	for char_code in char_codes {
 		face.load_char(char_code, LoadFlag::NO_HINTING).unwrap();
 		let metrics = face.glyph().metrics();
-		let width = metrics.width as usize / 64 + padding * 2 + 1;
-		let height = metrics.height as usize / 64 + padding * 2 + 1;
-		let bearing_x = metrics.horiBearingX as f32 / 64.0;
-		let bearing_x_f64 = metrics.horiBearingX as f64 / 64.0;
-		let bearing_y = metrics.horiBearingY as f32 / 64.0;
-		let bearing_y_f64 = metrics.horiBearingY as f64 / 64.0;
-		let advance = metrics.horiAdvance as f32 / 64.0;
+		let width_padded = metrics.width as usize / 64 + spread * 2;
+		let height_padded = metrics.height as usize / 64 + spread * 2;
+		let bearing_x = metrics.horiBearingX as f64 / 64.0;
+		let bearing_y = metrics.horiBearingY as f64 / 64.0;
 		let outline = face.glyph().outline().unwrap();
 
-		let mut field = Vec::with_capacity(height);
+		let mut field = Vec::with_capacity(height_padded);
 		
-		for row in 0..height {
-			let mut field_row = Vec::with_capacity(width);
+		for row in 0..height_padded {
+			let mut field_row = Vec::with_capacity(width_padded);
 
-			for col in 0..width {
+			for col in 0..width_padded {
 				let mut min_dist = f64::MAX;
 				let mut total_cross_num = 0;
 				let p = Vector {
-					x: bearing_x_f64 - padding_f64 + col as f64 + 0.5,
-					y: bearing_y_f64 + padding_f64 - row as f64 - 0.5
+					x: bearing_x - spread_f64 + col as f64 + 0.5,
+					y: bearing_y + spread_f64 - row as f64 - 0.5
 				};
 
 				for contour in outline.contours_iter() {
@@ -116,11 +111,15 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 		}
 
 		glyphs.push(Glyph {
-			char_code,
-			bearing: (bearing_x, bearing_y),
-			advance,
+			char_code: char_code as u32,
+			width: metrics.width as u32 / 64,
+			height: metrics.height as u32 / 64,
+			bearing_x: metrics.horiBearingX / 64,
+			bearing_y: metrics.horiBearingY / 64,
+			advance: metrics.horiAdvance / 64,
 			field,
-			position: (0, 0)
+			position_x: 0,
+			position_y: 0
 		});
 	}
 

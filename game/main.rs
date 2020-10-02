@@ -75,7 +75,7 @@ fn main() {
 	renderer.submit_fonts(&font);
 
 	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "abc 1 2 3gq|y")));
-	text.position.set(30.0, 30.0);
+	text.position.set(30.0, 60.0);
 	let mut ui_elements = [text];
 
 	while !window.should_close() {

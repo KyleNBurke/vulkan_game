@@ -89,7 +89,9 @@ fn place_glyph(atlas: &mut Vec<Vec<Option<u8>>>, atlas_row: usize, atlas_col: us
 		}
 	}
 
-	glyph.position = (atlas_col, atlas_row);
+	glyph.position_x = atlas_col as u32;
+	glyph.position_y = atlas_row as u32;
+
 }
 
 fn expand_atlas(atlas: &mut Vec<Vec<Option<u8>>>, vertical_len: usize, horizontal_len: usize) {

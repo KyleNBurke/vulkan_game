@@ -2,9 +2,12 @@ use std::{fs, io::{self, Read, Seek}};
 
 pub struct Glyph {
 	pub char_code: u32,
-	pub position: (f32, f32),
-	pub size: (f32, f32),
-	pub bearing: (f32, f32),
+	pub position_x: f32,
+	pub position_y: f32,
+	pub width: f32,
+	pub height: f32,
+	pub bearing_x: f32,
+	pub bearing_y: f32,
 	pub advance: f32
 }
 
@@ -47,31 +50,34 @@ impl Font {
 			let char_code = u32::from_ne_bytes(bytes);
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 4..glyph_offset + 8]);
-			let position_x = f32::from_ne_bytes(bytes);
+			let position_x = u32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 8..glyph_offset + 12]);
-			let position_y = f32::from_ne_bytes(bytes);
+			let position_y = u32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 12..glyph_offset + 16]);
-			let width = f32::from_ne_bytes(bytes);
+			let width = u32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 16..glyph_offset + 20]);
-			let height = f32::from_ne_bytes(bytes);
+			let height = u32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 20..glyph_offset + 24]);
-			let bearing_x = f32::from_ne_bytes(bytes);
+			let bearing_x = i32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 24..glyph_offset + 28]);
-			let bearing_y = f32::from_ne_bytes(bytes);
+			let bearing_y = i32::from_ne_bytes(bytes) as f32;
 
 			bytes.copy_from_slice(&buffer[glyph_offset + 28..glyph_offset + 32]);
-			let advance = f32::from_ne_bytes(bytes);
+			let advance = i32::from_ne_bytes(bytes) as f32;
 
 			glyphs.push(Glyph {
 				char_code,
-				position: (position_x, position_y),
-				size: (width, height),
-				bearing: (bearing_x, bearing_y),
+				position_x,
+				position_y,
+				width,
+				height,
+				bearing_x,
+				bearing_y,
 				advance
 			});
 		}

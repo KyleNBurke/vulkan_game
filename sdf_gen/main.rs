@@ -4,11 +4,15 @@ mod atlas;
 use std::{env, fs, io::Write};
 
 pub struct Glyph {
-	char_code: usize,
-	bearing: (f32, f32),
-	advance: f32,
+	char_code: u32,
+	width: u32,
+	height: u32,
+	bearing_x: i32,
+	bearing_y: i32,
+	advance: i32,
 	field: Vec<Vec<u8>>,
-	position: (usize, usize)
+	position_x: u32,
+	position_y: u32
 }
 
 fn main() {
@@ -153,25 +157,25 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: f3
 	buffer.extend_from_slice(&glyph_count);
 
 	for glyph in glyphs {
-		let char_code = (glyph.char_code as u32).to_ne_bytes();
+		let char_code = glyph.char_code.to_ne_bytes();
 		buffer.extend_from_slice(&char_code);
 
-		let position_x = (glyph.position.0 as f32).to_ne_bytes();
+		let position_x = glyph.position_x.to_ne_bytes();
 		buffer.extend_from_slice(&position_x);
 
-		let position_y = (glyph.position.1 as f32).to_ne_bytes();
+		let position_y = glyph.position_y.to_ne_bytes();
 		buffer.extend_from_slice(&position_y);
 
-		let width = (glyph.field[0].len() as f32).to_ne_bytes();
+		let width = glyph.width.to_ne_bytes();
 		buffer.extend_from_slice(&width);
 
-		let height = (glyph.field.len() as f32).to_ne_bytes();
+		let height = glyph.height.to_ne_bytes();
 		buffer.extend_from_slice(&height);
 
-		let bearing_x = glyph.bearing.0.to_ne_bytes();
+		let bearing_x = glyph.bearing_x.to_ne_bytes();
 		buffer.extend_from_slice(&bearing_x);
 
-		let bearing_y = (-glyph.bearing.1).to_ne_bytes();
+		let bearing_y = (-glyph.bearing_y).to_ne_bytes();
 		buffer.extend_from_slice(&bearing_y);
 
 		let advance = glyph.advance.to_ne_bytes();
