@@ -119,11 +119,11 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 
 		glyphs.push(Glyph {
 			char_code: char_code as u32,
-			width: metrics.width as u32 / 64,
-			height: metrics.height as u32 / 64,
-			bearing_x: metrics.horiBearingX / 64,
-			bearing_y: metrics.horiBearingY / 64,
-			advance: metrics.horiAdvance / 64,
+			width: metrics.width as f32 / 64.0,
+			height: metrics.height as f32 / 64.0,
+			bearing_x: metrics.horiBearingX as f32 / 64.0,
+			bearing_y: metrics.horiBearingY as f32 / 64.0,
+			advance: metrics.horiAdvance as f32 / 64.0,
 			field,
 			position_x: 0,
 			position_y: 0
