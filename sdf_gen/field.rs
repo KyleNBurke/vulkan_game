@@ -26,27 +26,20 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 	// Get glyph metrics and generate a signed distance field
 	println!("Generating {} signed distance fields", char_codes.len());
 	for char_code in char_codes {
-		face.load_char(char_code, LoadFlag::NO_HINTING).unwrap();
+		face.load_char(char_code, LoadFlag::empty()).unwrap();
 		let metrics = face.glyph().metrics();
-		
-		let width_truncated = metrics.width as usize / 64;
-		let width_rounded = (metrics.width as f64 / 64.0).ceil() as usize;
-		let width_gridded = if width_truncated == width_rounded { width_truncated } else { width_rounded + 1 } + spread * 2;
-
-		let height_truncated = metrics.height as usize / 64;
-		let height_rounded = (metrics.height as f64 / 64.0).ceil() as usize;
-		let height_gridded = if height_truncated == height_rounded { height_truncated } else { height_rounded + 1 } + spread * 2;
-		
+		let width = metrics.width as usize / 64 + spread * 2 + 1;
+		let height = metrics.height as usize / 64 + spread * 2 + 1;
 		let left_edge_padded = metrics.horiBearingX as f64 / 64.0 - spread_f64;
 		let top_edge_padded = metrics.horiBearingY as f64 / 64.0 + spread_f64;
 		let outline = face.glyph().outline().unwrap();
 
-		let mut field = Vec::with_capacity(height_gridded);
+		let mut field = Vec::with_capacity(height);
 		
-		for row in 0..height_gridded {
-			let mut field_row = Vec::with_capacity(width_gridded);
+		for row in 0..height {
+			let mut field_row = Vec::with_capacity(width);
 
-			for col in 0..width_gridded {
+			for col in 0..width {
 				let mut min_dist = f64::MAX;
 				let mut total_cross_num = 0;
 				let p = Vector {
@@ -116,14 +109,14 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 
 			field.push(field_row);
 		}
-
+		
 		glyphs.push(Glyph {
 			char_code: char_code as u32,
-			width: metrics.width as f32 / 64.0,
-			height: metrics.height as f32 / 64.0,
-			bearing_x: metrics.horiBearingX as f32 / 64.0,
-			bearing_y: metrics.horiBearingY as f32 / 64.0,
-			advance: metrics.horiAdvance as f32 / 64.0,
+			width: metrics.width as u32 / 64,
+			height: metrics.height as u32 / 64,
+			bearing_x: metrics.horiBearingX / 64,
+			bearing_y: metrics.horiBearingY / 64,
+			advance: metrics.horiAdvance / 64,
 			field,
 			position_x: 0,
 			position_y: 0

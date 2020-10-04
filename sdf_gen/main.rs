@@ -5,11 +5,11 @@ use std::{env, fs, io::Write};
 
 pub struct Glyph {
 	char_code: u32,
-	width: f32,
-	height: f32,
-	bearing_x: f32,
-	bearing_y: f32,
-	advance: f32,
+	width: u32,
+	height: u32,
+	bearing_x: i32,
+	bearing_y: i32,
+	advance: i32,
 	field: Vec<Vec<u8>>,
 	position_x: u32,
 	position_y: u32
