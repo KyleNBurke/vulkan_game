@@ -9,5 +9,8 @@ layout(location = 1) in vec2 fragTexPosition;
 layout(location = 0) out vec4 outColor;
 
 void main() {
-	outColor = texture(texSampler, fragTexPosition);
+	float distance = texture(texSampler, fragTexPosition).r;
+	float alpha = smoothstep(0.4, 0.5, distance);
+
+	outColor = vec4(1, 1, 1, alpha);
 }

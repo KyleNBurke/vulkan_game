@@ -74,8 +74,8 @@ fn main() {
 	let font = Font::new(String::from("game/arial.fdf"));
 	renderer.submit_fonts(&font);
 
-	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "abc 1 2 3gq|y")));
-	text.position.set(30.0, 60.0);
+	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "Text rendering example using distance fields")));
+	text.position.set(10.0, 40.0);
 	let mut ui_elements = [text];
 
 	while !window.should_close() {

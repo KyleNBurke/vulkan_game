@@ -481,8 +481,8 @@ impl<'a> Renderer<'a> {
 
 		// Create sampler
 		let sampler_create_info = vk::SamplerCreateInfo::builder()
-			.mag_filter(vk::Filter::NEAREST)
-			.min_filter(vk::Filter::NEAREST)
+			.mag_filter(vk::Filter::LINEAR)
+			.min_filter(vk::Filter::LINEAR)
 			.address_mode_u(vk::SamplerAddressMode::CLAMP_TO_BORDER)
 			.address_mode_v(vk::SamplerAddressMode::CLAMP_TO_BORDER)
 			.address_mode_w(vk::SamplerAddressMode::CLAMP_TO_BORDER)
@@ -706,6 +706,21 @@ impl<'a> Renderer<'a> {
 			.depth_test_enable(false)
 			.depth_bounds_test_enable(false)
 			.stencil_test_enable(false);
+		
+		let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
+			.color_write_mask(vk::ColorComponentFlags::all())
+			.blend_enable(true)
+			.src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+			.dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
+			.color_blend_op(vk::BlendOp::ADD)
+			.src_alpha_blend_factor(vk::BlendFactor::ONE)
+			.dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+			.alpha_blend_op(vk::BlendOp::ADD);
+		let color_blend_attachment_states = [color_blend_attachment_state.build()];
+
+		let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
+			.logic_op_enable(false)
+			.attachments(&color_blend_attachment_states);
 
 		let text_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
 			.stages(&stage_create_infos)

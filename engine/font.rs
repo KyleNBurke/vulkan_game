@@ -15,6 +15,7 @@ pub struct Font {
 	pub file_path: String,
 	pub atlas_width: u32,
 	pub atlas_height: u32,
+	pub spread: f32,
 	pub space_advance: f32,
 	pub glyphs: Vec<Glyph>
 }
@@ -31,6 +32,9 @@ impl Font {
 		let atlas_height = u32::from_ne_bytes(bytes);
 
 		file.seek(io::SeekFrom::Current((atlas_width * atlas_height) as i64)).unwrap();
+
+		file.read_exact(&mut bytes).unwrap();
+		let spread = u32::from_ne_bytes(bytes) as f32;
 
 		file.read_exact(&mut bytes).unwrap();
 		let space_advance = f32::from_ne_bytes(bytes);
@@ -86,6 +90,7 @@ impl Font {
 			file_path,
 			atlas_width,
 			atlas_height,
+			spread,
 			space_advance,
 			glyphs
 		}

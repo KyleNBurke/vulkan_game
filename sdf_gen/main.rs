@@ -27,17 +27,17 @@ fn main() {
 	let input_font_file_path = &args[1];
 	let output_fdf_file_path = &args[2];
 	let font_size = args[3].parse::<u32>().unwrap();
-	let spread = args[4].parse::<usize>().unwrap();
+	let spread = args[4].parse::<u32>().unwrap();
 	let output_bmp_file_path_index = args.iter().position(|a| a.as_str() == "-bmp");
 	
-	let (mut glyphs, space_advance) = field::load_glyphs_and_generate_sdfs(input_font_file_path, font_size, spread);
+	let (mut glyphs, space_advance) = field::load_glyphs_and_generate_sdfs(input_font_file_path, font_size, spread as usize);
 	let atlas = atlas::generate_atlas(&mut glyphs);
 
 	if let Some(i) = output_bmp_file_path_index {
 		save_to_bitmap(&args[i + 1], &atlas);
 	}
 
-	save_to_font_file(output_fdf_file_path, &mut glyphs, space_advance, &atlas);
+	save_to_font_file(output_fdf_file_path, spread, &mut glyphs, space_advance, &atlas);
 }
 
 fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
@@ -128,7 +128,7 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	file.write_all(&buffer).unwrap();
 }
 
-fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: f32, atlas: &Vec<Vec<u8>>) {
+fn save_to_font_file(file_path: &str, spread: u32, glyphs: &mut Vec<Glyph>, space_advance: f32, atlas: &Vec<Vec<u8>>) {
 	println!("Saving to fdf file");
 
 	// Sort based on char code for efficient runtime lookup
@@ -149,6 +149,9 @@ fn save_to_font_file(file_path: &str, glyphs: &mut Vec<Glyph>, space_advance: f3
 	for row in atlas {
 		buffer.extend_from_slice(row);
 	}
+
+	let spread = spread.to_ne_bytes();
+	buffer.extend_from_slice(&spread);
 
 	let space_advance = space_advance.to_ne_bytes();
 	buffer.extend_from_slice(&space_advance);

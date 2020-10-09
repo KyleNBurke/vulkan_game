@@ -28,8 +28,8 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 	for char_code in char_codes {
 		face.load_char(char_code, LoadFlag::empty()).unwrap();
 		let metrics = face.glyph().metrics();
-		let width = metrics.width as usize / 64 + spread * 2 + 1;
-		let height = metrics.height as usize / 64 + spread * 2 + 1;
+		let width = metrics.width as usize / 64 + spread * 2;
+		let height = metrics.height as usize / 64 + spread * 2;
 		let left_edge_padded = metrics.horiBearingX as f64 / 64.0 - spread_f64;
 		let top_edge_padded = metrics.horiBearingY as f64 / 64.0 + spread_f64;
 		let outline = face.glyph().outline().unwrap();
@@ -43,8 +43,8 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 				let mut min_dist = f64::MAX;
 				let mut total_cross_num = 0;
 				let p = Vector {
-					x: left_edge_padded + col as f64,
-					y: top_edge_padded - row as f64
+					x: left_edge_padded + col as f64 + 0.5,
+					y: top_edge_padded - row as f64 - 0.5
 				};
 
 				for contour in outline.contours_iter() {
@@ -102,7 +102,7 @@ pub fn load_glyphs_and_generate_sdfs(font_file_path: &str, size: u32, spread: us
 				let min_dist = if total_cross_num % 2 == 0 { -min_dist } else { min_dist };
 				let dist_clamped = min_dist.min(spread_f64).max(-spread_f64);
 				let dist_positive = dist_clamped + spread_f64;
-				let dist_scaled = (dist_positive * 255.0 / (spread_f64 * 2.0)) as u8;
+				let dist_scaled = (dist_positive * 255.0 / (spread_f64 * 2.0)).round() as u8;
 				
 				field_row.push(dist_scaled);
 			}
