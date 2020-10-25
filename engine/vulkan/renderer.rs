@@ -751,7 +751,7 @@ impl<'a> Renderer<'a> {
 	}
 
 	fn create_pipeline_module(context: &Context, filename: &str) -> vk::ShaderModule {
-		let mut file_path = String::from("./compiled_shaders/");
+		let mut file_path = String::from("target/shaders/");
 		file_path.push_str(filename);
 	
 		let mut file = std::fs::File::open(file_path).unwrap();
