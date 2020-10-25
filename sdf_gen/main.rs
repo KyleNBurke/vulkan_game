@@ -53,48 +53,48 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	buffer.push(66u8);
 	buffer.push(77u8);
 
-	let file_size = 0u32.to_ne_bytes();
+	let file_size = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&file_size);
 
-	let reserved = 0u16.to_ne_bytes();
+	let reserved = 0u16.to_le_bytes();
 	buffer.extend_from_slice(&reserved);
 	buffer.extend_from_slice(&reserved);
 
-	let pixel_data_offset = 0u32.to_ne_bytes();
+	let pixel_data_offset = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&pixel_data_offset);
 
 	// Info header
-	let header_size = 40u32.to_ne_bytes();
+	let header_size = 40u32.to_le_bytes();
 	buffer.extend_from_slice(&header_size);
 
-	let image_width_i32 = (image_width as i32).to_ne_bytes();
+	let image_width_i32 = (image_width as i32).to_le_bytes();
 	buffer.extend_from_slice(&image_width_i32);
 
-	let image_height_i32 = (image_height as i32).to_ne_bytes();
+	let image_height_i32 = (image_height as i32).to_le_bytes();
 	buffer.extend_from_slice(&image_height_i32);
 
-	let planes = 1u16.to_ne_bytes();
+	let planes = 1u16.to_le_bytes();
 	buffer.extend_from_slice(&planes);
 
-	let bpp = 8u16.to_ne_bytes();
+	let bpp = 8u16.to_le_bytes();
 	buffer.extend_from_slice(&bpp);
 
-	let compression_type = 0u32.to_ne_bytes();
+	let compression_type = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&compression_type);
 
-	let compressed_image_size = 0u32.to_ne_bytes();
+	let compressed_image_size = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&compressed_image_size);
 
-	let x_pixels_per_meter = 0i32.to_ne_bytes();
+	let x_pixels_per_meter = 0i32.to_le_bytes();
 	buffer.extend_from_slice(&x_pixels_per_meter);
 
-	let y_pixels_per_meter = 0i32.to_ne_bytes();
+	let y_pixels_per_meter = 0i32.to_le_bytes();
 	buffer.extend_from_slice(&y_pixels_per_meter);
 
-	let total_colors = 0u32.to_ne_bytes();
+	let total_colors = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&total_colors);
 
-	let important_colors = 0u32.to_ne_bytes();
+	let important_colors = 0u32.to_le_bytes();
 	buffer.extend_from_slice(&important_colors);
 
 	// Color table
@@ -107,7 +107,7 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	}
 
 	// Pixel data offset in header
-	let pixel_data_offset = (buffer.len() as u32).to_ne_bytes();
+	let pixel_data_offset = (buffer.len() as u32).to_le_bytes();
 	for i in 0..4 { buffer[10 + i] = pixel_data_offset[i] };
 
 	// Pixel data
@@ -121,7 +121,7 @@ fn save_to_bitmap(file_path: &str, atlas: &Vec<Vec<u8>>) {
 	}
 
 	// File size in header
-	let file_size = (buffer.len() as u32).to_ne_bytes();
+	let file_size = (buffer.len() as u32).to_le_bytes();
 	for i in 0..4 { buffer[2 + i] = file_size[i] };
 
 	let mut file = fs::File::create(file_path).unwrap();
