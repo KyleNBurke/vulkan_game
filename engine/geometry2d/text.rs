@@ -26,17 +26,14 @@ impl Text {
 				index_offset, index_offset + 1, index_offset + 2,
 				index_offset, index_offset + 2, index_offset + 3
 			];
-
-			let screen_pos_x = cursor_pos + glyph.bearing_x - font.spread;
-			let screen_pos_y = glyph.bearing_y - font.spread;
-			let width = glyph.width + font.spread * 2.0;
-			let height = glyph.height + font.spread * 2.0;
+			
+			let screen_pos_x = cursor_pos + glyph.bearing_x;
 
 			let glyph_attributes = [
-				screen_pos_x, screen_pos_y, glyph.position_x, glyph.position_y,
-				screen_pos_x + width, screen_pos_y, glyph.position_x + width, glyph.position_y,
-				screen_pos_x + width, screen_pos_y + height, glyph.position_x + width, glyph.position_y + height,
-				screen_pos_x, screen_pos_y + height, glyph.position_x, glyph.position_y + height
+				screen_pos_x, glyph.bearing_y, glyph.position_x, glyph.position_y,
+				screen_pos_x + glyph.width, glyph.bearing_y, glyph.position_x + glyph.width, glyph.position_y,
+				screen_pos_x + glyph.width, glyph.bearing_y + glyph.height, glyph.position_x + glyph.width, glyph.position_y + glyph.height,
+				screen_pos_x, glyph.bearing_y + glyph.height, glyph.position_x, glyph.position_y + glyph.height
 			];
 
 			indices.extend_from_slice(&glyph_indices);

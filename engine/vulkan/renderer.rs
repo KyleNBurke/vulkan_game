@@ -1090,13 +1090,13 @@ impl<'a> Renderer<'a> {
 		// Copy image data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
-		let mut file = fs::File::open(&font.file_path).unwrap();
+		let mut file = fs::File::open(&font.fnt_path).unwrap();
 		file.seek(io::SeekFrom::Start(2 * size_of::<u32>() as u64)).unwrap();
-		let mut texture = vec![0u8; atlas_size as usize];
+		let mut texture = vec![0u8; atlas_size];
 		file.read_exact(&mut texture).unwrap();
 
 		unsafe {
-			ptr::copy_nonoverlapping(texture.as_ptr(), buffer_ptr as *mut u8, atlas_size as usize);
+			ptr::copy_nonoverlapping(texture.as_ptr(), buffer_ptr as *mut u8, atlas_size);
 
 			let ranges = [vk::MappedMemoryRange::builder()
 				.memory(staging_buffer.memory)
@@ -1110,7 +1110,7 @@ impl<'a> Renderer<'a> {
 		// Create image
 		let image_create_info = vk::ImageCreateInfo::builder()
 			.image_type(vk::ImageType::TYPE_2D)
-			.extent(vk::Extent3D::builder().width(font.atlas_width).height(font.atlas_height).depth(1).build())
+			.extent(vk::Extent3D::builder().width(font.atlas_width as u32).height(font.atlas_height as u32).depth(1).build())
 			.mip_levels(1)
 			.array_layers(1)
 			.format(vk::Format::R8_UNORM)
@@ -1187,7 +1187,7 @@ impl<'a> Renderer<'a> {
 				.layer_count(1)
 				.build())
 			.image_offset(vk::Offset3D::builder().x(0).y(0).z(0).build())
-			.image_extent(vk::Extent3D::builder().width(font.atlas_width).height(font.atlas_height).depth(1).build());
+			.image_extent(vk::Extent3D::builder().width(font.atlas_width as u32).height(font.atlas_height as u32).depth(1).build());
 		let regions = [region.build()];
 
 		let shader_read_image_memory_barrier = vk::ImageMemoryBarrier::builder()

@@ -71,10 +71,10 @@ fn main() {
 
 	let point_lights = [point_light1, point_light2];
 
-	let font = Font::new(String::from("game/arial.fdf"));
+	let font = Font::new("roboto", 32);
 	renderer.submit_fonts(&font);
 
-	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "Text rendering example using distance fields")));
+	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "Text rendering example")));
 	text.position.set(10.0, 40.0);
 	let mut ui_elements = [text];
 
