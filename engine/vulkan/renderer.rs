@@ -1,3 +1,35 @@
+/*
+--- Memory buffer layouts ---
+Dynamic - updated each frame
+- frame data
+	- proj matrix
+	- view matrix
+	- ambient light (color * intensity)
+	- point light (array)
+		- position
+		- color
+- mesh data (array)
+	- indices
+	- attributes
+		- position
+		- normal
+	- matrix
+- UI data (array)
+	- indices
+	- attributes
+		- screen position
+		- texture position
+	- matrix
+
+Static - updated on submit_static_meshes()
+- mesh data (array)
+	- indices
+	- attributes
+		- position
+		- normal
+	- matrix
+*/
+
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 
 use std::{
@@ -309,10 +341,10 @@ impl<'a> Renderer<'a> {
 
 		// Create swapchain frames
 		let mut frames = Vec::with_capacity(images.len());
-		for i in 0..images.len() {
+		for image in images {
 			// Create image view
 			let image_view_create_info = vk::ImageViewCreateInfo::builder()
-				.image(images[i])
+				.image(image)
 				.view_type(vk::ImageViewType::TYPE_2D)
 				.format(context.surface.format.format)
 				.components(vk::ComponentMapping::builder()
@@ -1069,7 +1101,7 @@ impl<'a> Renderer<'a> {
 		}
 	}
 
-	pub fn submit_fonts(&mut self, font: &Font) {
+	pub fn submit_font(&mut self, font: &Font) {
 		let logical_device = &self.context.logical_device;
 		let atlas_size = font.atlas_width * font.atlas_height;
 
@@ -1268,14 +1300,14 @@ impl<'a> Renderer<'a> {
 				vk::Fence::null())
 		};
 
-		if let Err(error) = result {
-			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
+		match result {
+			Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width, height);
 				return;
-			}
-
-			panic!("Could not aquire a swapchain image");
+			},
+			Err(e) => panic!("Could not aquire a swapchain image: {}", e),
+			_ => ()
 		}
 
 		let image_index = result.unwrap().0;
@@ -1601,18 +1633,17 @@ impl<'a> Renderer<'a> {
 		
 		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
 
-		if let Ok(true) = result {
-			let (width, height) = window.get_framebuffer_size();
-			self.recreate_swapchain(width, height);
-		}
-		else if let Err(error) = result {
-			if error == vk::Result::ERROR_OUT_OF_DATE_KHR {
+		match result {
+			Ok(true) => {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width, height);
-			}
-			else {
-				panic!("Could not present swapchain image");
-			}
+			},
+			Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+				let (width, height) = window.get_framebuffer_size();
+				self.recreate_swapchain(width, height);
+			},
+			Err(e) => panic!("Could not present swapchain image: {}", e),
+			_ => ()
 		}
 
 		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;

@@ -1,6 +1,6 @@
 pub const ZERO: Vector2 = Vector2 { x: 0.0, y: 0.0 };
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Vector2 {
 	pub x: f32,
 	pub y: f32

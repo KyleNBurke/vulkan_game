@@ -153,6 +153,12 @@ impl Euler {
 	}
 }
 
+impl Default for Euler {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl ApproxEq for Euler {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
 		let x_diff = (self.x - other.x).abs();
@@ -177,6 +183,11 @@ mod tests {
 
 	#[test]
 	fn new() {
+		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::XYZ });
+	}
+
+	#[test]
+	fn default() {
 		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::XYZ });
 	}
 

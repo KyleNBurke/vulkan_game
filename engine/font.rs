@@ -27,7 +27,7 @@ pub struct Font {
 	pub atlas_width: usize,
 	pub atlas_height: usize,
 	pub space_advance: f32,
-	pub glyphs: Vec<Glyph>,
+	pub glyphs: Vec<Glyph>
 }
 
 impl Font {
@@ -121,7 +121,7 @@ impl Font {
 	}
 
 	fn create_atlas(unplaced_glyphs: Vec<UnplacedGlyph>) -> (Vec<Vec<u8>>, Vec<Glyph>) {
-		let mut unplaced_glyphs_sorted: Vec<&UnplacedGlyph> = unplaced_glyphs.iter().map(|g| g).collect();
+		let mut unplaced_glyphs_sorted: Vec<&UnplacedGlyph> = unplaced_glyphs.iter().collect();
 		unplaced_glyphs_sorted.sort_unstable_by_key(|g| -g.width as isize * g.height as isize);
 
 		let mut placed_glyphs: Vec<Glyph> = Vec::with_capacity(unplaced_glyphs.len());
@@ -223,7 +223,7 @@ impl Font {
 	}
 	
 	fn expand_atlas(atlas: &mut Vec<Vec<Option<u8>>>, vertical_len: usize, horizontal_len: usize) {
-		let atlas_width = if atlas.len() == 0 { 0 } else { atlas[0].len() };
+		let atlas_width = if atlas.is_empty() { 0 } else { atlas[0].len() };
 		let additional_rows = vec![vec![None; atlas_width]; vertical_len];
 		atlas.extend_from_slice(&additional_rows);
 	
@@ -233,7 +233,7 @@ impl Font {
 		}
 	}
 
-	fn save_fnt(path: &str, atlas: &Vec<Vec<u8>>, space_advance: f32, glyphs: &Vec<Glyph>) {
+	fn save_fnt(path: &str, atlas: &[Vec<u8>], space_advance: f32, glyphs: &[Glyph]) {
 		let atlas_width = atlas[0].len();
 		let atlas_height = atlas.len();
 		let atlas_padding_size = (4 - (atlas_width * atlas_height) % 4) % 4;
@@ -316,7 +316,6 @@ impl Font {
 				advance
 			});
 		}
-
 
 		(atlas_width, atlas_height, space_advance, glyphs)
 	}

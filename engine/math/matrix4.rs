@@ -9,18 +9,18 @@ const IDENTITY: [[f32; 4]; 4] = [
 	[0.0, 0.0, 0.0, 1.0]
 ];
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Matrix4 {
 	pub elements: [[f32; 4]; 4]
 }
 
 impl Matrix4 {
 	pub fn new() -> Self {
-		Matrix4 { elements: IDENTITY }
+		Self { elements: IDENTITY }
 	}
 
 	pub fn from(elements: [[f32; 4]; 4]) -> Self {
-		Matrix4 { elements }
+		Self { elements }
 	}
 
 	pub fn set(&mut self, elements: [[f32; 4]; 4]) {

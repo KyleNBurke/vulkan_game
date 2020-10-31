@@ -2,5 +2,3 @@
 Cargo.lock
 /.vscode
 notes.txt
-/compiled_shaders
-compile_shaders.bat

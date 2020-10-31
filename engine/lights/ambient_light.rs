@@ -20,3 +20,9 @@ impl AmbientLight {
 		}
 	}
 }
+
+impl Default for AmbientLight {
+	fn default() -> Self {
+		Self::new()
+	}
+}

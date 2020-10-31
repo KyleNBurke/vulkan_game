@@ -4,7 +4,7 @@ use std::fmt::Display;
 
 pub const ZERO: Quaternion = Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 };
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Quaternion {
 	pub x: f32,
 	pub y: f32,
@@ -14,7 +14,7 @@ pub struct Quaternion {
 
 impl Quaternion {
 	pub fn new() -> Self {
-		Self { x: 0.0, y: 0.0, z: 0.0, w: 1.0 }
+		ZERO
 	}
 
 	pub fn from(x: f32, y: f32, z: f32, w: f32) -> Self {

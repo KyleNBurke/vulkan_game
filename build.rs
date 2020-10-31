@@ -1,7 +1,4 @@
-use std::{
-	fs,
-	process::Command
-};
+use std::{fs, process::Command};
 
 fn main() {
 	let src_dir = "engine/shaders/";
@@ -20,13 +17,8 @@ fn main() {
 	for file in files {
 		println!("cargo:rerun-if-changed={}", file);
 
-		let mut input_file = src_dir.to_owned();
-		input_file.push_str(&file);
-
-		let mut output_file = dst_dir.to_owned();
-		output_file.push_str(&file);
-		output_file.push_str(".spv");
-
+		let input_file = format!("{}{}", src_dir, file);
+		let output_file = format!("{}{}.spv", dst_dir, file);
 		let output = Command::new("glslc.exe").args(&[&input_file, "-o", &output_file]).output().unwrap();
 
 		assert!(output.status.success(), "Failed to compile {}\nstatus: {}\nstdout: {}\nstderr: {}",

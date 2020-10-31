@@ -7,7 +7,7 @@ const IDENTITY: [[f32; 3]; 3] = [
 	[0.0, 0.0, 1.0]
 ];
 
-#[derive(Copy, Clone, Debug, PartialEq)]
+#[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Matrix3 {
 	pub elements: [[f32; 3]; 3]
 }

@@ -63,3 +63,9 @@ impl Object3D for PointLight {
 		&mut self.matrix
 	}
 }
+
+impl Default for PointLight {
+	fn default() -> Self {
+		Self::new()
+	}
+}

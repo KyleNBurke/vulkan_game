@@ -72,7 +72,7 @@ fn main() {
 	let point_lights = [point_light1, point_light2];
 
 	let font = Font::new("roboto", 32);
-	renderer.submit_fonts(&font);
+	renderer.submit_font(&font);
 
 	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "Text rendering example")));
 	text.position.set(10.0, 40.0);
@@ -92,7 +92,7 @@ fn main() {
 				},
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
-					renderer.submit_fonts(&font);
+					renderer.submit_font(&font);
 					println!("Static meshes and font submitted");
 				},
 				_ => {}
