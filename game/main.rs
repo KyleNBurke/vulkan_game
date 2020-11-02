@@ -30,33 +30,37 @@ fn main() {
 	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 	let mut camera_controller = CameraController::new(mouse_pos_x as f32, mouse_pos_y as f32);
 
-	let mut static_triangle = Mesh::new(Box::new(geometry3d::Triangle {}), Material::Basic);
+	let triangle_geo = geometry3d::Triangle::new();
+	let plane_geo = geometry3d::Plane::new();
+	let box_geo = geometry3d::Box::new();
+
+	let mut static_triangle = Mesh::new(&triangle_geo, Material::Basic);
 	static_triangle.position.set(0.0, 1.0, 1.7);
 
-	let mut static_plane = Mesh::new(Box::new(geometry3d::Plane {}), Material::Basic);
+	let mut static_plane = Mesh::new(&plane_geo, Material::Basic);
 	static_plane.position.set(0.0, 1.0, 2.0);
 
-	let mut static_box = Mesh::new(Box::new(geometry3d::Box {}), Material::Lambert);
+	let mut static_box = Mesh::new(&box_geo, Material::Lambert);
 	static_box.position.set(-2.0, 0.0, 0.0);
 
-	let mut point_light_box1 = Mesh::new(Box::new(geometry3d::Box {}), Material::Basic);
+	let mut point_light_box1 = Mesh::new(&box_geo, Material::Basic);
 	point_light_box1.position.set(0.0, -1.0, 0.0);
 	point_light_box1.scale.set_from_scalar(0.2);
 
-	let mut point_light_box2 = Mesh::new(Box::new(geometry3d::Box {}), Material::Basic);
+	let mut point_light_box2 = Mesh::new(&box_geo, Material::Basic);
 	point_light_box2.position.set(-1.0, -1.0, 0.0);
 	point_light_box2.scale.set_from_scalar(0.2);
 
 	let mut static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let mut dynamic_triangle = Mesh::new(Box::new(geometry3d::Triangle {}), Material::Lambert);
+	let mut dynamic_triangle = Mesh::new(&triangle_geo, Material::Lambert);
 	dynamic_triangle.position.set(-0.5, -0.6, 2.0);
 
-	let mut dynamic_plane = Mesh::new(Box::new(geometry3d::Plane {}), Material::Lambert);
+	let mut dynamic_plane = Mesh::new(&box_geo, Material::Lambert);
 	dynamic_plane.position.set(0.5, -0.6, 2.0);
 
-	let mut dynamic_box = Mesh::new(Box::new(geometry3d::Box {}), Material::Lambert);
+	let mut dynamic_box = Mesh::new(&box_geo, Material::Lambert);
 	dynamic_box.position.set(2.0, 0.0, 0.0);
 
 	let mut dynamic_meshes = [dynamic_triangle, dynamic_plane, dynamic_box];
@@ -74,7 +78,8 @@ fn main() {
 	let font = Font::new("roboto", 32);
 	renderer.submit_font(&font);
 
-	let mut text = UIElement::new(Box::new(geometry2d::Text::new(&font, "Text rendering example")));
+	let text_geo = geometry2d::Text::new(&font, "Text rendering example");
+	let mut text = UIElement::new(&text_geo);
 	text.position.set(10.0, 40.0);
 	let mut ui_elements = [text];
 

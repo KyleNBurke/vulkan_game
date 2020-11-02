@@ -44,6 +44,12 @@ const VERTEX_ATTRIBUTES: [f32; 144] = [
 
 pub struct Box {}
 
+impl Box {
+	pub fn new() -> Self {
+		Self {}
+	}
+}
+
 impl Geometry3D for Box {
 	fn get_vertex_indices(&self) -> &[u16] {
 		&VERTEX_INDICES
@@ -51,5 +57,11 @@ impl Geometry3D for Box {
 
 	fn get_vertex_attributes(&self) -> &[f32] {
 		&VERTEX_ATTRIBUTES
+	}
+}
+
+impl Default for Box {
+	fn default() -> Self {
+		Self::new()
 	}
 }

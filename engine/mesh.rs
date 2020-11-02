@@ -10,18 +10,18 @@ pub enum Material {
 	Lambert
 }
 
-pub struct Mesh {
+pub struct Mesh<'a> {
 	pub position: Vector3,
 	pub rotation: Quaternion,
 	pub scale: Vector3,
 	pub model_matrix: Matrix4,
 	pub auto_update_matrix: bool,
-	pub geometry: Box<dyn Geometry3D>,
+	pub geometry: &'a dyn Geometry3D,
 	pub material: Material
 }
 
-impl Mesh {
-	pub fn new(geometry: Box<dyn Geometry3D>, material: Material) -> Self {
+impl<'a> Mesh<'a> {
+	pub fn new(geometry: &'a dyn Geometry3D, material: Material) -> Self {
 		Self {
 			position: Vector3::new(),
 			rotation: Quaternion::new(),
@@ -34,7 +34,7 @@ impl Mesh {
 	}
 }
 
-impl Object3D for Mesh {
+impl<'a> Object3D for Mesh<'a> {
 	fn get_position(&self) -> &Vector3 {
 		&self.position
 	}

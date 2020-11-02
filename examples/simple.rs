@@ -20,7 +20,8 @@ fn main() {
 	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 	camera.position.set(0.0, 0.0, -2.0);
 
-	let mut meshes = [Mesh::new(Box::new(geometry3d::Box {}), Material::Basic)];
+	let geometry = geometry3d::Box::new();
+	let mut meshes = [Mesh::new(&geometry, Material::Basic)];
 
 	let ambient_light = AmbientLight::new();
 
