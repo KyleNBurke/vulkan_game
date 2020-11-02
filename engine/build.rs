@@ -1,8 +1,8 @@
 use std::{fs, process::Command};
 
 fn main() {
-	let src_dir = "engine/shaders/";
-	let dst_dir = "target/shaders/";
+	let src_dir = "src/shaders/";
+	let dst_dir = "../target/shaders/";
 
 	println!("cargo:rerun-if-changed={}", src_dir);
 

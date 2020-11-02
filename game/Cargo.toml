@@ -1,0 +1,12 @@
+[package]
+name = "game"
+version = "0.1.0"
+authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
+edition = '2018'
+
+[dependencies]
+engine = { path = "../engine" }
+
+[dependencies.glfw]
+version = "0.34.0"
+features = ["vulkan"]

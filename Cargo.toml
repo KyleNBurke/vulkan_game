@@ -1,22 +1,3 @@
-[package]
-name = "vulkan_game"
-version = "0.1.0"
-authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
-edition = "2018"
-default-run = "game"
+[workspace]
 
-[lib]
-name = "engine"
-path = "engine/lib.rs"
-
-[[bin]]
-name = "game"
-path = "game/main.rs"
-
-[dependencies]
-ash = "0.31.0"
-freetype = "0.7.0"
-
-[dependencies.glfw]
-version = "0.34.0"
-features = ["vulkan"]
+members = ["engine", "game"]

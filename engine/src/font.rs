@@ -44,7 +44,7 @@ impl Font {
 				if e.kind() == io::ErrorKind::NotFound {
 					println!("Generating font {} at size {}", name, size);
 
-					let ttf_path = CString::new(format!("game/{}.ttf", name)).unwrap();
+					let ttf_path = CString::new(format!("game/res/{}.ttf", name)).unwrap();
 					let (space_advance, unplaced_glyphs) = Self::load_ttf(ttf_path, size);
 					let (atlas, placed_glyphs) = Self::create_atlas(unplaced_glyphs);
 					Self::save_fnt(&fnt_path, &atlas, space_advance, &placed_glyphs);
