@@ -27,8 +27,8 @@ fn main() {
 	let mut renderer = Renderer::new(&context, framebuffer_width, framebuffer_height);
 
 	let mut camera = Camera::new(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
-	let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
-	let mut camera_controller = CameraController::new(mouse_pos_x as f32, mouse_pos_y as f32);
+	let mut camera_controller = CameraController::new(&window);
+	let mut camera_controller_enabled = false;
 
 	let triangle_geo = geometry3d::Triangle::new();
 	let plane_geo = geometry3d::Plane::new();
@@ -100,6 +100,17 @@ fn main() {
 					renderer.submit_font(&font);
 					println!("Static meshes and font submitted");
 				},
+				glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
+					camera_controller_enabled = !camera_controller_enabled;
+
+					if camera_controller_enabled {
+						camera_controller.set_mouse_pos(&window);
+						window.set_cursor_mode(glfw::CursorMode::Disabled);
+					}
+					else {
+						window.set_cursor_mode(glfw::CursorMode::Normal);
+					}
+				},
 				_ => {}
 			}
 		}
@@ -115,7 +126,9 @@ fn main() {
 			camera.projection_matrix.make_perspective(framebuffer_width as f32 / framebuffer_height as f32, 75.0, 0.1, 10.0);
 		}
 		
-		camera_controller.update(&window, &mut camera);
+		if camera_controller_enabled {
+			camera_controller.update(&window, &mut camera);
+		}
 		
 		dynamic_meshes[0].rotate_y(0.0005);
 		dynamic_meshes[1].rotate_y(0.0005);

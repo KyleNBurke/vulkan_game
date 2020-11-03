@@ -1634,11 +1634,7 @@ impl<'a> Renderer<'a> {
 		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
 
 		match result {
-			Ok(true) => {
-				let (width, height) = window.get_framebuffer_size();
-				self.recreate_swapchain(width, height);
-			},
-			Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
+			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
 				let (width, height) = window.get_framebuffer_size();
 				self.recreate_swapchain(width, height);
 			},
