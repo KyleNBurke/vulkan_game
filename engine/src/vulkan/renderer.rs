@@ -1282,7 +1282,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, window: &glfw::Window, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement]) {
+	pub fn render(&mut self, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement]) -> bool {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;
@@ -1301,11 +1301,7 @@ impl<'a> Renderer<'a> {
 		};
 
 		match result {
-			Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-				let (width, height) = window.get_framebuffer_size();
-				self.recreate_swapchain(width, height);
-				return;
-			},
+			Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => return true,
 			Err(e) => panic!("Could not aquire a swapchain image: {}", e),
 			_ => ()
 		}
@@ -1633,16 +1629,15 @@ impl<'a> Renderer<'a> {
 		
 		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
 
-		match result {
-			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => {
-				let (width, height) = window.get_framebuffer_size();
-				self.recreate_swapchain(width, height);
-			},
+		let surface_changed = match result {
+			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
 			Err(e) => panic!("Could not present swapchain image: {}", e),
-			_ => ()
-		}
+			_ => false
+		};
 
 		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;
+
+		surface_changed
 	}
 }
 

@@ -15,17 +15,15 @@ pub struct CameraController {
 }
 
 impl CameraController {
-	pub fn new(window: &glfw::Window) -> Self {
-		let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
-
+	pub fn new() -> Self {
 		Self {
-			prev_mouse_pos_x: mouse_pos_x as f32,
-			prev_mouse_pos_y: mouse_pos_y as f32,
+			prev_mouse_pos_x: 0.0,
+			prev_mouse_pos_y: 0.0,
 			euler: Euler::from(0.0, 0.0, 0.0, Order::YXZ)
 		}
 	}
 
-	pub fn set_mouse_pos(&mut self, window: &glfw::Window) {
+	pub fn poll_mouse_pos(&mut self, window: &glfw::Window) {
 		let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 
 		self.prev_mouse_pos_x = mouse_pos_x as f32;
