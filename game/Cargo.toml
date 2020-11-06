@@ -6,7 +6,4 @@ edition = '2018'
 
 [dependencies]
 engine = { path = "../engine" }
-
-[dependencies.glfw]
-version = "0.40.0"
-features = ["vulkan"]
+glfw = { version = "0.40.0", features = ["vulkan"] }
