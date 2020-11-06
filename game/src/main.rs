@@ -75,7 +75,7 @@ fn main() {
 
 	let point_lights = [point_light1, point_light2];
 
-	let font = Font::new("roboto", 32);
+	let font = Font::new("game/res/roboto.ttf", 32);
 	renderer.submit_font(&font);
 
 	let text_geo = geometry2d::Text::new(&font, "Text rendering example");

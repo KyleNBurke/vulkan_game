@@ -1,4 +1,4 @@
-use std::{fs, io, ptr, ffi::CString, slice, io::{Read, Write, Seek}, convert::TryInto};
+use std::{path, fs, io, ptr, ffi::CString, slice, io::{Read, Write, Seek}, convert::TryInto};
 use freetype::freetype::*;
 
 pub struct Glyph {
@@ -31,20 +31,23 @@ pub struct Font {
 }
 
 impl Font {
-	pub fn new(name: &str, size: u32) -> Self {
-		let fnt_path = format!("target/fonts/{}{}.fnt", name, size);
+	pub fn new(file_path: &str, size: u32) -> Self {
+		let file_path_buf = path::PathBuf::from(file_path);
+		let file_stem = file_path_buf.file_stem().unwrap().to_str().unwrap();
+
+		let fnt_path = format!("target/fonts/{}{}.fnt", file_stem, size);
 
 		let (atlas_width, atlas_height, space_advance, glyphs) = match fs::File::open(fnt_path.to_owned()) {
 			Ok(file) => {
-				println!("Loading font {} at size {}", name, size);
+				println!("Loading font {} at size {}", file_stem, size);
 
 				Self::load_fnt(file)
 			},
 			Err(e) => {
 				if e.kind() == io::ErrorKind::NotFound {
-					println!("Generating font {} at size {}", name, size);
+					println!("Generating font {} at size {}", file_stem, size);
 
-					let ttf_path = CString::new(format!("game/res/{}.ttf", name)).unwrap();
+					let ttf_path = CString::new(file_path).unwrap();
 					let (space_advance, unplaced_glyphs) = Self::load_ttf(ttf_path, size);
 					let (atlas, placed_glyphs) = Self::create_atlas(unplaced_glyphs);
 					Self::save_fnt(&fnt_path, &atlas, space_advance, &placed_glyphs);
