@@ -8,3 +8,6 @@ edition = '2018'
 ash = "0.31.0"
 freetype = "0.7.0"
 glfw = { version = "0.40.0", features = ["vulkan"] }
+
+[dev-dependencies]
+utilities = { path = "utilities" }

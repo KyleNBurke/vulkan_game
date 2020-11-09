@@ -76,7 +76,7 @@ impl Font {
 
 		let mut face: FT_Face = ptr::null_mut();
 		let error = unsafe { FT_New_Face(library, ttf_path.as_ptr(), 0, &mut face) };
-		assert_eq!(error, 0, "Error code {} while loading a font face", error);
+		assert_eq!(error, 0, "Error code {} while loading font face", error);
 
 		let error = unsafe { FT_Set_Pixel_Sizes(face, 0, size) };
 		assert_eq!(error, 0, "Error code {} while setting the font size", error);
