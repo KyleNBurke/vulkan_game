@@ -4,17 +4,19 @@ use crate::{
 	Object2D
 };
 
-pub struct UIElement<'a> {
+use std::boxed::Box;
+
+pub struct UIElement {
 	pub position: Vector2,
 	pub rotation: f32,
 	pub scale: Vector2,
 	pub matrix: Matrix3,
 	pub auto_update_matrix: bool,
-	pub geometry: &'a dyn Geometry2D,
+	pub geometry: Box<dyn Geometry2D>,
 }
 
-impl<'a> UIElement<'a> {
-	pub fn new(geometry: &'a dyn Geometry2D) -> Self {
+impl UIElement {
+	pub fn new(geometry: Box<dyn Geometry2D>) -> Self {
 		Self {
 			position: Vector2 { x: 0.0, y: 0.0 },
 			rotation: 0.0,
@@ -26,7 +28,7 @@ impl<'a> UIElement<'a> {
 	}
 }
 
-impl<'a> Object2D for UIElement<'a> {
+impl Object2D for UIElement {
 	fn get_position(&self) -> &Vector2 {
 		&self.position
 	}

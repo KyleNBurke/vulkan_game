@@ -84,8 +84,8 @@ fn main() {
 	let font = Font::new("game/res/roboto.ttf", 32);
 	renderer.submit_font(&font);
 
-	let text_geo = geometry2d::Text::new(&font, "Text rendering example");
-	let mut text = UIElement::new(&text_geo);
+	let text_geo = Box::new(geometry2d::Text::new(&font, "Text rendering example"));
+	let mut text = UIElement::new(text_geo);
 	text.position.set(10.0, 40.0);
 	let mut ui_elements = [text];
 

@@ -34,8 +34,8 @@ fn main() {
 	let font = Font::new("engine/examples/res/roboto.ttf", (32.0 * scale_y) as u32);
 	renderer.submit_font(&font);
 
-	let text = geometry2d::Text::new(&font, "Text rendering example!");
-	let mut ui_element = UIElement::new(&text);
+	let text = Box::new(geometry2d::Text::new(&font, "Text rendering example!"));
+	let mut ui_element = UIElement::new(text);
 	ui_element.position.set(50.0, 50.0);
 	let mut ui_elements = [ui_element];
 
