@@ -4,24 +4,26 @@ use crate:: {
 	Object3D
 };
 
+use std::boxed::Box;
+
 #[derive(Copy, Clone)]
 pub enum Material {
 	Basic,
 	Lambert
 }
 
-pub struct Mesh<'a> {
+pub struct Mesh {
 	pub position: Vector3,
 	pub rotation: Quaternion,
 	pub scale: Vector3,
 	pub model_matrix: Matrix4,
 	pub auto_update_matrix: bool,
-	pub geometry: &'a dyn Geometry3D,
+	pub geometry: Box<dyn Geometry3D>,
 	pub material: Material
 }
 
-impl<'a> Mesh<'a> {
-	pub fn new(geometry: &'a dyn Geometry3D, material: Material) -> Self {
+impl Mesh {
+	pub fn new(geometry: Box<dyn Geometry3D>, material: Material) -> Self {
 		Self {
 			position: Vector3::new(),
 			rotation: Quaternion::new(),
@@ -34,7 +36,7 @@ impl<'a> Mesh<'a> {
 	}
 }
 
-impl<'a> Object3D for Mesh<'a> {
+impl Object3D for Mesh {
 	fn get_position(&self) -> &Vector3 {
 		&self.position
 	}

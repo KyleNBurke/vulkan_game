@@ -7,6 +7,8 @@ use engine::{
 	lights::AmbientLight
 };
 
+use std::boxed::Box;
+
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
@@ -21,8 +23,8 @@ fn main() {
 	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
 	camera.position.set(0.0, 0.0, -2.0);
 
-	let geometry = geometry3d::Box::new();
-	let mesh = Mesh::new(&geometry, Material::Basic);
+	let geometry = Box::new(geometry3d::Box::new());
+	let mesh = Mesh::new(geometry, Material::Basic);
 	let mut meshes = [mesh];
 
 	let ambient_light = AmbientLight::new();

@@ -12,6 +12,8 @@ use engine::{
 	UIElement
 };
 
+use std::boxed::Box;
+
 mod camera_controller;
 use camera_controller::CameraController;
 
@@ -30,37 +32,41 @@ fn main() {
 	let mut camera_controller = CameraController::new();
 	let mut camera_controller_enabled = false;
 
-	let triangle_geo = geometry3d::Triangle::new();
-	let plane_geo = geometry3d::Plane::new();
-	let box_geo = geometry3d::Box::new();
-
-	let mut static_triangle = Mesh::new(&triangle_geo, Material::Basic);
+	let triangle_geo = Box::new(geometry3d::Triangle::new());
+	let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
 	static_triangle.position.set(0.0, 1.0, 1.7);
 
-	let mut static_plane = Mesh::new(&plane_geo, Material::Basic);
+	let plane_geo = Box::new(geometry3d::Plane::new());
+	let mut static_plane = Mesh::new(plane_geo, Material::Basic);
 	static_plane.position.set(0.0, 1.0, 2.0);
 
-	let mut static_box = Mesh::new(&box_geo, Material::Lambert);
+	let box_geo = Box::new(geometry3d::Box::new());
+	let mut static_box = Mesh::new(box_geo, Material::Lambert);
 	static_box.position.set(-2.0, 0.0, 0.0);
 
-	let mut point_light_box1 = Mesh::new(&box_geo, Material::Basic);
+	let box_geo = Box::new(geometry3d::Box::new());
+	let mut point_light_box1 = Mesh::new(box_geo, Material::Basic);
 	point_light_box1.position.set(0.0, -1.0, 0.0);
 	point_light_box1.scale.set_from_scalar(0.2);
 
-	let mut point_light_box2 = Mesh::new(&box_geo, Material::Basic);
+	let box_geo = Box::new(geometry3d::Box::new());
+	let mut point_light_box2 = Mesh::new(box_geo, Material::Basic);
 	point_light_box2.position.set(-1.0, -1.0, 0.0);
 	point_light_box2.scale.set_from_scalar(0.2);
 
 	let mut static_meshes = vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2];
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let mut dynamic_triangle = Mesh::new(&triangle_geo, Material::Lambert);
+	let triangle_geo = Box::new(geometry3d::Triangle::new());
+	let mut dynamic_triangle = Mesh::new(triangle_geo, Material::Lambert);
 	dynamic_triangle.position.set(-0.5, -0.6, 2.0);
 
-	let mut dynamic_plane = Mesh::new(&box_geo, Material::Lambert);
+	let plane_geo = Box::new(geometry3d::Plane::new());
+	let mut dynamic_plane = Mesh::new(plane_geo, Material::Lambert);
 	dynamic_plane.position.set(0.5, -0.6, 2.0);
 
-	let mut dynamic_box = Mesh::new(&box_geo, Material::Lambert);
+	let box_geo = Box::new(geometry3d::Box::new());
+	let mut dynamic_box = Mesh::new(box_geo, Material::Lambert);
 	dynamic_box.position.set(2.0, 0.0, 0.0);
 
 	let mut dynamic_meshes = [dynamic_triangle, dynamic_plane, dynamic_box];

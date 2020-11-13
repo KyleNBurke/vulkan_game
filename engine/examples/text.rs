@@ -3,14 +3,16 @@ use utilities::Window;
 use engine::{
 	vulkan::{Context, Renderer},
 	mesh::{Mesh, Material},
-	geometry3d::Box,
-	geometry2d::Text,
+	geometry3d,
+	geometry2d,
 	Object3D,
 	Camera,
 	lights::AmbientLight,
 	Font,
 	UIElement
 };
+
+use std::boxed::Box;
 
 fn main() {
 	let mut window = Window::new("Text");
@@ -22,8 +24,8 @@ fn main() {
 	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
 	camera.position.set(0.0, 0.0, -2.0);
 
-	let geometry = Box::new();
-	let mesh = Mesh::new(&geometry, Material::Basic);
+	let geometry = Box::new(geometry3d::Box::new());
+	let mesh = Mesh::new(geometry, Material::Basic);
 	let mut meshes = [mesh];
 
 	let ambient_light = AmbientLight::new();
@@ -32,7 +34,7 @@ fn main() {
 	let font = Font::new("engine/examples/res/roboto.ttf", (32.0 * scale_y) as u32);
 	renderer.submit_font(&font);
 
-	let text = Text::new(&font, "Text rendering example!");
+	let text = geometry2d::Text::new(&font, "Text rendering example!");
 	let mut ui_element = UIElement::new(&text);
 	ui_element.position.set(50.0, 50.0);
 	let mut ui_elements = [ui_element];
