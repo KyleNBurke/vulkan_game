@@ -32,3 +32,6 @@ pub mod scene;
 pub use scene::Scene;
 
 pub mod state;
+
+pub mod input;
+pub use input::Input;

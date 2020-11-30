@@ -5,13 +5,15 @@ use engine::{
 	Font,
 	Scene,
 	state::StateManager,
-	math::Vector3
+	math::Vector3,
+	Input
 };
 
 mod states;
-use states::gameplay::GameplayState;
+use states::{StateData, gameplay::GameplayState};
 
-pub struct StateData;
+mod camera_controller;
+use camera_controller::CameraController;
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
@@ -27,6 +29,8 @@ fn main() {
 	let font = Font::new("game/res/roboto.ttf", 32);
 	renderer.submit_font(&font);
 
+	let mut input = Input::new();
+
 	let mut scene = Scene {
 		camera: Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0),
 		ambient_light: AmbientLight::from(Vector3::from_scalar(1.0), 0.01),
@@ -35,11 +39,11 @@ fn main() {
 		ui_elements: vec![]
 	};
 
-	let gameplay_state = Box::new(GameplayState);
+	let gameplay_state = Box::new(GameplayState::new());
 	let mut static_meshes = gameplay_state.create_static_meshes();
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let mut state_manager = StateManager::new(&mut scene, gameplay_state);
+	let mut state_manager = StateManager::new(&mut window, &mut scene, gameplay_state);
 	let mut state_data = StateData;
 
 	let mut minimized = false;
@@ -68,14 +72,13 @@ fn main() {
 						minimized = false;
 					}
 				},
-				glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => {
-					window.set_should_close(true);
-				},
+				glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => window.set_should_close(true),
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
 					renderer.submit_font(&font);
 					println!("Static meshes and font submitted");
 				},
+				glfw::WindowEvent::Key(key, _, action, _) => input.set_key_action(key, action),
 				_ => ()
 			}
 		}
@@ -90,8 +93,10 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
-		state_manager.update(&mut scene, &mut state_data);
+		state_manager.update(&mut window, &input, &mut scene, &mut state_data);
 
 		surface_changed = renderer.render(&mut scene.camera, &mut scene.meshes, &scene.ambient_light, &scene.point_lights, &mut scene.ui_elements);
+
+		input.clear();
 	}
 }

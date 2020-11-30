@@ -1,9 +1,10 @@
-use crate::Scene;
+use glfw::Window;
+use crate::{Input, Scene};
 
 pub trait State<T> {
-	fn enter(&self, scene: &mut Scene);
-	fn leave(&self, scene: &mut Scene);
-	fn update(&self, scene: &mut Scene, data: &mut T) -> StateAction<T>;
+	fn enter(&mut self, window: &mut Window, scene: &mut Scene);
+	fn leave(&mut self, window: &mut Window, scene: &mut Scene);
+	fn update(&mut self, window: &mut Window, input: &Input, scene: &mut Scene, data: &mut T) -> StateAction<T>;
 }
 
 pub enum StateAction<T> {
@@ -17,27 +18,27 @@ pub struct StateManager<T> {
 }
 
 impl<T> StateManager<T> {
-	pub fn new(scene: &mut Scene, initial_state: Box<dyn State<T>>) -> Self {
-		initial_state.enter(scene);
-		
+	pub fn new(window: &mut Window, scene: &mut Scene, mut initial_state: Box<dyn State<T>>) -> Self {
+		initial_state.enter(window, scene);
+
 		Self { states: vec![initial_state] }
 	}
 
-	pub fn update(&mut self, scene: &mut Scene, data: &mut T) {
+	pub fn update(&mut self, window: &mut Window, input: &Input, scene: &mut Scene, data: &mut T) {
 		let mut actions = Vec::with_capacity(self.states.len());
 
-		for state in &self.states {
-			actions.push(state.update(scene, data));
+		for state in &mut self.states {
+			actions.push(state.update(window, input, scene, data));
 		}
 
 		for action in actions {
 			match action {
-				StateAction::Push(state) => {
-					state.enter(scene);
+				StateAction::Push(mut state) => {
+					state.enter(window, scene);
 					self.states.push(state);
 				},
 				StateAction::Pop => {
-					self.states.last().unwrap().leave(scene);
+					self.states.last_mut().unwrap().leave(window, scene);
 					self.states.pop();
 				},
 				_ => ()

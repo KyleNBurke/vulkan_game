@@ -5,14 +5,25 @@ use engine::{
 	Mesh,
 	mesh::Material,
 	lights::PointLight,
-	math::Vector3
+	math::Vector3,
+	Input
 };
 
-use crate::StateData;
+use crate::{StateData, CameraController};
 
-pub struct GameplayState;
+pub struct GameplayState {
+	camera_controller: CameraController,
+	camera_controller_enabled: bool
+}
 
 impl GameplayState {
+	pub fn new() -> Self {
+		Self {
+			camera_controller: CameraController::new(),
+			camera_controller_enabled: true
+		}
+	}
+
 	pub fn create_static_meshes(&self) -> Vec<Mesh> {
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
 		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
@@ -41,7 +52,7 @@ impl GameplayState {
 }
 
 impl State<StateData> for GameplayState {
-	fn enter(&self, scene: &mut Scene) {
+	fn enter(&mut self, window: &mut glfw::Window, scene: &mut Scene) {
 		scene.camera.position.set(0.0, 0.0, -2.0);
 
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
@@ -66,11 +77,30 @@ impl State<StateData> for GameplayState {
 		let mut point_light2 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
 		point_light2.position.set(-1.0, -1.0, 0.0);
 		scene.point_lights.push(point_light2);
+
+		window.set_cursor_mode(glfw::CursorMode::Disabled);
+		self.camera_controller.poll_mouse_pos(window);
 	}
 
-	fn leave(&self, _: &mut Scene) {}
+	fn leave(&mut self, _window: &mut glfw::Window, _scene: &mut Scene) {}
 
-	fn update(&self, _scene: &mut Scene, _data: &mut StateData) -> StateAction<StateData> {
+	fn update(&mut self, window: &mut glfw::Window, input: &Input, scene: &mut Scene, _data: &mut StateData) -> StateAction<StateData> {
+		if input.key_pressed(glfw::Key::Tab) {
+			self.camera_controller_enabled = !self.camera_controller_enabled;
+
+			if self.camera_controller_enabled {
+				self.camera_controller.poll_mouse_pos(&window);
+				window.set_cursor_mode(glfw::CursorMode::Disabled);
+			}
+			else {
+				window.set_cursor_mode(glfw::CursorMode::Normal);
+			}
+		}
+
+		if self.camera_controller_enabled {
+			self.camera_controller.update(window, &mut scene.camera);
+		}
+
 		StateAction::None
 	}
 }
