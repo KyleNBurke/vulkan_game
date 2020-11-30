@@ -5,8 +5,7 @@ use engine::{
 	Font,
 	Scene,
 	state::StateManager,
-	math::Vector3,
-	Input
+	math::Vector3
 };
 
 mod states;
@@ -28,8 +27,6 @@ fn main() {
 	
 	let font = Font::new("game/res/roboto.ttf", 32);
 	renderer.submit_font(&font);
-
-	let mut input = Input::new();
 
 	let mut scene = Scene {
 		camera: Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0),
@@ -78,9 +75,10 @@ fn main() {
 					renderer.submit_font(&font);
 					println!("Static meshes and font submitted");
 				},
-				glfw::WindowEvent::Key(key, _, action, _) => input.set_key_action(key, action),
 				_ => ()
 			}
+
+			state_manager.handle_event(&event, &mut window, &mut scene);
 		}
 
 		if minimized {
@@ -93,10 +91,8 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
-		state_manager.update(&mut window, &input, &mut scene, &mut state_data);
+		state_manager.update(&mut window, &mut scene, &mut state_data);
 
 		surface_changed = renderer.render(&mut scene.camera, &mut scene.meshes, &scene.ambient_light, &scene.point_lights, &mut scene.ui_elements);
-
-		input.clear();
 	}
 }

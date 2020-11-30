@@ -5,8 +5,7 @@ use engine::{
 	Mesh,
 	mesh::Material,
 	lights::PointLight,
-	math::Vector3,
-	Input
+	math::Vector3
 };
 
 use crate::{StateData, CameraController};
@@ -84,19 +83,24 @@ impl State<StateData> for GameplayState {
 
 	fn leave(&mut self, _window: &mut glfw::Window, _scene: &mut Scene) {}
 
-	fn update(&mut self, window: &mut glfw::Window, input: &Input, scene: &mut Scene, _data: &mut StateData) -> StateAction<StateData> {
-		if input.key_pressed(glfw::Key::Tab) {
-			self.camera_controller_enabled = !self.camera_controller_enabled;
+	fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut glfw::Window, _scene: &mut Scene) {
+		match event {
+			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
+				self.camera_controller_enabled = !self.camera_controller_enabled;
 
-			if self.camera_controller_enabled {
-				self.camera_controller.poll_mouse_pos(&window);
-				window.set_cursor_mode(glfw::CursorMode::Disabled);
-			}
-			else {
-				window.set_cursor_mode(glfw::CursorMode::Normal);
-			}
+				if self.camera_controller_enabled {
+					self.camera_controller.poll_mouse_pos(&window);
+					window.set_cursor_mode(glfw::CursorMode::Disabled);
+				}
+				else {
+					window.set_cursor_mode(glfw::CursorMode::Normal);
+				}
+			},
+			_ => ()
 		}
+	}
 
+	fn update(&mut self, window: &mut glfw::Window, scene: &mut Scene, _data: &mut StateData) -> StateAction<StateData> {
 		if self.camera_controller_enabled {
 			self.camera_controller.update(window, &mut scene.camera);
 		}

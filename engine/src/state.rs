@@ -1,10 +1,11 @@
 use glfw::Window;
-use crate::{Input, Scene};
+use crate::Scene;
 
 pub trait State<T> {
 	fn enter(&mut self, window: &mut Window, scene: &mut Scene);
 	fn leave(&mut self, window: &mut Window, scene: &mut Scene);
-	fn update(&mut self, window: &mut Window, input: &Input, scene: &mut Scene, data: &mut T) -> StateAction<T>;
+	fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut Window, scene: &mut Scene);
+	fn update(&mut self, window: &mut Window, scene: &mut Scene, data: &mut T) -> StateAction<T>;
 }
 
 pub enum StateAction<T> {
@@ -24,11 +25,17 @@ impl<T> StateManager<T> {
 		Self { states: vec![initial_state] }
 	}
 
-	pub fn update(&mut self, window: &mut Window, input: &Input, scene: &mut Scene, data: &mut T) {
+	pub fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut Window, scene: &mut Scene) {
+		for state in &mut self.states {
+			state.handle_event(event, window, scene);
+		}
+	}
+
+	pub fn update(&mut self, window: &mut Window, scene: &mut Scene, data: &mut T) {
 		let mut actions = Vec::with_capacity(self.states.len());
 
 		for state in &mut self.states {
-			actions.push(state.update(window, input, scene, data));
+			actions.push(state.update(window, scene, data));
 		}
 
 		for action in actions {
