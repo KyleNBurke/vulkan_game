@@ -49,7 +49,8 @@ use crate::{
 	math::{Vector3, Matrix3, Matrix4},
 	lights::{AmbientLight, PointLight},
 	Font,
-	UIElement
+	UIElement,
+	SceneGraph
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -1282,7 +1283,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement]) -> bool {
+	pub fn render(&mut self, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement], scene_graph: &mut SceneGraph) -> bool {
 		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		let logical_device = &self.context.logical_device;

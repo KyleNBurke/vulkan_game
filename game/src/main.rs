@@ -4,6 +4,7 @@ use engine::{
 	lights::AmbientLight,
 	Font,
 	Scene,
+	SceneGraph,
 	state::StateManager,
 	math::Vector3
 };
@@ -40,7 +41,11 @@ fn main() {
 	let mut static_meshes = gameplay_state.create_static_meshes();
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let mut state_manager = StateManager::new(&mut window, &mut scene, gameplay_state);
+	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
+	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
+	let mut scene_graph = SceneGraph::new(camera, ambient_light);
+
+	let mut state_manager = StateManager::new(&mut window, &mut scene_graph, gameplay_state);
 	let mut state_data = StateData;
 
 	let mut minimized = false;
@@ -78,7 +83,7 @@ fn main() {
 				_ => ()
 			}
 
-			state_manager.handle_event(&event, &mut window, &mut scene);
+			state_manager.handle_event(&event, &mut window, &mut scene_graph);
 		}
 
 		if minimized {
@@ -91,8 +96,8 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
-		state_manager.update(&mut window, &mut scene, &mut state_data);
+		state_manager.update(&mut window, &mut scene_graph, &mut state_data);
 
-		surface_changed = renderer.render(&mut scene.camera, &mut scene.meshes, &scene.ambient_light, &scene.point_lights, &mut scene.ui_elements);
+		surface_changed = renderer.render(&mut scene.camera, &mut scene.meshes, &scene.ambient_light, &scene.point_lights, &mut scene.ui_elements, &mut scene_graph);
 	}
 }

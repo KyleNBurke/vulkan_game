@@ -1,11 +1,14 @@
 use engine::{
 	Scene, 
+	SceneGraph,
+	SceneObject,
 	state::{State, StateAction},
 	geometry3d,
 	Mesh,
 	mesh::Material,
 	lights::PointLight,
-	math::Vector3
+	math::Vector3,
+	Object3D
 };
 
 use crate::{StateData, CameraController};
@@ -51,39 +54,25 @@ impl GameplayState {
 }
 
 impl State<StateData> for GameplayState {
-	fn enter(&mut self, window: &mut glfw::Window, scene: &mut Scene) {
-		scene.camera.position.set(0.0, 0.0, -2.0);
-
-		let triangle_geo = Box::new(geometry3d::Triangle::new());
-		let mut dynamic_triangle = Mesh::new(triangle_geo, Material::Lambert);
-		dynamic_triangle.position.set(-0.5, -0.6, 2.0);
-		scene.meshes.push(dynamic_triangle);
-
-		let plane_geo = Box::new(geometry3d::Plane::new());
-		let mut dynamic_plane = Mesh::new(plane_geo, Material::Lambert);
-		dynamic_plane.position.set(0.5, -0.6, 2.0);
-		scene.meshes.push(dynamic_plane);
-
-		let box_geo = Box::new(geometry3d::Box::new());
-		let mut dynamic_box = Mesh::new(box_geo, Material::Lambert);
-		dynamic_box.position.set(2.0, 0.0, 0.0);
-		scene.meshes.push(dynamic_box);
-
-		let mut point_light1 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
-		point_light1.position.set(0.0, -1.0, 0.0);
-		scene.point_lights.push(point_light1);
-
-		let mut point_light2 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
-		point_light2.position.set(-1.0, -1.0, 0.0);
-		scene.point_lights.push(point_light2);
+	fn enter(&mut self, window: &mut glfw::Window, scene_graph: &mut SceneGraph) {
+		scene_graph.camera.position.set(0.0, 0.0, -2.0);
 
 		window.set_cursor_mode(glfw::CursorMode::Disabled);
 		self.camera_controller.poll_mouse_pos(window);
+
+		let box_geo = Box::new(geometry3d::Box::new());
+		let mut dynamic_box = Mesh::new(box_geo, Material::Lambert);
+		dynamic_box.position.set(0.0, 0.0, 1.0);
+		let handle = scene_graph.add(SceneObject::Mesh(dynamic_box));
+
+		if let SceneObject::Mesh(mesh) = &mut scene_graph.get_node_mut(&handle).unwrap().object {
+			mesh.rotate_y(std::f32::consts::FRAC_PI_4);
+		}
 	}
 
-	fn leave(&mut self, _window: &mut glfw::Window, _scene: &mut Scene) {}
+	fn leave(&mut self, _window: &mut glfw::Window, scene_graph: &mut SceneGraph) {}
 
-	fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut glfw::Window, _scene: &mut Scene) {
+	fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut glfw::Window, scene_graph: &mut SceneGraph) {
 		match event {
 			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
 				self.camera_controller_enabled = !self.camera_controller_enabled;
@@ -100,9 +89,9 @@ impl State<StateData> for GameplayState {
 		}
 	}
 
-	fn update(&mut self, window: &mut glfw::Window, scene: &mut Scene, _data: &mut StateData) -> StateAction<StateData> {
+	fn update(&mut self, window: &mut glfw::Window, scene_graph: &mut SceneGraph, _data: &mut StateData) -> StateAction<StateData> {
 		if self.camera_controller_enabled {
-			self.camera_controller.update(window, &mut scene.camera);
+			self.camera_controller.update(window, &mut scene_graph.camera);
 		}
 
 		StateAction::None
