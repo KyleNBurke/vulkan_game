@@ -13,6 +13,9 @@ pub struct UIElement {
 	pub matrix: Matrix3,
 	pub auto_update_matrix: bool,
 	pub geometry: Box<dyn Geometry2D>,
+	pub(crate) index_offset: usize,
+	pub(crate) attribute_offset: usize,
+	pub(crate) uniform_offset: usize
 }
 
 impl UIElement {
@@ -23,7 +26,10 @@ impl UIElement {
 			scale: Vector2::from_scalar(1.0),
 			matrix: Matrix3::new(),
 			auto_update_matrix: true,
-			geometry
+			geometry,
+			index_offset: 0,
+			attribute_offset: 0,
+			uniform_offset: 0
 		}
 	}
 }

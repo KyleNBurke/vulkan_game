@@ -43,14 +43,11 @@ use std::{
 use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh, Material},
-	Object2D,
-	Object3D,
-	Camera,
 	math::{Vector3, Matrix3, Matrix4},
-	lights::{AmbientLight, PointLight},
-	Font,
-	UIElement,
-	SceneGraph
+	Object3D,
+	Object2D,
+	Scene,
+	Font
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -1283,9 +1280,7 @@ impl<'a> Renderer<'a> {
 		self.ui_rendering_pipeline_resources.memory = memory;
 	}
 
-	pub fn render(&mut self, camera: &mut Camera, meshes: &mut [Mesh], ambient_light: &AmbientLight, point_lights: &[PointLight], ui_elements: &mut [UIElement], scene_graph: &mut SceneGraph) -> bool {
-		assert!(point_lights.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
-
+	pub fn render(&mut self, scene: &mut Scene) -> bool {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
 		
@@ -1319,40 +1314,51 @@ impl<'a> Renderer<'a> {
 		swapchain_frame.fence = in_flight_frame.fence;
 
 		// Calculate required dynamic buffer size and offsets
-		let mut object_offset = FRAME_DATA_MEMORY_SIZE;
-		let mut mesh_offsets = Vec::with_capacity(meshes.len());
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
+		let mut offset = FRAME_DATA_MEMORY_SIZE;
 
-		for mesh in meshes.iter() {
+		for mesh in scene.meshes.iter_mut() {
+			if mesh.auto_update_matrix {
+				mesh.update_matrix();
+			}
+
 			let index_size = mem::size_of_val(mesh.geometry.get_vertex_indices());
-			let index_padding_size = (size_of::<f32>() - (object_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = object_offset + index_size + index_padding_size;
+			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = offset + index_size + index_padding_size;
 			let attribute_size = mem::size_of_val(mesh.geometry.get_vertex_attributes());
 			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			mesh_offsets.push((object_offset, attribute_offset, uniform_offset));
-			object_offset += uniform_offset + uniform_size;
+			mesh.index_offset = offset;
+			mesh.attribute_offset = attribute_offset;
+			mesh.uniform_offset = uniform_offset;
+
+			offset += uniform_offset + uniform_size;
 		}
 
-		let mut ui_element_offsets = Vec::with_capacity(ui_elements.len());
+		for ui_element in scene.ui_elements.iter_mut() {
+			if ui_element.auto_update_matrix {
+				ui_element.update_matrix();
+			}
 
-		for element in ui_elements.iter() {
-			let index_size = mem::size_of_val(element.geometry.get_vertex_indices());
-			let index_padding_size = (size_of::<f32>() - (object_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = object_offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(element.geometry.get_vertex_attributes());
+			let index_size = mem::size_of_val(ui_element.geometry.get_vertex_indices());
+			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(ui_element.geometry.get_vertex_attributes());
 			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 12 * size_of::<f32>();
 
-			ui_element_offsets.push((object_offset, attribute_offset, uniform_offset));
-			object_offset += uniform_offset + uniform_size;
+			ui_element.index_offset = offset;
+			ui_element.attribute_offset = attribute_offset;
+			ui_element.uniform_offset = uniform_offset;
+
+			offset += uniform_offset + uniform_size;
 		}
 		
 		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
-		let buffer_size = object_offset as vk::DeviceSize;
+		let buffer_size = offset as vk::DeviceSize;
 
 		if buffer_size > in_flight_frame.buffer.capacity {
 			in_flight_frame.buffer.reallocate(buffer_size);
@@ -1368,41 +1374,53 @@ impl<'a> Renderer<'a> {
 		// Copy frame data into dynamic memory buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 		
+		let camera = &mut scene.camera;
+		let projection_matrix = &camera.projection_matrix.elements;
+		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
+		unsafe { ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len()) };
+
+		if camera.auto_update_view_matrix {
+			camera.update_matrix();
+		}
+
+		self.inverse_view_matrix = *camera.get_matrix();
+		self.inverse_view_matrix.invert();
 		unsafe {
-			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-			let projection_matrix = &camera.projection_matrix.elements;
-			ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len());
-
-			if camera.auto_update_view_matrix {
-				camera.update_matrix();
-			}
-
-			self.inverse_view_matrix = *camera.get_matrix();
-			self.inverse_view_matrix.invert();
-
 			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
 			ptr::copy_nonoverlapping(self.inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, self.inverse_view_matrix.elements.len());
+		}
 
+		let ambient_light = &scene.ambient_light;
+		let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
+		unsafe {
 			let ambient_light_dst_ptr = buffer_ptr.add(32 * size_of::<f32>()) as *mut Vector3;
-			let ambient_light_vec = ambient_light.color * ambient_light.intensity;
-			ptr::copy_nonoverlapping(&ambient_light_vec as *const Vector3, ambient_light_dst_ptr, 1);
+			ptr::copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
+		}
 
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
-			let point_light_count = point_lights.len() as u32;
-			ptr::copy_nonoverlapping(&point_light_count as *const u32, point_light_count_dst_ptr, 1);
+		let mut point_light_count = 0;
+		let position_base_offest = 36 * size_of::<f32>();
+		let color_base_offest = 40 * size_of::<f32>();
+		let stride = 8 * size_of::<f32>();
 
-			let position_base_offest = 36 * size_of::<f32>();
-			let color_base_offest = 40 * size_of::<f32>();
-			let stride = 8 * size_of::<f32>();
+		for point_light in scene.point_lights.iter() {
+			let intensified_color = point_light.color * point_light.intensity;
 
-			for (i, light) in point_lights.iter().enumerate() {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * i) as *mut Vector3;
-				ptr::copy_nonoverlapping(&light.position as *const Vector3, position_dst_ptr, 1);
+			unsafe {
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+				ptr::copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
 
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * i) as *mut Vector3;
-				let color_vec = light.color * light.intensity;
-				ptr::copy_nonoverlapping(&color_vec as *const Vector3, color_dst_ptr, 1);
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+				ptr::copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
 			}
+
+			point_light_count += 1;
+		}
+
+		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+
+		unsafe {
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
+			ptr::copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
 		}
 
 		// Begin the secondary command buffers
@@ -1454,30 +1472,24 @@ impl<'a> Renderer<'a> {
 			};
 
 		// Copy dynamic mesh data into dynamic buffer and record draw commands
-		for (i, mesh) in meshes.iter_mut().enumerate() {
-			if mesh.auto_update_matrix {
-				mesh.update_matrix();
-			}
-
-			let (index_offset, attribute_offset, uniform_offset) = mesh_offsets[i];
-
+		for mesh in scene.meshes.iter() {
 			unsafe {
 				let indices = mesh.geometry.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(mesh.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attributes = mesh.geometry.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(mesh.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let matrix = &mesh.model_matrix.elements;
-				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
+				let uniform_dst_ptr = buffer_ptr.add(mesh.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
 				let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(mesh.material);
 
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[attribute_offset as u64]);
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, mesh.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[mesh.attribute_offset as u64]);
 
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
@@ -1485,37 +1497,31 @@ impl<'a> Renderer<'a> {
 					self.mesh_rendering_pipeline_resources.pipeline_layout,
 					1,
 					&[in_flight_frame.mesh_data_descriptor_set],
-					&[uniform_offset as u32]);
+					&[mesh.uniform_offset as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
 		}
 
 		// Copy UI data into dynamic buffer and record draw commands
-		for (i, ui_element) in ui_elements.iter_mut().enumerate() {
-			if ui_element.auto_update_matrix {
-				ui_element.update_matrix();
-			}
-
-			let (index_offset, attribute_offset, uniform_offset) = ui_element_offsets[i];
-
+		for ui_element in scene.ui_elements.iter() {
 			unsafe {
 				let indices = ui_element.geometry.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(ui_element.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attributes = ui_element.geometry.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(ui_element.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				self.temp_matrix.set(self.ui_projection_matrix.elements);
 				self.temp_matrix *= &ui_element.matrix;
 				let matrix = self.temp_matrix.to_padded_array();
-				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
+				let uniform_dst_ptr = buffer_ptr.add(ui_element.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
-				logical_device.cmd_bind_index_buffer(in_flight_frame.ui_secondary_command_buffer, in_flight_frame.buffer.handle, index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[attribute_offset as u64]);
+				logical_device.cmd_bind_index_buffer(in_flight_frame.ui_secondary_command_buffer, in_flight_frame.buffer.handle, ui_element.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(in_flight_frame.ui_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[ui_element.attribute_offset as u64]);
 
 				logical_device.cmd_bind_descriptor_sets(
 					in_flight_frame.ui_secondary_command_buffer,
@@ -1523,7 +1529,7 @@ impl<'a> Renderer<'a> {
 					self.ui_rendering_pipeline_resources.pipeline_layout,
 					1,
 					&[in_flight_frame.ui_element_data_descriptor_set],
-					&[uniform_offset as u32]);
+					&[ui_element.uniform_offset as u32]);
 
 				logical_device.cmd_draw_indexed(in_flight_frame.ui_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}

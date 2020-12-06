@@ -19,7 +19,10 @@ pub struct Mesh {
 	pub model_matrix: Matrix4,
 	pub auto_update_matrix: bool,
 	pub geometry: Box<dyn Geometry3D>,
-	pub material: Material
+	pub material: Material,
+	pub(crate) index_offset: usize,
+	pub(crate) attribute_offset: usize,
+	pub(crate) uniform_offset: usize
 }
 
 impl Mesh {
@@ -31,7 +34,10 @@ impl Mesh {
 			model_matrix: Matrix4::new(),
 			auto_update_matrix: true,
 			geometry,
-			material
+			material,
+			index_offset: 0,
+			attribute_offset: 0,
+			uniform_offset: 0
 		}
 	}
 }

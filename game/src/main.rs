@@ -4,7 +4,6 @@ use engine::{
 	lights::AmbientLight,
 	Font,
 	Scene,
-	SceneGraph,
 	state::StateManager,
 	math::Vector3
 };
@@ -28,25 +27,18 @@ fn main() {
 	
 	let font = Font::new("game/res/roboto.ttf", 32);
 	renderer.submit_font(&font);
+	
+	let mut state_data = StateData { font };
 
-	let mut scene = Scene {
-		camera: Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0),
-		ambient_light: AmbientLight::from(Vector3::from_scalar(1.0), 0.01),
-		point_lights: vec![],
-		meshes: vec![],
-		ui_elements: vec![]
-	};
+	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
+	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
+	let mut scene = Scene::new(camera, ambient_light);
 
 	let gameplay_state = Box::new(GameplayState::new());
 	let mut static_meshes = gameplay_state.create_static_meshes();
 	renderer.submit_static_meshes(&mut static_meshes);
 
-	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
-	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
-	let mut scene_graph = SceneGraph::new(camera, ambient_light);
-
-	let mut state_manager = StateManager::new(&mut window, &mut scene_graph, gameplay_state);
-	let mut state_data = StateData;
+	let mut state_manager = StateManager::new(&mut window, &mut state_data, &mut scene, gameplay_state);
 
 	let mut minimized = false;
 	let mut resized;
@@ -77,13 +69,13 @@ fn main() {
 				glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => window.set_should_close(true),
 				glfw::WindowEvent::Key(glfw::Key::R, _, glfw::Action::Press, _) => {
 					renderer.submit_static_meshes(&mut static_meshes);
-					renderer.submit_font(&font);
+					renderer.submit_font(&state_data.font);
 					println!("Static meshes and font submitted");
 				},
 				_ => ()
 			}
 
-			state_manager.handle_event(&event, &mut window, &mut scene_graph);
+			state_manager.handle_event(&event, &mut window, &mut scene);
 		}
 
 		if minimized {
@@ -96,8 +88,8 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
-		state_manager.update(&mut window, &mut scene_graph, &mut state_data);
+		state_manager.update(&mut window, &mut state_data, &mut scene);
 
-		surface_changed = renderer.render(&mut scene.camera, &mut scene.meshes, &scene.ambient_light, &scene.point_lights, &mut scene.ui_elements, &mut scene_graph);
+		surface_changed = renderer.render(&mut scene);
 	}
 }
