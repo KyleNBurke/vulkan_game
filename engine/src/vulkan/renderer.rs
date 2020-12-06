@@ -44,8 +44,6 @@ use crate::{
 	vulkan::{Context, Buffer},
 	mesh::{self, Mesh, Material},
 	math::{Vector3, Matrix3, Matrix4},
-	Object3D,
-	Object2D,
 	Scene,
 	Font
 };
@@ -1011,7 +1009,7 @@ impl<'a> Renderer<'a> {
 
 		for (i, mesh) in meshes.iter_mut().enumerate() {
 			if mesh.auto_update_matrix {
-				mesh.update_matrix();
+				mesh.transform.update_matrix();
 			}
 
 			let (index_offset, attribute_offset, uniform_offset, _, _) = render_info[i];
@@ -1025,7 +1023,7 @@ impl<'a> Renderer<'a> {
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let matrix = &mesh.model_matrix.elements;
+				let matrix = &mesh.transform.matrix.elements;
 				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 			}
@@ -1319,7 +1317,7 @@ impl<'a> Renderer<'a> {
 
 		for mesh in scene.meshes.iter_mut() {
 			if mesh.auto_update_matrix {
-				mesh.update_matrix();
+				mesh.transform.update_matrix();
 			}
 
 			let index_size = mem::size_of_val(mesh.geometry.get_vertex_indices());
@@ -1339,7 +1337,7 @@ impl<'a> Renderer<'a> {
 
 		for ui_element in scene.ui_elements.iter_mut() {
 			if ui_element.auto_update_matrix {
-				ui_element.update_matrix();
+				ui_element.transform.update_matrix();
 			}
 
 			let index_size = mem::size_of_val(ui_element.geometry.get_vertex_indices());
@@ -1380,10 +1378,10 @@ impl<'a> Renderer<'a> {
 		unsafe { ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len()) };
 
 		if camera.auto_update_view_matrix {
-			camera.update_matrix();
+			camera.transform.update_matrix();
 		}
 
-		self.inverse_view_matrix = *camera.get_matrix();
+		self.inverse_view_matrix = camera.transform.matrix;
 		self.inverse_view_matrix.invert();
 		unsafe {
 			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
@@ -1482,7 +1480,7 @@ impl<'a> Renderer<'a> {
 				let attribute_dst_ptr = buffer_ptr.add(mesh.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let matrix = &mesh.model_matrix.elements;
+				let matrix = &mesh.transform.matrix.elements;
 				let uniform_dst_ptr = buffer_ptr.add(mesh.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
@@ -1515,7 +1513,7 @@ impl<'a> Renderer<'a> {
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				self.temp_matrix.set(self.ui_projection_matrix.elements);
-				self.temp_matrix *= &ui_element.matrix;
+				self.temp_matrix *= &ui_element.transform.matrix;
 				let matrix = self.temp_matrix.to_padded_array();
 				let uniform_dst_ptr = buffer_ptr.add(ui_element.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());

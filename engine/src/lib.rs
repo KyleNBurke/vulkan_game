@@ -1,5 +1,11 @@
 pub mod vulkan;
 
+pub mod transform3d;
+pub use transform3d::Transform3D;
+
+pub mod transform2d;
+pub use transform2d::Transform2D;
+
 pub mod mesh;
 pub use mesh::Mesh;
 
@@ -10,12 +16,6 @@ pub mod geometry3d;
 pub use geometry3d::Geometry3D;
 
 pub mod math;
-
-pub mod object3d;
-pub use object3d::Object3D;
-
-pub mod object2d;
-pub use object2d::Object2D;
 
 pub mod camera;
 pub use camera::Camera;
