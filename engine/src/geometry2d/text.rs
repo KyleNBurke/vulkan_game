@@ -7,8 +7,17 @@ pub struct Text {
 
 impl Text {
 	pub fn new(font: &Font, string: &str) -> Self {
-		let mut indices: Vec<u16> = Vec::with_capacity(6 * string.len());
-		let mut attributes: Vec<f32> = Vec::with_capacity(16 * string.len());
+		let (indices, attributes) = Self::generate(font, string);
+
+		Self {
+			indices,
+			attributes
+		}
+	}
+
+	fn generate(font: &Font, string: &str) -> (Vec<u16>, Vec<f32>) {
+		let mut indices = Vec::with_capacity(6 * string.len());
+		let mut attributes = Vec::with_capacity(16 * string.len());
 		let mut char_count = 0;
 		let mut cursor_pos = 0.0;
 
@@ -22,30 +31,34 @@ impl Text {
 			let glyph = &font.glyphs[glyph_index];
 
 			let index_offset = char_count * 4;
-			let glyph_indices = [
+			let mut glyph_indices = vec![
 				index_offset, index_offset + 1, index_offset + 2,
 				index_offset, index_offset + 2, index_offset + 3
 			];
 			
 			let screen_pos_x = cursor_pos + glyph.bearing_x;
 
-			let glyph_attributes = [
+			let mut glyph_attributes = vec![
 				screen_pos_x, glyph.bearing_y, glyph.position_x, glyph.position_y,
 				screen_pos_x + glyph.width, glyph.bearing_y, glyph.position_x + glyph.width, glyph.position_y,
 				screen_pos_x + glyph.width, glyph.bearing_y + glyph.height, glyph.position_x + glyph.width, glyph.position_y + glyph.height,
 				screen_pos_x, glyph.bearing_y + glyph.height, glyph.position_x, glyph.position_y + glyph.height
 			];
 
-			indices.extend_from_slice(&glyph_indices);
-			attributes.extend_from_slice(&glyph_attributes);
+			indices.append(&mut glyph_indices);
+			attributes.append(&mut glyph_attributes);
 			char_count += 1;
 			cursor_pos += glyph.advance;
 		}
+		
+		(indices, attributes)
+	}
 
-		Self {
-			indices,
-			attributes
-		}
+	pub fn update(&mut self, font: &Font, string: &str) {
+		let (indices, attributes) = Self::generate(font, string);
+
+		self.indices = indices;
+		self.attributes = attributes;
 	}
 }
 
