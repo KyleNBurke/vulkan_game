@@ -1,14 +1,13 @@
 use engine::{
 	state::{State, StateAction},
-	Scene,
 	geometry3d,
 	Mesh,
 	mesh::Material,
 	lights::PointLight,
 	math::Vector3,
 	pool::Handle,
-	geometry2d::Text,
-	UIElement
+	Text,
+	EngineResources
 };
 
 use crate::{StateData, CameraController};
@@ -16,7 +15,8 @@ use crate::{StateData, CameraController};
 pub struct GameplayState {
 	camera_controller: CameraController,
 	camera_controller_enabled: bool,
-	box_handle: Handle
+	box_handle: Handle,
+	font_handle: Handle
 }
 
 impl GameplayState {
@@ -24,11 +24,15 @@ impl GameplayState {
 		Self {
 			camera_controller: CameraController::new(),
 			camera_controller_enabled: true,
-			box_handle: Handle::null()
+			box_handle: Handle::null(),
+			font_handle: Handle::null()
 		}
 	}
+}
 
-	pub fn create_static_meshes(&self) -> Vec<Mesh> {
+impl State<StateData> for GameplayState {
+	fn enter(&mut self, resources: &mut EngineResources<StateData>) {
+		// Static
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
 		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
 		static_triangle.transform.position.set(0.0, 1.0, 1.7);
@@ -51,70 +55,79 @@ impl GameplayState {
 		point_light_box2.transform.position.set(-1.0, -1.0, 0.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 
-		vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]
-	}
-}
+		resources.renderer.submit_static_meshes(&mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
 
-impl State<StateData> for GameplayState {
-	fn enter(&mut self, window: &mut glfw::Window, data: &mut StateData, scene: &mut Scene) {
-		let text_geo = Box::new(Text::new(&data.font, "Hello"));
-		let mut text_ui_element = UIElement::new(text_geo);
-		text_ui_element.transform.position.set(10.0, 40.0);
-		scene.ui_elements.add(text_ui_element);
+		// Dynamic
+		let mut text = Text::new(resources.game_resources.roboto_32, String::from("Hello from a 32 pixel size font"));
+		text.transform.position.set(10.0, 30.0);
+		resources.scene.text.add(text);
+
+		let mut text = Text::new(resources.game_resources.roboto_14, String::from("Hello from a 14 pixel size font"));
+		text.transform.position.set(10.0, 60.0);
+		resources.scene.text.add(text);
 
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
 		let mut dynamic_triangle = Mesh::new(triangle_geo, Material::Lambert);
 		dynamic_triangle.transform.position.set(-0.5, -0.6, 2.0);
-		scene.meshes.add(dynamic_triangle);
+		resources.scene.meshes.add(dynamic_triangle);
 
 		let plane_geo = Box::new(geometry3d::Plane::new());
 		let mut dynamic_plane = Mesh::new(plane_geo, Material::Lambert);
 		dynamic_plane.transform.position.set(0.5, -0.6, 2.0);
-		scene.meshes.add(dynamic_plane);
+		resources.scene.meshes.add(dynamic_plane);
 
 		let box_geo = Box::new(geometry3d::Box::new());
 		let mut dynamic_box = Mesh::new(box_geo, Material::Lambert);
 		dynamic_box.transform.position.set(2.0, 0.0, 0.0);
-		self.box_handle = scene.meshes.add(dynamic_box);
+		self.box_handle = resources.scene.meshes.add(dynamic_box);
 
 		let mut point_light1 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
 		point_light1.position.set(0.0, -1.0, 0.0);
-		scene.point_lights.add(point_light1);
+		resources.scene.point_lights.add(point_light1);
 
 		let mut point_light2 = PointLight::from(Vector3::from_scalar(1.0), 0.3);
 		point_light2.position.set(-1.0, -1.0, 0.0);
-		scene.point_lights.add(point_light2);
-		scene.camera.transform.position.set(0.0, 0.0, -2.0);
+		resources.scene.point_lights.add(point_light2);
+		resources.scene.camera.transform.position.set(0.0, 0.0, -2.0);
 
-		window.set_cursor_mode(glfw::CursorMode::Disabled);
-		self.camera_controller.poll_mouse_pos(window);
+		resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
+		self.camera_controller.poll_mouse_pos(&resources.window);
 	}
 
-	fn leave(&mut self, _window: &mut glfw::Window, _data: &mut StateData, _scene: &mut Scene) {}
+	fn leave(&mut self, _resources: &mut EngineResources<StateData>) {}
 
-	fn handle_event(&mut self, event: &glfw::WindowEvent, window: &mut glfw::Window, _scene: &mut Scene) {
+	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources<StateData>) {
 		match event {
 			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
 				self.camera_controller_enabled = !self.camera_controller_enabled;
 
 				if self.camera_controller_enabled {
-					self.camera_controller.poll_mouse_pos(&window);
-					window.set_cursor_mode(glfw::CursorMode::Disabled);
+					self.camera_controller.poll_mouse_pos(&resources.window);
+					resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
 				}
 				else {
-					window.set_cursor_mode(glfw::CursorMode::Normal);
+					resources.window.set_cursor_mode(glfw::CursorMode::Normal);
 				}
+			},
+			glfw::WindowEvent::Key(glfw::Key::G, _, glfw::Action::Press, _) => {
+				self.font_handle = resources.renderer.add_font("game/res/roboto.ttf", 64);
+				let mut text = Text::new(self.font_handle, String::from("Hello from a 64 pixel size font"));
+				text.transform.position.set(10.0, 150.0);
+				resources.scene.text.add(text);
+			},
+			glfw::WindowEvent::Key(glfw::Key::H, _, glfw::Action::Press, _) => {
+				resources.renderer.remove_font(&self.font_handle);
 			},
 			_ => ()
 		}
 	}
 
-	fn update(&mut self, window: &mut glfw::Window, _data: &mut StateData, scene: &mut Scene) -> StateAction<StateData> {
+	fn update(&mut self, resources: &mut EngineResources<StateData>) -> StateAction<StateData> {
 		if self.camera_controller_enabled {
-			self.camera_controller.update(window, &mut scene.camera);
+			self.camera_controller.update(&resources.window, &mut resources.scene.camera);
 		}
 
-		scene.meshes.get_mut(&self.box_handle).unwrap().transform.rotate_y(0.0001);
+		resources.scene.meshes.get_mut(&self.box_handle).unwrap().transform.rotate_y(0.0001);
 
 		StateAction::None
 	}

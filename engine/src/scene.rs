@@ -1,9 +1,9 @@
 use crate::{
+	Pool,
 	Camera,
 	lights::{AmbientLight, PointLight},
 	Mesh,
-	UIElement,
-	Pool
+	Text
 };
 
 pub struct Scene {
@@ -11,7 +11,7 @@ pub struct Scene {
 	pub ambient_light: AmbientLight,
 	pub point_lights: Pool<PointLight>,
 	pub meshes: Pool<Mesh>,
-	pub ui_elements: Pool<UIElement>
+	pub text: Pool<Text>
 }
 
 impl Scene {
@@ -21,7 +21,7 @@ impl Scene {
 			ambient_light,
 			point_lights: Pool::new(),
 			meshes: Pool::new(),
-			ui_elements: Pool::new()
+			text: Pool::new()
 		}
 	}
 }

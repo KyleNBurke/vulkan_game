@@ -27,7 +27,8 @@ pub struct Font {
 	pub atlas_width: usize,
 	pub atlas_height: usize,
 	pub space_advance: f32,
-	pub glyphs: Vec<Glyph>
+	pub glyphs: Vec<Glyph>,
+	pub submission_index: usize
 }
 
 impl Font {
@@ -65,7 +66,8 @@ impl Font {
 			atlas_width,
 			atlas_height,
 			space_advance,
-			glyphs
+			glyphs,
+			submission_index: 0
 		}
 	}
 

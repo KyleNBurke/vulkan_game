@@ -1,7 +1,8 @@
-use engine::Font;
+use engine::pool::Handle;
 
 pub struct StateData {
-	pub font: Font
+	pub roboto_32: Handle,
+	pub roboto_14: Handle
 }
 
 pub mod gameplay;

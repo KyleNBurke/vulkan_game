@@ -1,6 +1,7 @@
+#[derive(Clone, Copy)]
 pub struct Handle {
-	index: usize,
-	generation: u32
+	pub index: usize,
+	pub generation: u32
 }
 
 impl Handle {
