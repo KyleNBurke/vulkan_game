@@ -1,10 +1,5 @@
+use std::{ffi::{CString, CStr}, os::raw::{c_void, c_char}};
 use ash::{vk, version::EntryV1_0, version::InstanceV1_0, version::DeviceV1_0, extensions::ext, extensions::khr, vk::Handle};
-
-use std::{
-	ffi::{CString, CStr},
-	os::raw::{c_void, c_char}
-};
-
 use super::PhysicalDevice;
 
 pub struct Context {

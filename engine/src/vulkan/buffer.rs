@@ -1,8 +1,7 @@
 use ash::{vk, version::DeviceV1_0};
 use crate::vulkan::Context;
 
-pub struct Buffer<'a> {
-	context: &'a Context,
+pub struct Buffer {
 	pub handle: vk::Buffer,
 	pub memory: vk::DeviceMemory,
 	usage: vk::BufferUsageFlags,
@@ -10,12 +9,11 @@ pub struct Buffer<'a> {
 	pub capacity: vk::DeviceSize
 }
 
-impl<'a> Buffer<'a> {
-	pub fn new(context: &'a Context, capacity: vk::DeviceSize, usage: vk::BufferUsageFlags, properties: vk::MemoryPropertyFlags) -> Self {
+impl Buffer {
+	pub fn new(context: &Context, capacity: vk::DeviceSize, usage: vk::BufferUsageFlags, properties: vk::MemoryPropertyFlags) -> Self {
 		let (handle, memory) = Self::allocate(context, capacity, usage, properties);
 
 		Self {
-			context,
 			handle,
 			memory,
 			usage,
@@ -24,9 +22,8 @@ impl<'a> Buffer<'a> {
 		}
 	}
 
-	pub fn null(context: &'a Context, usage: vk::BufferUsageFlags, properties: vk::MemoryPropertyFlags) -> Self {
+	pub fn null(usage: vk::BufferUsageFlags, properties: vk::MemoryPropertyFlags) -> Self {
 		Self {
-			context,
 			handle: vk::Buffer::null(),
 			memory: vk::DeviceMemory::null(),
 			usage,
@@ -35,13 +32,13 @@ impl<'a> Buffer<'a> {
 		}
 	}
 
-	pub fn reallocate(&mut self, capacity: vk::DeviceSize) {
+	pub fn reallocate(&mut self, context: &Context, capacity: vk::DeviceSize) {
 		unsafe {
-			self.context.logical_device.free_memory(self.memory, None);
-			self.context.logical_device.destroy_buffer(self.handle, None);
+			context.logical_device.free_memory(self.memory, None);
+			context.logical_device.destroy_buffer(self.handle, None);
 		}
 
-		let (handle, memory) = Self::allocate(self.context, capacity, self.usage, self.properties);
+		let (handle, memory) = Self::allocate(context, capacity, self.usage, self.properties);
 
 		self.handle = handle;
 		self.memory = memory;
@@ -72,13 +69,11 @@ impl<'a> Buffer<'a> {
 
 		(handle, memory)
 	}
-}
 
-impl<'a> Drop for Buffer<'a> {
-	fn drop(&mut self) {
+	pub fn drop(&mut self, logical_device: &ash::Device) {
 		unsafe {
-			self.context.logical_device.free_memory(self.memory, None);
-			self.context.logical_device.destroy_buffer(self.handle, None);
+			logical_device.free_memory(self.memory, None);
+			logical_device.destroy_buffer(self.handle, None);
 		}
 	}
 }

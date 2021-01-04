@@ -1,4 +1,5 @@
 pub mod vulkan;
+pub use vulkan::Renderer;
 
 pub mod math;
 

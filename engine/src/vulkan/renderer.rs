@@ -45,17 +45,17 @@ const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
 const MAX_POINT_LIGHTS: usize = 5;
 
-pub struct Renderer<'a> {
-	context: &'a Context,
+pub struct Renderer {
+	context: Context,
 	render_pass: vk::RenderPass,
 	swapchain: Swapchain,
 	descriptor_pool: vk::DescriptorPool,
 	command_pool: vk::CommandPool,
-	mesh_rendering_pipeline_resources: MeshRenderingPipelineResources<'a>,
-	text_renderer: TextRenderer<'a>,
+	mesh_rendering_pipeline_resources: MeshRenderingPipelineResources,
+	text_renderer: TextRenderer,
 	basic_pipeline: vk::Pipeline,
 	lambert_pipeline: vk::Pipeline,
-	in_flight_frames: [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT],
+	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
 	submit_fonts: bool,
 	inverse_view_matrix: Matrix4,
@@ -83,16 +83,16 @@ struct SwapchainFrame {
 	fence: vk::Fence
 }
 
-struct MeshRenderingPipelineResources<'a> {
+struct MeshRenderingPipelineResources {
 	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	mesh_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pipeline_layout: vk::PipelineLayout,
-	static_mesh_buffer: Buffer<'a>,
+	static_mesh_buffer: Buffer,
 	static_mesh_data_descriptor_set: vk::DescriptorSet,
 	static_mesh_render_info: Vec<(usize, usize, usize, usize, Material)>
 }
 
-struct InFlightFrame<'a> {
+struct InFlightFrame {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
 	fence: vk::Fence,
@@ -100,24 +100,26 @@ struct InFlightFrame<'a> {
 	basic_secondary_command_buffer: vk::CommandBuffer,
 	lambert_secondary_command_buffer: vk::CommandBuffer,
 	text_secondary_command_buffer: vk::CommandBuffer,
-	buffer: Buffer<'a>,
+	buffer: Buffer,
 	frame_data_descriptor_set: vk::DescriptorSet,
 	mesh_data_descriptor_set: vk::DescriptorSet,
 	text_data_descriptor_set: vk::DescriptorSet
 }
 
-impl<'a> Renderer<'a> {
-	pub fn new(context: &'a Context, framebuffer_width: i32, framebuffer_height: i32) -> Self {
-		let render_pass = Self::create_render_pass(context);
-		let swapchain = Self::create_swapchain(context, framebuffer_width as u32, framebuffer_height as u32, &render_pass);
-		let descriptor_pool = Self::create_descriptor_pool(context);
-		let command_pool = Self::create_command_pool(context);
-		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(context, &descriptor_pool);
-		let text_renderer = TextRenderer::new(context, swapchain.extent, render_pass, descriptor_pool, command_pool);
-		let pipelines = Self::create_pipelines(context, &mesh_rendering_pipeline_resources.pipeline_layout, &swapchain.extent, &render_pass);
+impl Renderer {
+	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
+		let context = Context::new(glfw, window);
+		let render_pass = Self::create_render_pass(&context);
+		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
+		let swapchain = Self::create_swapchain(&context, framebuffer_width as u32, framebuffer_height as u32, &render_pass);
+		let descriptor_pool = Self::create_descriptor_pool(&context);
+		let command_pool = Self::create_command_pool(&context);
+		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(&context, &descriptor_pool);
+		let text_renderer = TextRenderer::new(&context, swapchain.extent, render_pass, descriptor_pool, command_pool);
+		let pipelines = Self::create_pipelines(&context, &mesh_rendering_pipeline_resources.pipeline_layout, &swapchain.extent, &render_pass);
 
 		let in_flight_frames = Self::create_in_flight_frames(
-			context,
+			&context,
 			&descriptor_pool,
 			&command_pool,
 			&mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout,
@@ -425,7 +427,7 @@ impl<'a> Renderer<'a> {
 		unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
 	}
 
-	fn create_mesh_rendering_pipeline_resources(context: &'a Context, descriptor_pool: &vk::DescriptorPool) -> MeshRenderingPipelineResources<'a> {
+	fn create_mesh_rendering_pipeline_resources(context: &Context, descriptor_pool: &vk::DescriptorPool) -> MeshRenderingPipelineResources {
 		// Create frame data descriptor set layout
 		let frame_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
 			.binding(0)
@@ -462,7 +464,6 @@ impl<'a> Renderer<'a> {
 
 		// Create static mesh buffer
 		let static_mesh_buffer = Buffer::null(
-			context,
 			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 			vk::MemoryPropertyFlags::DEVICE_LOCAL);
 		
@@ -660,7 +661,7 @@ impl<'a> Renderer<'a> {
 		command_pool: &vk::CommandPool,
 		frame_data_descriptor_set_layout: &vk::DescriptorSetLayout,
 		mesh_data_descriptor_set_layout: &vk::DescriptorSetLayout,
-		text_data_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame<'a>; IN_FLIGHT_FRAMES_COUNT]
+		text_data_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]
 	{
 		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
 
@@ -820,8 +821,8 @@ impl<'a> Renderer<'a> {
 		}
 
 		self.swapchain = Self::create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, &self.render_pass);
-		self.text_renderer.handle_resize(self.swapchain.extent, self.render_pass);
-		let pipelines = Self::create_pipelines(self.context, &self.mesh_rendering_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
+		self.text_renderer.handle_resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
+		let pipelines = Self::create_pipelines(&self.context, &self.mesh_rendering_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
 		self.basic_pipeline = pipelines[0];
 		self.lambert_pipeline = pipelines[1];
 
@@ -834,9 +835,6 @@ impl<'a> Renderer<'a> {
 	pub fn submit_static_meshes(&mut self, meshes: &mut [Mesh]) {
 		let logical_device = &self.context.logical_device;
 		let render_info = &mut self.mesh_rendering_pipeline_resources.static_mesh_render_info;
-
-		// Wait for rendering operations to finish
-		unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
 
 		// Calculate total memory size and render info
 		let mut mesh_offset = 0;
@@ -860,8 +858,8 @@ impl<'a> Renderer<'a> {
 		// Create a host visible staging buffer
 		let buffer_size = mesh_offset as vk::DeviceSize;
 
-		let staging_buffer = Buffer::new(
-			self.context,
+		let mut staging_buffer = Buffer::new(
+			&self.context,
 			buffer_size,
 			vk::BufferUsageFlags::TRANSFER_SRC,
 			vk::MemoryPropertyFlags::HOST_VISIBLE);
@@ -905,7 +903,9 @@ impl<'a> Renderer<'a> {
 		let static_mesh_buffer = &mut self.mesh_rendering_pipeline_resources.static_mesh_buffer;
 
 		if buffer_size > static_mesh_buffer.capacity {
-			static_mesh_buffer.reallocate(buffer_size);
+			unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
+
+			static_mesh_buffer.reallocate(&self.context, buffer_size);
 
 			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
 				.buffer(static_mesh_buffer.handle)
@@ -957,6 +957,8 @@ impl<'a> Renderer<'a> {
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 		}
+
+		staging_buffer.drop(logical_device);
 	}
 
 	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle {
@@ -972,7 +974,7 @@ impl<'a> Renderer<'a> {
 	pub fn render(&mut self, scene: &mut Scene) -> bool {
 		// If new fonts have been added or removed, submit them
 		if self.submit_fonts {
-			self.text_renderer.submit_fonts(self.command_pool);
+			self.text_renderer.submit_fonts(&self.context, self.command_pool);
 			self.submit_fonts = false;
 		}
 
@@ -1065,7 +1067,7 @@ impl<'a> Renderer<'a> {
 		let buffer_size = offset as vk::DeviceSize;
 
 		if buffer_size > in_flight_frame.buffer.capacity {
-			in_flight_frame.buffer.reallocate(buffer_size);
+			in_flight_frame.buffer.reallocate(&self.context, buffer_size);
 
 			Self::update_in_flight_frame_descriptor_sets(
 				&self.context.logical_device,
@@ -1355,7 +1357,7 @@ impl<'a> Renderer<'a> {
 	}
 }
 
-impl<'a> Drop for Renderer<'a> {
+impl Drop for Renderer {
 	fn drop(&mut self) {
 		let logical_device = &self.context.logical_device;
 
@@ -1363,10 +1365,11 @@ impl<'a> Drop for Renderer<'a> {
 			logical_device.device_wait_idle().unwrap();
 
 			// In flight frames
-			for frame in &self.in_flight_frames {
+			for frame in &mut self.in_flight_frames {
 				logical_device.destroy_fence(frame.fence, None);
 				logical_device.destroy_semaphore(frame.render_finished, None);
 				logical_device.destroy_semaphore(frame.image_available, None);
+				frame.buffer.drop(&self.context.logical_device);
 			}
 			
 			// Command pool
@@ -1380,6 +1383,9 @@ impl<'a> Drop for Renderer<'a> {
 			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout, None);
 			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout, None);
 			logical_device.destroy_pipeline_layout(self.mesh_rendering_pipeline_resources.pipeline_layout, None);
+			self.mesh_rendering_pipeline_resources.static_mesh_buffer.drop(&self.context.logical_device);
+
+			self.text_renderer.drop(&self.context.logical_device);
 			
 			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
 

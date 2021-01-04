@@ -9,8 +9,7 @@ struct SubmittedFontResources {
 	image_view: vk::ImageView
 }
 
-pub struct TextRenderer<'a> {
-	context: &'a Context,
+pub struct TextRenderer {
 	pub sampler_and_atlases_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub text_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub pipeline_layout: vk::PipelineLayout,
@@ -26,8 +25,8 @@ pub struct TextRenderer<'a> {
 	pub atlas_index_uniform_relative_offset: usize
 }
 
-impl<'a> TextRenderer<'a> {
-	pub fn new(context: &'a Context, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool, command_pool: vk::CommandPool) -> Self {
+impl TextRenderer {
+	pub fn new(context: &Context, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool, command_pool: vk::CommandPool) -> Self {
 		let (sampler_and_atlases_descriptor_set_layout, text_data_descriptor_set_layout) = Self::create_descriptor_set_layouts(&context.logical_device);
 		let pipeline_layout = Self::create_pipeline_layout(&context.logical_device, sampler_and_atlases_descriptor_set_layout, text_data_descriptor_set_layout);
 		let pipeline = Self::create_pipeline(&context.logical_device, extent, pipeline_layout, render_pass);
@@ -37,7 +36,6 @@ impl<'a> TextRenderer<'a> {
 		let atlas_index_uniform_relative_offset = Self::calculate_atlas_index_uniform_relative_offset(context.physical_device.min_uniform_buffer_offset_alignment as usize);
 
 		Self {
-			context,
 			sampler_and_atlases_descriptor_set_layout,
 			text_data_descriptor_set_layout,
 			pipeline_layout,
@@ -406,12 +404,12 @@ impl<'a> TextRenderer<'a> {
 		matrix_uniform_size + matrix_uniform_padding
 	}
 
-	pub fn submit_fonts(&mut self, command_pool: vk::CommandPool) {
-		let logical_device = &self.context.logical_device;
+	pub fn submit_fonts(&mut self, context: &Context, command_pool: vk::CommandPool) {
+		let logical_device = &context.logical_device;
 
 		// Free memory and destory resources
 		unsafe {
-			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
+			logical_device.queue_wait_idle(context.graphics_queue).unwrap();
 			logical_device.free_memory(self.memory, None);
 		}
 
@@ -500,7 +498,7 @@ impl<'a> TextRenderer<'a> {
 		assert!(temp_resources.len() < MAX_FONTS, "{} fonts is more than the allowed {}", temp_resources.len(), MAX_FONTS);
 
 		// Create staging buffer
-		let staging_buffer = Buffer::new(self.context, staging_buffer_offset as u64, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
+		let mut staging_buffer = Buffer::new(context, staging_buffer_offset as u64, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
 		// Copy atlases into staging buffer
 		let staging_buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
@@ -530,7 +528,7 @@ impl<'a> TextRenderer<'a> {
 		// Create device local buffer
 		let first_image = temp_resources[0].image;
 		let first_image_memory_requirements = unsafe { logical_device.get_image_memory_requirements(first_image) };
-		let memory_type_index = self.context.physical_device.find_memory_type_index(first_image_memory_requirements.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL);
+		let memory_type_index = context.physical_device.find_memory_type_index(first_image_memory_requirements.memory_type_bits, vk::MemoryPropertyFlags::DEVICE_LOCAL);
 
 		let memory_allocate_info = vk::MemoryAllocateInfo::builder()
 			.allocation_size(local_buffer_offset as u64)
@@ -641,10 +639,12 @@ impl<'a> TextRenderer<'a> {
 			.command_buffers(&command_buffers);
 		
 		unsafe {
-			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
-			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
+			logical_device.queue_submit(context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
+			logical_device.queue_wait_idle(context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(command_pool, &command_buffers);
 		}
+		
+		staging_buffer.drop(&context.logical_device);
 
 		// Update atlases descriptor to reference device local buffer
 		// Fill empty slots in the atlases descriptor set array with the empty image
@@ -685,16 +685,12 @@ impl<'a> TextRenderer<'a> {
 		}
 	}
 
-	pub fn handle_resize(&mut self, extent: vk::Extent2D, render_pass: vk::RenderPass) {
-		unsafe { self.context.logical_device.destroy_pipeline(self.pipeline, None) };
-		self.pipeline = Self::create_pipeline(&self.context.logical_device, extent, self.pipeline_layout, render_pass);
+	pub fn handle_resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
+		unsafe { logical_device.destroy_pipeline(self.pipeline, None) };
+		self.pipeline = Self::create_pipeline(logical_device, extent, self.pipeline_layout, render_pass);
 	}
-}
 
-impl<'a> Drop for TextRenderer<'a> {
-	fn drop(&mut self) {
-		let logical_device = &self.context.logical_device;
-
+	pub fn drop(&mut self, logical_device: &ash::Device) {
 		unsafe {
 			logical_device.destroy_descriptor_set_layout(self.sampler_and_atlases_descriptor_set_layout, None);
 			logical_device.destroy_descriptor_set_layout(self.text_data_descriptor_set_layout, None);

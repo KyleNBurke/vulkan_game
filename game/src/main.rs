@@ -1,5 +1,5 @@
 use engine::{
-	vulkan::{Context, Renderer},
+	Renderer,
 	Camera,
 	lights::AmbientLight,
 	Scene,
@@ -22,8 +22,7 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 	window.set_key_polling(true);
 
-	let context = Context::new(&glfw, &window);
-	let mut renderer = Renderer::new(&context, width, height);
+	let mut renderer = Renderer::new(&glfw, &window);
 
 	let roboto_32 = renderer.add_font("game/res/roboto.ttf", 32);
 	let roboto_14 = renderer.add_font("game/res/roboto.ttf", 14);

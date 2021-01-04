@@ -1,9 +1,9 @@
 use glfw::Window;
-use crate::{vulkan::Renderer, Scene};
+use crate::{Renderer, Scene};
 
-pub struct EngineResources<'a, T> {
+pub struct EngineResources<T> {
 	pub window: Window,
-	pub renderer: Renderer<'a>,
+	pub renderer: Renderer,
 	pub game_resources: T,
 	pub scene: Scene
 }

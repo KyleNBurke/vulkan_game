@@ -14,6 +14,7 @@ fn main() {
 		.map(|e| e.unwrap().path().file_name().unwrap().to_owned().into_string().unwrap())
 		.collect();
 
+	// Compile the shaders that have changed
 	for file in files {
 		println!("cargo:rerun-if-changed={}", file);
 
