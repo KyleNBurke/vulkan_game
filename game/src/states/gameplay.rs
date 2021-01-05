@@ -5,7 +5,7 @@ use engine::{
 	mesh::Material,
 	lights::PointLight,
 	math::Vector3,
-	pool::Handle,
+	Handle,
 	Text,
 	EngineResources
 };

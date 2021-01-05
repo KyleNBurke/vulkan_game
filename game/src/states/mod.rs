@@ -1,4 +1,4 @@
-use engine::pool::Handle;
+use engine::Handle;
 
 pub struct StateData {
 	pub roboto_32: Handle,

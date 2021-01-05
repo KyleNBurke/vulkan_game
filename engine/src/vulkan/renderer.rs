@@ -1,36 +1,3 @@
-/*
---- Memory buffer layouts ---
-Dynamic - updated each frame
-- frame data
-	- proj matrix
-	- view matrix
-	- ambient light (color * intensity)
-	- point light (array)
-		- position
-		- color
-- mesh data (array)
-	- indices
-	- attributes
-		- position
-		- normal
-	- matrix
-- text data (array)
-	- indices
-	- attributes
-		- screen position
-		- texture position
-	- matrix
-	- atlas index
-
-Static - updated on submit_static_meshes()
-- mesh data (array)
-	- indices
-	- attributes
-		- position
-		- normal
-	- matrix
-*/
-
 use std::{mem::{self, size_of}, ffi::CString, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
@@ -38,7 +5,7 @@ use crate::{
 	mesh::{Mesh, Material},
 	math::{Vector3, Matrix3, Matrix4},
 	Scene,
-	pool::Handle
+	Handle
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -111,7 +78,7 @@ impl Renderer {
 		let context = Context::new(glfw, window);
 		let render_pass = Self::create_render_pass(&context);
 		let (framebuffer_width, framebuffer_height) = window.get_framebuffer_size();
-		let swapchain = Self::create_swapchain(&context, framebuffer_width as u32, framebuffer_height as u32, &render_pass);
+		let swapchain = Self::create_swapchain(&context, framebuffer_width as u32, framebuffer_height as u32, render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(&context);
 		let command_pool = Self::create_command_pool(&context);
 		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(&context, &descriptor_pool);
@@ -206,7 +173,7 @@ impl Renderer {
 		unsafe { context.logical_device.create_render_pass(&render_pass_create_info, None).unwrap() }
 	}
 
-	fn create_swapchain(context: &Context, framebuffer_width: u32, framebuffer_height: u32, render_pass: &vk::RenderPass) -> Swapchain {
+	fn create_swapchain(context: &Context, framebuffer_width: u32, framebuffer_height: u32, render_pass: vk::RenderPass) -> Swapchain {
 		// Get present mode
 		let present_modes = unsafe { context.surface.extension.get_physical_device_surface_present_modes(context.physical_device.handle, context.surface.handle).unwrap() };
 		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
@@ -347,7 +314,7 @@ impl Renderer {
 			let attachments = [image_view, depth_image_view];
 
 			let create_info = vk::FramebufferCreateInfo::builder()
-				.render_pass(*render_pass)
+				.render_pass(render_pass)
 				.attachments(&attachments)
 				.width(extent.width)
 				.height(extent.height)
@@ -820,7 +787,7 @@ impl Renderer {
 			self.swapchain.extension.destroy_swapchain(self.swapchain.handle, None);
 		}
 
-		self.swapchain = Self::create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, &self.render_pass);
+		self.swapchain = Self::create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, self.render_pass);
 		self.text_renderer.handle_resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
 		let pipelines = Self::create_pipelines(&self.context, &self.mesh_rendering_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
 		self.basic_pipeline = pipelines[0];
@@ -889,13 +856,13 @@ impl Renderer {
 			}
 		}
 
+		let range = vk::MappedMemoryRange::builder()
+			.memory(staging_buffer.memory)
+			.offset(0)
+			.size(vk::WHOLE_SIZE);
+
 		unsafe {
-			let ranges = [vk::MappedMemoryRange::builder()
-				.memory(staging_buffer.memory)
-				.offset(0)
-				.size(vk::WHOLE_SIZE)
-				.build()];
-			logical_device.flush_mapped_memory_ranges(&ranges).unwrap();
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(staging_buffer.memory);
 		}
 		
@@ -920,9 +887,7 @@ impl Renderer {
 				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
 				.buffer_info(&model_matrix_buffer_infos);
 			
-			let write_descriptor_sets = [model_matrix_write_descriptor_set.build()];
-			
-			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+			unsafe { logical_device.update_descriptor_sets(&[model_matrix_write_descriptor_set.build()], &[]) };
 		}
 		
 		// Copy the data from the staging buffer into the device local buffer using a command buffer
@@ -938,22 +903,20 @@ impl Renderer {
 		
 		let region = vk::BufferCopy::builder()
 			.size(buffer_size);
-		let regions = [region.build()];
 		
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, static_mesh_buffer.handle, &regions);
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, static_mesh_buffer.handle, &[region.build()]);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
 		let command_buffers = [command_buffer];
 		let submit_info = vk::SubmitInfo::builder()
 			.command_buffers(&command_buffers);
-		let submit_infos = [submit_info.build()];
 		
 		unsafe {
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
-			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, vk::Fence::null()).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
 			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
 			logical_device.free_command_buffers(self.command_pool, &command_buffers);
 		}
@@ -1272,13 +1235,12 @@ impl Renderer {
 			logical_device.end_command_buffer(in_flight_frame.lambert_secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(in_flight_frame.text_secondary_command_buffer).unwrap();
 
-			let ranges = [vk::MappedMemoryRange::builder()
+			let range = vk::MappedMemoryRange::builder()
 				.memory(in_flight_frame.buffer.memory)
 				.offset(0)
-				.size(vk::WHOLE_SIZE)
-				.build()];
-			logical_device.flush_mapped_memory_ranges(&ranges).unwrap();
-
+				.size(vk::WHOLE_SIZE);
+			
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(in_flight_frame.buffer.memory);
 		}
 
@@ -1328,11 +1290,10 @@ impl Renderer {
 			.wait_dst_stage_mask(&wait_stages)
 			.command_buffers(&command_buffers)
 			.signal_semaphores(&render_finished_semaphores);
-		let submit_infos = [submit_info.build()];
 
 		unsafe {
 			logical_device.reset_fences(&fences).unwrap();
-			logical_device.queue_submit(self.context.graphics_queue, &submit_infos, in_flight_frame.fence).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
 		}
 
 		// Wait for render to finish then present swapchain image

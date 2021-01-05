@@ -515,13 +515,13 @@ impl TextRenderer {
 			}
 		}
 
-		let flush_range = vk::MappedMemoryRange::builder()
+		let range = vk::MappedMemoryRange::builder()
 			.memory(staging_buffer.memory)
 			.offset(0)
 			.size(vk::WHOLE_SIZE);
 		
 		unsafe {
-			logical_device.flush_mapped_memory_ranges(&[flush_range.build()]).unwrap();
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(staging_buffer.memory);
 		}
 

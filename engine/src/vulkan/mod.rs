@@ -1,8 +1,8 @@
-pub mod context;
-pub use context::Context;
+mod context;
+use context::Context;
 
-pub mod physical_device;
-pub use physical_device::PhysicalDevice;
+mod physical_device;
+use physical_device::PhysicalDevice;
 
 pub mod renderer;
 pub use renderer::Renderer;
@@ -10,8 +10,8 @@ pub use renderer::Renderer;
 mod text_renderer;
 use text_renderer::TextRenderer;
 
-pub mod font;
-pub use font::Font;
+pub(crate) mod font;
+pub(crate) use font::Font;
 
-pub mod buffer;
-pub use buffer::Buffer;
+mod buffer;
+use buffer::Buffer;

@@ -25,6 +25,7 @@ pub use text::Text;
 
 pub mod pool;
 pub use pool::Pool;
+pub use pool::Handle;
 
 pub mod scene;
 pub use scene::Scene;
