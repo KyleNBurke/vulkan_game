@@ -7,8 +7,11 @@ use physical_device::PhysicalDevice;
 pub mod renderer;
 pub use renderer::Renderer;
 
-mod text_renderer;
-use text_renderer::TextRenderer;
+mod mesh_manager;
+use mesh_manager::MeshManager;
+
+mod text_manager;
+use text_manager::TextManager;
 
 pub(crate) mod font;
 pub(crate) use font::Font;

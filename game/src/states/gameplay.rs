@@ -72,7 +72,7 @@ impl State<StateData> for GameplayState {
 		resources.scene.meshes.add(dynamic_triangle);
 
 		let plane_geo = Box::new(geometry3d::Plane::new());
-		let mut dynamic_plane = Mesh::new(plane_geo, Material::Lambert);
+		let mut dynamic_plane = Mesh::new(plane_geo, Material::Basic);
 		dynamic_plane.transform.position.set(0.5, -0.6, 2.0);
 		resources.scene.meshes.add(dynamic_plane);
 

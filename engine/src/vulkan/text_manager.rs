@@ -9,7 +9,7 @@ struct SubmittedFontResources {
 	image_view: vk::ImageView
 }
 
-pub struct TextRenderer {
+pub struct TextManager {
 	pub sampler_and_atlases_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub text_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub pipeline_layout: vk::PipelineLayout,
@@ -25,7 +25,7 @@ pub struct TextRenderer {
 	pub atlas_index_uniform_relative_offset: usize
 }
 
-impl TextRenderer {
+impl TextManager {
 	pub fn new(context: &Context, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool, command_pool: vk::CommandPool) -> Self {
 		let (sampler_and_atlases_descriptor_set_layout, text_data_descriptor_set_layout) = Self::create_descriptor_set_layouts(&context.logical_device);
 		let pipeline_layout = Self::create_pipeline_layout(&context.logical_device, sampler_and_atlases_descriptor_set_layout, text_data_descriptor_set_layout);
@@ -115,7 +115,7 @@ impl TextRenderer {
 			.module(vert_module)
 			.name(entry_point_cstr);
 		
-		let frag_module =  Renderer::create_shader_module(logical_device, "text.frag.spv");
+		let frag_module = Renderer::create_shader_module(logical_device, "text.frag.spv");
 		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
 			.stage(vk::ShaderStageFlags::FRAGMENT)
 			.module(frag_module)

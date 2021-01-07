@@ -1,7 +1,7 @@
 use std::{mem::{self, size_of}, ffi::CString, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
-	vulkan::{Context, Buffer, TextRenderer, text_renderer::MAX_FONTS, Font},
+	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
 	mesh::{Mesh, Material},
 	math::{Vector3, Matrix3, Matrix4},
 	Scene,
@@ -18,10 +18,8 @@ pub struct Renderer {
 	swapchain: Swapchain,
 	descriptor_pool: vk::DescriptorPool,
 	command_pool: vk::CommandPool,
-	mesh_rendering_pipeline_resources: MeshRenderingPipelineResources,
-	text_renderer: TextRenderer,
-	basic_pipeline: vk::Pipeline,
-	lambert_pipeline: vk::Pipeline,
+	mesh_manager: MeshManager,
+	text_manager: TextManager,
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
 	submit_fonts: bool,
@@ -50,15 +48,6 @@ struct SwapchainFrame {
 	fence: vk::Fence
 }
 
-struct MeshRenderingPipelineResources {
-	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
-	mesh_data_descriptor_set_layout: vk::DescriptorSetLayout,
-	pipeline_layout: vk::PipelineLayout,
-	static_mesh_buffer: Buffer,
-	static_mesh_data_descriptor_set: vk::DescriptorSet,
-	static_mesh_render_info: Vec<(usize, usize, usize, usize, Material)>
-}
-
 struct InFlightFrame {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
@@ -81,17 +70,16 @@ impl Renderer {
 		let swapchain = Self::create_swapchain(&context, framebuffer_width as u32, framebuffer_height as u32, render_pass);
 		let descriptor_pool = Self::create_descriptor_pool(&context);
 		let command_pool = Self::create_command_pool(&context);
-		let mesh_rendering_pipeline_resources = Self::create_mesh_rendering_pipeline_resources(&context, &descriptor_pool);
-		let text_renderer = TextRenderer::new(&context, swapchain.extent, render_pass, descriptor_pool, command_pool);
-		let pipelines = Self::create_pipelines(&context, &mesh_rendering_pipeline_resources.pipeline_layout, &swapchain.extent, &render_pass);
+		let mesh_manager = MeshManager::new(&context.logical_device, swapchain.extent, render_pass, descriptor_pool);
+		let text_manager = TextManager::new(&context, swapchain.extent, render_pass, descriptor_pool, command_pool);
 
 		let in_flight_frames = Self::create_in_flight_frames(
 			&context,
 			&descriptor_pool,
 			&command_pool,
-			&mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout,
-			&mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout,
-			&text_renderer.text_data_descriptor_set_layout);
+			&mesh_manager.frame_data_descriptor_set_layout,
+			&mesh_manager.mesh_data_descriptor_set_layout,
+			&text_manager.text_data_descriptor_set_layout);
 		
 		let ui_projection_matrix = Matrix3::from([
 			[2.0 / framebuffer_width as f32, 0.0, -1.0],
@@ -105,10 +93,8 @@ impl Renderer {
 			swapchain,
 			descriptor_pool,
 			command_pool,
-			mesh_rendering_pipeline_resources,
-			text_renderer,
-			basic_pipeline: pipelines[0],
-			lambert_pipeline: pipelines[1],
+			mesh_manager,
+			text_manager,
 			in_flight_frames,
 			current_in_flight_frame: 0,
 			submit_fonts: false,
@@ -394,221 +380,6 @@ impl Renderer {
 		unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
 	}
 
-	fn create_mesh_rendering_pipeline_resources(context: &Context, descriptor_pool: &vk::DescriptorPool) -> MeshRenderingPipelineResources {
-		// Create frame data descriptor set layout
-		let frame_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-			.binding(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-			.descriptor_count(1)
-			.stage_flags(vk::ShaderStageFlags::VERTEX);
-		let frame_data_descriptor_set_layout_bindings = [frame_data_descriptor_set_layout_binding.build()];
-
-		let frame_data_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-			.bindings(&frame_data_descriptor_set_layout_bindings);
-
-		let frame_data_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&frame_data_descriptor_set_layout_create_info, None).unwrap() };
-
-		// Create mesh data descriptor set layout
-		let mesh_data_descriptor_set_layout_binding = vk::DescriptorSetLayoutBinding::builder()
-			.binding(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.descriptor_count(1)
-			.stage_flags(vk::ShaderStageFlags::VERTEX);
-		let mesh_data_descriptor_set_layout_bindings = [mesh_data_descriptor_set_layout_binding.build()];
-
-		let mesh_data_descriptor_set_layout_create_info = vk::DescriptorSetLayoutCreateInfo::builder()
-			.bindings(&mesh_data_descriptor_set_layout_bindings);
-
-		let mesh_data_descriptor_set_layout = unsafe { context.logical_device.create_descriptor_set_layout(&mesh_data_descriptor_set_layout_create_info, None).unwrap() };
-
-		// Create pipeline layout
-		let descriptor_set_layouts = [frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout];
-
-		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
-			.set_layouts(&descriptor_set_layouts);
-
-		let pipeline_layout = unsafe { context.logical_device.create_pipeline_layout(&pipeline_layout_create_info, None).unwrap() };
-
-		// Create static mesh buffer
-		let static_mesh_buffer = Buffer::null(
-			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
-			vk::MemoryPropertyFlags::DEVICE_LOCAL);
-		
-		// Create static mesh data descriptor set
-		let static_mesh_data_descriptor_set_layouts = [mesh_data_descriptor_set_layout];
-		let static_mesh_data_descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
-			.descriptor_pool(*descriptor_pool)
-			.set_layouts(&static_mesh_data_descriptor_set_layouts);
-		
-		let static_mesh_data_descriptor_set = unsafe { context.logical_device.allocate_descriptor_sets(&static_mesh_data_descriptor_set_allocate_info).unwrap()[0] };
-
-		MeshRenderingPipelineResources {
-			frame_data_descriptor_set_layout,
-			mesh_data_descriptor_set_layout,
-			pipeline_layout,
-			static_mesh_buffer,
-			static_mesh_data_descriptor_set,
-			static_mesh_render_info: vec![]
-		}
-	}
-
-	fn create_pipelines(context: &Context, mesh_rendering_layout: &vk::PipelineLayout, extent: &vk::Extent2D, render_pass: &vk::RenderPass) -> Vec<vk::Pipeline> {
-		let entry_point_cstring = CString::new("main").unwrap();
-		let entry_point_cstr = entry_point_cstring.as_c_str();
-
-		// Shared
-		let input_binding_description = vk::VertexInputBindingDescription::builder()
-			.binding(0)
-			.stride(24)
-			.input_rate(vk::VertexInputRate::VERTEX);
-		let input_binding_descriptions = [input_binding_description.build()];
-
-		let input_attribute_description_position = vk::VertexInputAttributeDescription::builder()	
-			.binding(0)
-			.location(0)
-			.format(vk::Format::R32G32B32_SFLOAT)
-			.offset(0)
-			.build();
-		
-		let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
-			.topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-			.primitive_restart_enable(false);
-
-		let viewport = vk::Viewport::builder()
-			.x(0.0)
-			.y(0.0)
-			.width(extent.width as f32)
-			.height(extent.height as f32)
-			.min_depth(0.0)
-			.max_depth(1.0);
-		let viewports = [viewport.build()];
-
-		let scissor = vk::Rect2D::builder()
-			.offset(vk::Offset2D::builder().x(0).y(0).build())
-			.extent(*extent);
-		let scissors = [scissor.build()];
-
-		let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
-			.viewports(&viewports)
-			.scissors(&scissors);
-
-		let rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
-			.depth_clamp_enable(false)
-			.rasterizer_discard_enable(false)
-			.polygon_mode(vk::PolygonMode::FILL)
-			.line_width(1.0)
-			.cull_mode(vk::CullModeFlags::BACK)
-			.front_face(vk::FrontFace::CLOCKWISE)
-			.depth_bias_enable(false);
-
-		let multisample_state_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
-			.sample_shading_enable(false)
-			.rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
-		let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder()
-			.depth_test_enable(true)
-			.depth_write_enable(true)
-			.depth_compare_op(vk::CompareOp::LESS)
-			.depth_bounds_test_enable(false)
-			.stencil_test_enable(false);
-
-		let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
-			.color_write_mask(vk::ColorComponentFlags::all())
-			.blend_enable(false);
-		let color_blend_attachment_states = [color_blend_attachment_state.build()];
-
-		let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
-			.logic_op_enable(false)
-			.attachments(&color_blend_attachment_states);
-
-		// Basic
-		let basic_vert_module = Self::create_shader_module(&context.logical_device, "basic.vert.spv");
-		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::VERTEX)
-			.module(basic_vert_module)
-			.name(entry_point_cstr);
-		
-		let basic_frag_module =  Self::create_shader_module(&context.logical_device, "basic.frag.spv");
-		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::FRAGMENT)
-			.module(basic_frag_module)
-			.name(entry_point_cstr);
-		
-		let stage_create_infos = [vert_stage_create_info.build(), frag_stage_create_info.build()];
-
-		let input_attribute_descriptions = [input_attribute_description_position];
-
-		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-			.vertex_binding_descriptions(&input_binding_descriptions)
-			.vertex_attribute_descriptions(&input_attribute_descriptions);
-
-		let basic_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-			.stages(&stage_create_infos)
-			.vertex_input_state(&vert_input_state_create_info)
-			.input_assembly_state(&input_assembly_state_create_info)
-			.viewport_state(&viewport_state_create_info)
-			.rasterization_state(&rasterization_state_create_info)
-			.multisample_state(&multisample_state_create_info)
-			.depth_stencil_state(&depth_stencil_state_create_info)
-			.color_blend_state(&color_blend_state_create_info)
-			.layout(*mesh_rendering_layout)
-			.render_pass(*render_pass)
-			.subpass(0);
-
-		// Lambert
-		let lambert_vert_module =  Self::create_shader_module(&context.logical_device, "lambert.vert.spv");
-		let vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::VERTEX)
-			.module(lambert_vert_module)
-			.name(entry_point_cstr);
-
-		let lambert_frag_module =  Self::create_shader_module(&context.logical_device, "lambert.frag.spv");
-		let frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-			.stage(vk::ShaderStageFlags::FRAGMENT)
-			.module(lambert_frag_module)
-			.name(entry_point_cstr);
-
-		let stage_create_infos = [vert_stage_create_info.build(), frag_stage_create_info.build()];
-		
-		let input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
-			.binding(0)
-			.location(1)
-			.format(vk::Format::R32G32B32_SFLOAT)
-			.offset(12)
-			.build();
-
-		let input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
-
-		let vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-			.vertex_binding_descriptions(&input_binding_descriptions)
-			.vertex_attribute_descriptions(&input_attribute_descriptions);
-
-		let lambert_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-			.stages(&stage_create_infos)
-			.vertex_input_state(&vert_input_state_create_info)
-			.input_assembly_state(&input_assembly_state_create_info)
-			.viewport_state(&viewport_state_create_info)
-			.rasterization_state(&rasterization_state_create_info)
-			.multisample_state(&multisample_state_create_info)
-			.depth_stencil_state(&depth_stencil_state_create_info)
-			.color_blend_state(&color_blend_state_create_info)
-			.layout(*mesh_rendering_layout)
-			.render_pass(*render_pass)
-			.subpass(0);
-
-		let pipeline_create_infos = [basic_pipeline_create_info.build(), lambert_pipeline_create_info.build()];
-		let pipelines = unsafe { context.logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None).unwrap() };
-
-		unsafe {
-			context.logical_device.destroy_shader_module(basic_vert_module, None);
-			context.logical_device.destroy_shader_module(basic_frag_module, None);
-			context.logical_device.destroy_shader_module(lambert_vert_module, None);
-			context.logical_device.destroy_shader_module(lambert_frag_module, None);
-		}
-
-		pipelines
-	}
-
 	pub fn create_shader_module(logical_device: &ash::Device, filename: &str) -> vk::ShaderModule {
 		let mut file_path = String::from("target/shaders/");
 		file_path.push_str(filename);
@@ -773,9 +544,6 @@ impl Renderer {
 		unsafe {
 			logical_device.device_wait_idle().unwrap();
 
-			logical_device.destroy_pipeline(self.basic_pipeline, None);
-			logical_device.destroy_pipeline(self.lambert_pipeline, None);
-
 			for frame in &self.swapchain.frames {
 				logical_device.destroy_framebuffer(frame.framebuffer, None);
 				logical_device.destroy_image_view(frame.image_view, None);
@@ -788,10 +556,8 @@ impl Renderer {
 		}
 
 		self.swapchain = Self::create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, self.render_pass);
-		self.text_renderer.handle_resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
-		let pipelines = Self::create_pipelines(&self.context, &self.mesh_rendering_pipeline_resources.pipeline_layout, &self.swapchain.extent, &self.render_pass);
-		self.basic_pipeline = pipelines[0];
-		self.lambert_pipeline = pipelines[1];
+		self.mesh_manager.handle_resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
+		self.text_manager.handle_resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
 
 		self.ui_projection_matrix.elements[0][0] = 2.0 / framebuffer_width as f32;
 		self.ui_projection_matrix.elements[1][1] = 2.0 / framebuffer_height as f32;
@@ -800,144 +566,23 @@ impl Renderer {
 	}
 
 	pub fn submit_static_meshes(&mut self, meshes: &mut [Mesh]) {
-		let logical_device = &self.context.logical_device;
-		let render_info = &mut self.mesh_rendering_pipeline_resources.static_mesh_render_info;
-
-		// Calculate total memory size and render info
-		let mut mesh_offset = 0;
-		render_info.clear();
-		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
-
-		for mesh in meshes.iter() {
-			let indices = mesh.geometry.get_vertex_indices();
-			let index_size = mem::size_of_val(indices);
-			let index_padding_size = (size_of::<f32>() - (mesh_offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = mesh_offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(mesh.geometry.get_vertex_attributes());
-			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-			let uniform_size = 16 * size_of::<f32>();
-
-			render_info.push((mesh_offset, attribute_offset, uniform_offset, indices.len(), mesh.material));
-			mesh_offset += uniform_offset + uniform_size;
-		}
-
-		// Create a host visible staging buffer
-		let buffer_size = mesh_offset as vk::DeviceSize;
-
-		let mut staging_buffer = Buffer::new(
-			&self.context,
-			buffer_size,
-			vk::BufferUsageFlags::TRANSFER_SRC,
-			vk::MemoryPropertyFlags::HOST_VISIBLE);
-		
-		// Copy mesh data into staging buffer
-		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
-
-		for (i, mesh) in meshes.iter_mut().enumerate() {
-			if mesh.auto_update_matrix {
-				mesh.transform.update_matrix();
-			}
-
-			let (index_offset, attribute_offset, uniform_offset, _, _) = render_info[i];
-
-			unsafe {
-				let indices = mesh.geometry.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
-				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
-
-				let attributes = mesh.geometry.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
-				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
-
-				let matrix = &mesh.transform.matrix.elements;
-				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
-				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
-			}
-		}
-
-		let range = vk::MappedMemoryRange::builder()
-			.memory(staging_buffer.memory)
-			.offset(0)
-			.size(vk::WHOLE_SIZE);
-
-		unsafe {
-			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
-			logical_device.unmap_memory(staging_buffer.memory);
-		}
-		
-		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
-		let static_mesh_buffer = &mut self.mesh_rendering_pipeline_resources.static_mesh_buffer;
-
-		if buffer_size > static_mesh_buffer.capacity {
-			unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
-
-			static_mesh_buffer.reallocate(&self.context, buffer_size);
-
-			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(static_mesh_buffer.handle)
-				.offset(0)
-				.range(16 * size_of::<f32>() as u64);
-			let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
-
-			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.mesh_rendering_pipeline_resources.static_mesh_data_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-				.buffer_info(&model_matrix_buffer_infos);
-			
-			unsafe { logical_device.update_descriptor_sets(&[model_matrix_write_descriptor_set.build()], &[]) };
-		}
-		
-		// Copy the data from the staging buffer into the device local buffer using a command buffer
-		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-			.level(vk::CommandBufferLevel::PRIMARY)
-			.command_pool(self.command_pool)
-			.command_buffer_count(1);
-
-		let command_buffer = unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap()[0] };
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-		
-		let region = vk::BufferCopy::builder()
-			.size(buffer_size);
-		
-		unsafe {
-			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, static_mesh_buffer.handle, &[region.build()]);
-			logical_device.end_command_buffer(command_buffer).unwrap();
-		}
-
-		let command_buffers = [command_buffer];
-		let submit_info = vk::SubmitInfo::builder()
-			.command_buffers(&command_buffers);
-		
-		unsafe {
-			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
-			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
-			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
-			logical_device.free_command_buffers(self.command_pool, &command_buffers);
-		}
-
-		staging_buffer.drop(logical_device);
+		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, meshes);
 	}
 
 	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle {
 		self.submit_fonts = true;
-		self.text_renderer.fonts.add(Font::new(file_path, size))
+		self.text_manager.fonts.add(Font::new(file_path, size))
 	}
 
 	pub fn remove_font(&mut self, handle: &Handle) {
-		self.text_renderer.fonts.remove(handle);
+		self.text_manager.fonts.remove(handle);
 		self.submit_fonts = true;
 	}
 
 	pub fn render(&mut self, scene: &mut Scene) -> bool {
 		// If new fonts have been added or removed, submit them
 		if self.submit_fonts {
-			self.text_renderer.submit_fonts(&self.context, self.command_pool);
+			self.text_manager.submit_fonts(&self.context, self.command_pool);
 			self.submit_fonts = false;
 		}
 
@@ -1002,7 +647,7 @@ impl Renderer {
 				text.transform.update_matrix();
 			}
 
-			let font = self.text_renderer.fonts.get(&text.font).expect("Text's font not found");
+			let font = self.text_manager.fonts.get(&text.font).expect("Text's font not found");
 			
 			if text.generate {
 				text.generate(font);
@@ -1014,7 +659,7 @@ impl Renderer {
 			let attribute_size = mem::size_of_val(text.get_vertex_attributes());
 			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
 			let matrix_uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-			let atlas_index_uniform_offset = matrix_uniform_offset + self.text_renderer.atlas_index_uniform_relative_offset;
+			let atlas_index_uniform_offset = matrix_uniform_offset + self.text_manager.atlas_index_uniform_relative_offset;
 			let atlas_index_uniform_size = size_of::<u32>();
 
 			text.index_offset = offset;
@@ -1104,33 +749,33 @@ impl Renderer {
 		
 		unsafe {
 			logical_device.begin_command_buffer(in_flight_frame.basic_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
+			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				in_flight_frame.basic_secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_rendering_pipeline_resources.pipeline_layout,
+				self.mesh_manager.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
 
 			logical_device.begin_command_buffer(in_flight_frame.lambert_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
+			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				in_flight_frame.lambert_secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_rendering_pipeline_resources.pipeline_layout,
+				self.mesh_manager.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
 			
 			logical_device.begin_command_buffer(in_flight_frame.text_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.text_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_renderer.pipeline);
+			logical_device.cmd_bind_pipeline(in_flight_frame.text_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_manager.pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				in_flight_frame.text_secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
-				self.text_renderer.pipeline_layout,
+				self.text_manager.pipeline_layout,
 				0,
-				&[self.text_renderer.sampler_and_atlases_descriptor_set],
+				&[self.text_manager.sampler_and_atlases_descriptor_set],
 				&[]);
 		}
 
@@ -1163,7 +808,7 @@ impl Renderer {
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
-					self.mesh_rendering_pipeline_resources.pipeline_layout,
+					self.mesh_manager.pipeline_layout,
 					1,
 					&[in_flight_frame.mesh_data_descriptor_set],
 					&[mesh.uniform_offset as u32]);
@@ -1198,7 +843,7 @@ impl Renderer {
 				logical_device.cmd_bind_descriptor_sets(
 					in_flight_frame.text_secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
-					self.text_renderer.pipeline_layout,
+					self.text_manager.pipeline_layout,
 					1,
 					&[in_flight_frame.text_data_descriptor_set],
 					&[text.matrix_uniform_offset as u32, text.atlas_index_uniform_offset as u32]);
@@ -1208,21 +853,21 @@ impl Renderer {
 		}
 
 		// Record static mesh draw commands
-		for render_info in &self.mesh_rendering_pipeline_resources.static_mesh_render_info {
+		for render_info in &self.mesh_manager.static_mesh_render_info {
 			let (index_offset, attribute_offset, uniform_offset, index_count, material) = *render_info;
 			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(material);
 
 			unsafe {
-				let static_mesh_buffer_handle = self.mesh_rendering_pipeline_resources.static_mesh_buffer.handle;
+				let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
 				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, index_offset as u64, vk::IndexType::UINT16);
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[attribute_offset as u64]);
 				
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
-					self.mesh_rendering_pipeline_resources.pipeline_layout,
+					self.mesh_manager.pipeline_layout,
 					1,
-					&[self.mesh_rendering_pipeline_resources.static_mesh_data_descriptor_set],
+					&[self.mesh_manager.static_mesh_data_descriptor_set],
 					&[uniform_offset as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, index_count as u32, 1, 0, 0, 0);
@@ -1332,22 +977,11 @@ impl Drop for Renderer {
 				logical_device.destroy_semaphore(frame.image_available, None);
 				frame.buffer.drop(&self.context.logical_device);
 			}
+
+			self.mesh_manager.drop(&self.context.logical_device);
+			self.text_manager.drop(&self.context.logical_device);
 			
-			// Command pool
 			logical_device.destroy_command_pool(self.command_pool, None);
-
-			// Pipelines
-			logical_device.destroy_pipeline(self.basic_pipeline, None);
-			logical_device.destroy_pipeline(self.lambert_pipeline, None);
-
-			// Mesh rendering pipeline resources
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.frame_data_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_rendering_pipeline_resources.mesh_data_descriptor_set_layout, None);
-			logical_device.destroy_pipeline_layout(self.mesh_rendering_pipeline_resources.pipeline_layout, None);
-			self.mesh_rendering_pipeline_resources.static_mesh_buffer.drop(&self.context.logical_device);
-
-			self.text_renderer.drop(&self.context.logical_device);
-			
 			logical_device.destroy_descriptor_pool(self.descriptor_pool, None);
 
 			// Swapchain
@@ -1361,7 +995,6 @@ impl Drop for Renderer {
 				logical_device.destroy_image_view(frame.image_view, None);
 			}
 
-			// Render pass
 			logical_device.destroy_render_pass(self.render_pass, None);
 		}
 	}
