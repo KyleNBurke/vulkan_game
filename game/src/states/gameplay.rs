@@ -2,7 +2,7 @@ use engine::{
 	state::{State, StateAction},
 	geometry3d,
 	Mesh,
-	mesh::Material,
+	Material,
 	lights::PointLight,
 	math::Vector3,
 	Handle,

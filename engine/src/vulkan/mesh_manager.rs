@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Context, Buffer, Renderer}, Mesh, mesh::Material};
+use crate::{vulkan::{Context, Buffer, Renderer}, Mesh, Material};
 
 pub struct MeshManager {
 	pub frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
