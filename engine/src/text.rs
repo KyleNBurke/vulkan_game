@@ -7,12 +7,7 @@ pub struct Text {
 	string: String,
 	indices: Vec<u16>,
 	attributes: Vec<f32>,
-	pub(crate) generate: bool,
-	pub(crate) index_offset: usize,
-	pub(crate) attribute_offset: usize,
-	pub(crate) matrix_uniform_offset: usize,
-	pub(crate) atlas_index_uniform_offset: usize,
-	pub(crate) atlas_index: usize
+	pub(crate) generate: bool
 }
 
 impl Text {
@@ -24,12 +19,7 @@ impl Text {
 			string,
 			indices: vec![],
 			attributes: vec![],
-			generate: true,
-			index_offset: 0,
-			attribute_offset: 0,
-			matrix_uniform_offset: 0,
-			atlas_index_uniform_offset: 0,
-			atlas_index: 0
+			generate: true
 		}
 	}
 

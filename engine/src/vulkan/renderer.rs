@@ -2,7 +2,9 @@ use std::{mem::{self, size_of}, ffi::CString, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
 	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
-	mesh::{Mesh, Material},
+	Mesh,
+	Material,
+	Text,
 	math::{Vector3, Matrix3, Matrix4},
 	Scene,
 	Handle
@@ -618,9 +620,28 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
+		// Define local structs used to store the render object and the offset information
+		struct MeshData<'a> {
+			mesh: &'a Mesh,
+			index_offset: usize,
+			attribute_offset: usize,
+			uniform_offset: usize
+		};
+
+		struct TextData<'a> {
+			text: &'a Text,
+			index_offset: usize,
+			attribute_offset: usize,
+			matrix_uniform_offset: usize,
+			atlas_index_uniform_offset: usize,
+			atlas_index: u32
+		};
+
 		// Calculate required dynamic buffer size and offsets
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 		let mut offset = FRAME_DATA_MEMORY_SIZE;
+		let mut mesh_data = vec![];
+		let mut text_data = vec![];
 
 		for mesh in scene.meshes.iter_mut() {
 			if mesh.auto_update_matrix {
@@ -635,9 +656,12 @@ impl Renderer {
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			mesh.index_offset = offset;
-			mesh.attribute_offset = attribute_offset;
-			mesh.uniform_offset = uniform_offset;
+			mesh_data.push(MeshData {
+				mesh,
+				index_offset: offset,
+				attribute_offset,
+				uniform_offset
+			});
 
 			offset = uniform_offset + uniform_size;
 		}
@@ -662,11 +686,14 @@ impl Renderer {
 			let atlas_index_uniform_offset = matrix_uniform_offset + self.text_manager.atlas_index_uniform_relative_offset;
 			let atlas_index_uniform_size = size_of::<u32>();
 
-			text.index_offset = offset;
-			text.attribute_offset = attribute_offset;
-			text.matrix_uniform_offset = matrix_uniform_offset;
-			text.atlas_index_uniform_offset = atlas_index_uniform_offset;
-			text.atlas_index = font.submission_index;
+			text_data.push(TextData {
+				text,
+				index_offset: offset,
+				attribute_offset,
+				matrix_uniform_offset,
+				atlas_index_uniform_offset,
+				atlas_index: font.submission_index as u32
+			});
 
 			offset = atlas_index_uniform_offset + atlas_index_uniform_size;
 		}
@@ -786,24 +813,26 @@ impl Renderer {
 			};
 
 		// Copy dynamic mesh data into dynamic buffer and record draw commands
-		for mesh in scene.meshes.iter() {
+		for mesh_data in mesh_data {
+			let mesh = mesh_data.mesh;
+
 			unsafe {
 				let indices = mesh.geometry.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(mesh.index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attributes = mesh.geometry.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(mesh.attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(mesh_data.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let matrix = &mesh.transform.matrix.elements;
-				let uniform_dst_ptr = buffer_ptr.add(mesh.uniform_offset) as *mut [f32; 4];
+				let uniform_dst_ptr = buffer_ptr.add(mesh_data.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
 				let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(mesh.material);
 
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, mesh.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[mesh.attribute_offset as u64]);
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, mesh_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[mesh_data.attribute_offset as u64]);
 
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
@@ -811,34 +840,36 @@ impl Renderer {
 					self.mesh_manager.pipeline_layout,
 					1,
 					&[in_flight_frame.mesh_data_descriptor_set],
-					&[mesh.uniform_offset as u32]);
+					&[mesh_data.uniform_offset as u32]);
 				
 				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}
 		}
 
 		// Copy text data into dynamic buffer and record draw commands
-		for text in scene.text.iter() {
+		for text_data in text_data {
+			let text = text_data.text;
+
 			unsafe {
 				let indices = text.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(text.index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(text_data.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
 				let attributes = text.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(text.attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(text_data.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				self.temp_matrix.set(self.ui_projection_matrix.elements);
 				self.temp_matrix *= &text.transform.matrix;
 				let matrix = self.temp_matrix.to_padded_array();
-				let matrix_uniform_dst_ptr = buffer_ptr.add(text.matrix_uniform_offset) as *mut [f32; 4];
+				let matrix_uniform_dst_ptr = buffer_ptr.add(text_data.matrix_uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), matrix_uniform_dst_ptr, matrix.len());
 
-				let atlas_index_uniform_dst_ptr = buffer_ptr.add(text.atlas_index_uniform_offset) as *mut u32;
-				ptr::copy_nonoverlapping(&(text.atlas_index as u32), atlas_index_uniform_dst_ptr, 1);
+				let atlas_index_uniform_dst_ptr = buffer_ptr.add(text_data.atlas_index_uniform_offset) as *mut u32;
+				ptr::copy_nonoverlapping(&text_data.atlas_index, atlas_index_uniform_dst_ptr, 1);
 
-				logical_device.cmd_bind_index_buffer(in_flight_frame.text_secondary_command_buffer, in_flight_frame.buffer.handle, text.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(in_flight_frame.text_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[text.attribute_offset as u64]);
+				logical_device.cmd_bind_index_buffer(in_flight_frame.text_secondary_command_buffer, in_flight_frame.buffer.handle, text_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(in_flight_frame.text_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[text_data.attribute_offset as u64]);
 
 				logical_device.cmd_bind_descriptor_sets(
 					in_flight_frame.text_secondary_command_buffer,
@@ -846,7 +877,7 @@ impl Renderer {
 					self.text_manager.pipeline_layout,
 					1,
 					&[in_flight_frame.text_data_descriptor_set],
-					&[text.matrix_uniform_offset as u32, text.atlas_index_uniform_offset as u32]);
+					&[text_data.matrix_uniform_offset as u32, text_data.atlas_index_uniform_offset as u32]);
 
 				logical_device.cmd_draw_indexed(in_flight_frame.text_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
 			}

@@ -11,10 +11,7 @@ pub struct Mesh {
 	pub transform: Transform3D,
 	pub auto_update_matrix: bool,
 	pub geometry: Box<dyn Geometry3D>,
-	pub material: Material,
-	pub(crate) index_offset: usize,
-	pub(crate) attribute_offset: usize,
-	pub(crate) uniform_offset: usize
+	pub material: Material
 }
 
 impl Mesh {
@@ -23,10 +20,7 @@ impl Mesh {
 			transform: Transform3D::new(),
 			auto_update_matrix: true,
 			geometry,
-			material,
-			index_offset: 0,
-			attribute_offset: 0,
-			uniform_offset: 0
+			material
 		}
 	}
 }
