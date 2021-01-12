@@ -1,15 +1,10 @@
-use engine::{
-	Renderer,
-	Camera,
-	lights::AmbientLight,
-	Scene,
-	StateManager,
-	EngineResources,
-	math::Vector3
-};
+use engine::{Renderer, Camera, lights::AmbientLight, Scene, math::Vector3};
+
+mod state_manager;
+use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
 
 mod states;
-use states::{StateData, gameplay::GameplayState};
+use states::GameplayState;
 
 mod camera_controller;
 use camera_controller::CameraController;
@@ -26,8 +21,6 @@ fn main() {
 
 	let roboto_32 = renderer.add_font("game/res/roboto.ttf", 32);
 	let roboto_14 = renderer.add_font("game/res/roboto.ttf", 14);
-	
-	let state_data = StateData { roboto_32, roboto_14 };
 
 	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
@@ -36,7 +29,10 @@ fn main() {
 	let mut resources = EngineResources {
 		window,
 		renderer,
-		game_resources: state_data,
+		game_resources: GameResources {
+			roboto_32,
+			roboto_14
+		},
 		scene
 	};
 	

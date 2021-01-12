@@ -1,4 +1,4 @@
-use std::{mem::{self, size_of}, ffi::CString, ptr, fs};
+use std::{mem::{self, size_of}, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
 	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},

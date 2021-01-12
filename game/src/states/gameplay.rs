@@ -1,5 +1,4 @@
 use engine::{
-	state::{State, StateAction},
 	geometry3d,
 	Mesh,
 	Material,
@@ -7,10 +6,9 @@ use engine::{
 	math::Vector3,
 	Handle,
 	Text,
-	EngineResources
 };
 
-use crate::{StateData, CameraController};
+use crate::{CameraController, State, StateAction, EngineResources};
 
 pub struct GameplayState {
 	camera_controller: CameraController,
@@ -30,8 +28,8 @@ impl GameplayState {
 	}
 }
 
-impl State<StateData> for GameplayState {
-	fn enter(&mut self, resources: &mut EngineResources<StateData>) {
+impl State for GameplayState {
+	fn enter(&mut self, resources: &mut EngineResources) {
 		// Static
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
 		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
@@ -94,9 +92,9 @@ impl State<StateData> for GameplayState {
 		self.camera_controller.poll_mouse_pos(&resources.window);
 	}
 
-	fn leave(&mut self, _resources: &mut EngineResources<StateData>) {}
+	fn leave(&mut self, _resources: &mut EngineResources) {}
 
-	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources<StateData>) {
+	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources) {
 		match event {
 			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
 				self.camera_controller_enabled = !self.camera_controller_enabled;
@@ -122,7 +120,7 @@ impl State<StateData> for GameplayState {
 		}
 	}
 
-	fn update(&mut self, resources: &mut EngineResources<StateData>) -> StateAction<StateData> {
+	fn update(&mut self, resources: &mut EngineResources) -> StateAction {
 		if self.camera_controller_enabled {
 			self.camera_controller.update(&resources.window, &mut resources.scene.camera);
 		}

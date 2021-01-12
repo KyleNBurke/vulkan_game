@@ -30,7 +30,3 @@ pub use pool::Handle;
 
 pub mod scene;
 pub use scene::Scene;
-
-pub mod state;
-pub use state::EngineResources;
-pub use state::StateManager;
