@@ -1,13 +1,13 @@
 use engine::{
-	vulkan::{Context, Renderer},
-	mesh::{Mesh, Material},
-	geometry3d,
-	Object3D,
+	Renderer,
 	Camera,
-	lights::AmbientLight
+	lights::AmbientLight,
+	Scene,
+	math::Vector3,
+	Mesh,
+	Material,
+	geometry3d
 };
-
-use std::boxed::Box;
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
@@ -16,18 +16,16 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 	window.set_key_polling(true);
 
-	let context = Context::new(&glfw, &window);
 	let (width, height) = window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, width, height);
+	let mut renderer = Renderer::new(&glfw, &window);
 
-	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
-	camera.position.set(0.0, 0.0, -2.0);
+	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
+	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
+	let mut scene = Scene::new(camera, ambient_light);
 
-	let geometry = Box::new(geometry3d::Box::new());
-	let mesh = Mesh::new(geometry, Material::Basic);
-	let mut meshes = [mesh];
+	scene.camera.transform.position.z = -2.0;
 
-	let ambient_light = AmbientLight::new();
+	let mesh = scene.meshes.add(Mesh::new(Box::new(geometry3d::Box::new()), Material::Basic));
 
 	let mut minimized = false;
 	let mut resized;
@@ -68,12 +66,12 @@ fn main() {
 		}
 
 		if resized || surface_changed {
-			renderer.recreate_swapchain(width, height);
-			camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			renderer.handle_resize(width, height);
+			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 		
-		meshes[0].rotate_y(0.0001);
+		scene.meshes.get_mut(&mesh).unwrap().transform.rotate_y(0.0001);
 
-		surface_changed = renderer.render(&mut camera, &mut meshes, &ambient_light, &[], &mut []);
+		surface_changed = renderer.render(&mut scene);
 	}
 }
