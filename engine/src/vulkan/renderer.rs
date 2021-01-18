@@ -164,7 +164,7 @@ impl Renderer {
 	fn create_swapchain(context: &Context, framebuffer_width: u32, framebuffer_height: u32, render_pass: vk::RenderPass) -> Swapchain {
 		// Get present mode
 		let present_modes = unsafe { context.surface.extension.get_physical_device_surface_present_modes(context.physical_device.handle, context.surface.handle).unwrap() };
-		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::MAILBOX);
+		let present_mode_option = present_modes.iter().find(|&&m| m == vk::PresentModeKHR::FIFO);
 		let present_mode = *present_mode_option.unwrap_or_else(|| &present_modes[0]);
 
 		// Create extent

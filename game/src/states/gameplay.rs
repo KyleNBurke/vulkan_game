@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use engine::{
 	geometry3d,
 	Mesh,
@@ -56,14 +58,6 @@ impl State for GameplayState {
 		resources.renderer.submit_static_meshes(&mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
 
 		// Dynamic
-		let mut text = Text::new(resources.game_resources.roboto_32, String::from("Hello from a 32 pixel size font"));
-		text.transform.position.set(10.0, 30.0);
-		resources.scene.text.add(text);
-
-		let mut text = Text::new(resources.game_resources.roboto_14, String::from("Hello from a 14 pixel size font"));
-		text.transform.position.set(10.0, 60.0);
-		resources.scene.text.add(text);
-
 		let triangle_geo = Box::new(geometry3d::Triangle::new());
 		let mut dynamic_triangle = Mesh::new(triangle_geo, Material::Lambert);
 		dynamic_triangle.transform.position.set(-0.5, -0.6, 2.0);
@@ -92,8 +86,6 @@ impl State for GameplayState {
 		self.camera_controller.poll_mouse_pos(&resources.window);
 	}
 
-	fn leave(&mut self, _resources: &mut EngineResources) {}
-
 	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources) {
 		match event {
 			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
@@ -120,7 +112,7 @@ impl State for GameplayState {
 		}
 	}
 
-	fn update(&mut self, resources: &mut EngineResources) -> StateAction {
+	fn update(&mut self, resources: &mut EngineResources, _frame_time: &Duration) -> StateAction {
 		if self.camera_controller_enabled {
 			self.camera_controller.update(&resources.window, &mut resources.scene.camera);
 		}

@@ -1,8 +1,8 @@
+use std::time::Duration;
 use glfw::Window;
 use engine::{Handle, Renderer, Scene};
 
 pub struct GameResources {
-	pub roboto_32: Handle,
 	pub roboto_14: Handle
 }
 
@@ -14,10 +14,10 @@ pub struct EngineResources {
 }
 
 pub trait State {
-	fn enter(&mut self, resources: &mut EngineResources);
-	fn leave(&mut self, resources: &mut EngineResources);
-	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources);
-	fn update(&mut self, resources: &mut EngineResources) -> StateAction;
+	fn enter(&mut self, _resources: &mut EngineResources) {}
+	fn leave(&mut self, _resources: &mut EngineResources) {}
+	fn handle_event(&mut self, _event: &glfw::WindowEvent, _resources: &mut EngineResources) {}
+	fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) -> StateAction;
 }
 
 #[allow(dead_code)]
@@ -32,10 +32,18 @@ pub struct StateManager {
 }
 
 impl StateManager {
-	pub fn new(resources: &mut EngineResources, mut initial_state: Box<dyn State>) -> Self {
-		initial_state.enter(resources);
+	pub fn new() -> Self {
+		Self { states: vec![] }
+	}
 
-		Self { states: vec![initial_state] }
+	pub fn push_state(&mut self, resources: &mut EngineResources, mut state: Box<dyn State>) {
+		state.enter(resources);
+		self.states.push(state);
+	}
+
+	pub fn pop_state(&mut self, resources: &mut EngineResources) {
+		self.states.last_mut().unwrap().leave(resources);
+		self.states.pop();
 	}
 
 	pub fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources) {
@@ -44,22 +52,20 @@ impl StateManager {
 		}
 	}
 
-	pub fn update(&mut self, resources: &mut EngineResources) {
+	pub fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) {
 		let mut actions = Vec::with_capacity(self.states.len());
 
 		for state in &mut self.states {
-			actions.push(state.update(resources));
+			actions.push(state.update(resources, frame_time));
 		}
 
 		for action in actions {
 			match action {
-				StateAction::Push(mut state) => {
-					state.enter(resources);
-					self.states.push(state);
+				StateAction::Push(state) => {
+					self.push_state(resources, state);
 				},
 				StateAction::Pop => {
-					self.states.last_mut().unwrap().leave(resources);
-					self.states.pop();
+					self.pop_state(resources);
 				},
 				_ => ()
 			}

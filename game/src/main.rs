@@ -1,13 +1,17 @@
-use engine::{Renderer, Camera, lights::AmbientLight, Scene, math::Vector3};
+use std::time::{Instant, Duration};
+use engine::{Renderer, Camera, lights::AmbientLight, Scene, math::Vector3, Text};
 
 mod state_manager;
 use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
 
 mod states;
-use states::GameplayState;
+use states::{FrameMetricsState, GameplayState};
 
 mod camera_controller;
 use camera_controller::CameraController;
+
+const MAX_FRAME_TIME: f64 = 1.0 / 10.0;
+const MAX_UPDATES_PER_FRAME: u32 = 5;
 
 fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
@@ -18,8 +22,6 @@ fn main() {
 	window.set_key_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
-
-	let roboto_32 = renderer.add_font("game/res/roboto.ttf", 32);
 	let roboto_14 = renderer.add_font("game/res/roboto.ttf", 14);
 
 	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
@@ -30,15 +32,20 @@ fn main() {
 		window,
 		renderer,
 		game_resources: GameResources {
-			roboto_32,
 			roboto_14
 		},
 		scene
 	};
 	
+	let mut state_manager = StateManager::new();
+	let frame_metrics_state = Box::new(FrameMetricsState::new(&mut resources));
 	let gameplay_state = Box::new(GameplayState::new());
+	state_manager.push_state(&mut resources, frame_metrics_state);
+	state_manager.push_state(&mut resources, gameplay_state);
 
-	let mut state_manager = StateManager::new(&mut resources, gameplay_state);
+	let duration_zero = Duration::new(0, 0);
+	let max_duration = Duration::from_secs_f64(MAX_FRAME_TIME);
+	let mut frame_start = Instant::now();
 
 	let mut minimized = false;
 	let mut resized;
@@ -83,7 +90,19 @@ fn main() {
 			resources.scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 
-		state_manager.update(&mut resources);
+		let frame_end = Instant::now();
+		let mut duration = frame_end.duration_since(frame_start);
+		frame_start = frame_end;
+		let mut updates = 0;
+
+		while duration > duration_zero && updates <= MAX_UPDATES_PER_FRAME {
+			let duration_capped = duration.min(max_duration);
+			
+			state_manager.update(&mut resources, &duration_capped);
+			
+			duration -= duration_capped;
+			updates += 1;
+		}
 
 		surface_changed = resources.renderer.render(&mut resources.scene);
 	}
