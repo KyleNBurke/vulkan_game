@@ -68,7 +68,14 @@ impl Vector3 {
 	}
 
 	pub fn normalize(&mut self) {
-		*self /= self.length();
+		let length = self.length();
+
+		if length == 0.0 {
+			*self /= 1.0;
+		}
+		else {
+			*self /= self.length();
+		}
 	}
 
 	pub fn dot(&self, other: &Self) -> f32 {
@@ -363,7 +370,11 @@ mod tests {
 	fn normalize() {
 		let mut v = Vector3::from(3.0, 0.0, 4.0);
 		v.normalize();
-		assert_eq!(v, Vector3{ x: 0.6, y:  0.0, z: 0.8 });
+		assert_eq!(v, Vector3{ x: 0.6, y: 0.0, z: 0.8 });
+
+		v = ZERO;
+		v.normalize();
+		assert_eq!(v, Vector3{ x: 0.0, y: 0.0, z: 0.0 });
 	}
 
 	#[test]

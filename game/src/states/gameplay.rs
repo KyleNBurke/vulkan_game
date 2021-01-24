@@ -112,9 +112,9 @@ impl State for GameplayState {
 		}
 	}
 
-	fn update(&mut self, resources: &mut EngineResources, _frame_time: &Duration) -> StateAction {
+	fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) -> StateAction {
 		if self.camera_controller_enabled {
-			self.camera_controller.update(&resources.window, &mut resources.scene.camera);
+			self.camera_controller.update(&resources.window, &mut resources.scene.camera, frame_time);
 		}
 
 		resources.scene.meshes.get_mut(&self.box_handle).unwrap().transform.rotate_y(0.0001);

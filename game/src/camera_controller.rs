@@ -1,9 +1,10 @@
+use std::time::Duration;
 use engine::{
 	Camera,
-	math::{Euler, Order}
+	math::{vector3, Euler, Order},
 };
 
-const TRANSLATION_SPEED: f32 = 0.001;
+const TRANSLATION_SPEED: f32 = 2.5;
 const ROTATION_SPEED: f32 = 0.003;
 const MAX_VERTICAL_ROTATION_ANGLE: f32 = 1.57;
 
@@ -29,30 +30,34 @@ impl CameraController {
 		self.prev_mouse_pos_y = mouse_pos_y as f32;
 	}
 
-	pub fn update(&mut self, window: &glfw::Window, camera: &mut Camera) {
+	pub fn update(&mut self, window: &glfw::Window, camera: &mut Camera, frame_time: &Duration) {
+		let mut translation_direction = vector3::ZERO;
+
 		if window.get_key(glfw::Key::W) == glfw::Action::Press {
-			camera.transform.translate_z(TRANSLATION_SPEED);
+			translation_direction.z = 1.0;
 		}
 
 		if window.get_key(glfw::Key::S) == glfw::Action::Press {
-			camera.transform.translate_z(-TRANSLATION_SPEED);
+			translation_direction.z = -1.0;
 		}
 
 		if window.get_key(glfw::Key::A) == glfw::Action::Press {
-			camera.transform.translate_x(-TRANSLATION_SPEED);
+			translation_direction.x = -1.0;
 		}
 
 		if window.get_key(glfw::Key::D) == glfw::Action::Press {
-			camera.transform.translate_x(TRANSLATION_SPEED);
+			translation_direction.x = 1.0;
 		}
 
 		if window.get_key(glfw::Key::E) == glfw::Action::Press {
-			camera.transform.translate_y(-TRANSLATION_SPEED);
+			translation_direction.y = -1.0;
 		}
 
 		if window.get_key(glfw::Key::Q) == glfw::Action::Press {
-			camera.transform.translate_y(TRANSLATION_SPEED);
+			translation_direction.y = 1.0;
 		}
+
+		translation_direction.normalize();
 
 		let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
 		let mouse_pos_x = mouse_pos_x as f32;
@@ -68,5 +73,7 @@ impl CameraController {
 
 		self.prev_mouse_pos_x = mouse_pos_x;
 		self.prev_mouse_pos_y = mouse_pos_y;
+
+		camera.transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * frame_time.as_secs_f32());
 	}
 }
