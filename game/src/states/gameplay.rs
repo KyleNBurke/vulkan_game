@@ -117,7 +117,7 @@ impl State for GameplayState {
 			self.camera_controller.update(&resources.window, &mut resources.scene.camera, frame_time);
 		}
 
-		resources.scene.meshes.get_mut(&self.box_handle).unwrap().transform.rotate_y(0.0001);
+		resources.scene.meshes.get_mut(&self.box_handle).unwrap().transform.rotate_y(0.25 * frame_time.as_secs_f32());
 
 		StateAction::None
 	}
