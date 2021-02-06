@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Context, Buffer, Renderer}, Mesh, Material};
+use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, Material, Mesh, Pool};
 
 pub struct MeshManager {
 	pub frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
@@ -242,7 +242,7 @@ impl MeshManager {
 		unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap()[0]
 	}
 
-	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, meshes: &mut [Mesh]) {
+	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [Mesh]) {
 		let logical_device = &context.logical_device;
 		self.static_mesh_render_info.clear();
 
@@ -251,11 +251,14 @@ impl MeshManager {
 		let uniform_alignment = context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
-			let indices = mesh.geometry.get_vertex_indices();
+			let geometry = geometries.get(&mesh.geometry).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
 			let index_size = size_of_val(indices);
 			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
 			let attribute_offset = offset + index_size + index_padding_size;
-			let attribute_size = size_of_val(mesh.geometry.get_vertex_attributes());
+			let attribute_size = size_of_val(attributes);
 			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
@@ -279,12 +282,14 @@ impl MeshManager {
 
 			let (index_offset, attribute_offset, uniform_offset, _, _) = self.static_mesh_render_info[i];
 
+			let geometry = geometries.get(&mesh.geometry).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
 			unsafe {
-				let indices = mesh.geometry.get_vertex_indices();
 				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attributes = mesh.geometry.get_vertex_attributes();
 				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 

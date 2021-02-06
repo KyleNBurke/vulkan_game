@@ -1,5 +1,4 @@
-use crate::{Transform3D, Geometry3D};
-use std::boxed::Box;
+use crate::{Transform3D, Handle};
 
 #[derive(Copy, Clone)]
 pub enum Material {
@@ -10,12 +9,12 @@ pub enum Material {
 pub struct Mesh {
 	pub transform: Transform3D,
 	pub auto_update_matrix: bool,
-	pub geometry: Box<dyn Geometry3D>,
+	pub geometry: Handle,
 	pub material: Material
 }
 
 impl Mesh {
-	pub fn new(geometry: Box<dyn Geometry3D>, material: Material) -> Self {
+	pub fn new(geometry: Handle, material: Material) -> Self {
 		Self {
 			transform: Transform3D::new(),
 			auto_update_matrix: true,
