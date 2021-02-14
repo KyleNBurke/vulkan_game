@@ -13,8 +13,9 @@ pub mod geometry3d;
 pub use geometry3d::Geometry3D;
 
 pub mod mesh;
-pub use mesh::Mesh;
 pub use mesh::Material;
+pub use mesh::Mesh;
+pub use mesh::StaticMesh;
 
 pub mod camera;
 pub use camera::Camera;
@@ -29,4 +30,6 @@ pub use pool::Pool;
 pub use pool::Handle;
 
 pub mod scene;
+pub use scene::Entity;
+pub use scene::Graph;
 pub use scene::Scene;

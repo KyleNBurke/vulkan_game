@@ -6,10 +6,14 @@ use crate::{
 	Geometry3D,
 	Material,
 	Mesh,
+	StaticMesh,
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
 	Scene,
-	Handle
+	Handle,
+	scene::Node,
+	Entity,
+	lights::PointLight
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -569,16 +573,16 @@ impl Renderer {
 		println!("Swapchain recreated");
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [Mesh]) {
+	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh]) {
 		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, geometries, meshes);
 	}
 
-	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle {
+	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle<Font> {
 		self.submit_fonts = true;
 		self.text_manager.fonts.add(Font::new(file_path, size))
 	}
 
-	pub fn remove_font(&mut self, handle: &Handle) {
+	pub fn remove_font(&mut self, handle: &Handle<Font>) {
 		self.text_manager.fonts.remove(handle);
 		self.submit_fonts = true;
 	}
@@ -622,8 +626,14 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
-		// Define local structs used to store the render object and the offset information
+		// Define local structs used to store separate lists of scene objects and buffer offset information
+		struct PointLightData<'a> {
+			node_handle: Handle<Node>,
+			point_light: &'a PointLight
+		};
+
 		struct MeshData<'a> {
+			node_handle: Handle<Node>,
 			mesh: &'a Mesh,
 			index_offset: usize,
 			attribute_offset: usize,
@@ -639,37 +649,68 @@ impl Renderer {
 			atlas_index: u32
 		};
 
-		// Calculate required dynamic buffer size and offsets
+		// Traverse the scene graph to
+		// - Separate scene objects into individual lists
+		// - Calaculate buffer offsets
+		// - Update child node matrices relative to its parent
+		// - Calculate the total buffer size
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 		let mut offset = FRAME_DATA_MEMORY_SIZE;
-		let mut mesh_data = vec![];
-		let mut text_data = vec![];
+		let mut point_light_data: Vec<PointLightData> = vec![];
+		let mut mesh_data: Vec<MeshData> = vec![];
+		let mut text_data: Vec<TextData> = vec![];
 
-		for mesh in scene.meshes.iter_mut() {
-			if mesh.auto_update_matrix {
-				mesh.transform.update_matrix();
+		let mut nodes_to_visit: Vec<Handle<Node>> = vec![scene.graph.get_root_handle()];
+
+		while let Some(node_handle) = nodes_to_visit.pop() {
+			let node = scene.graph.get_node(&node_handle).unwrap();
+
+			match node.entity {
+				Entity::PointLight(point_light_handle) => {
+					let point_light = scene.point_lights.get(&point_light_handle).unwrap();
+					
+					point_light_data.push(PointLightData {
+						node_handle,
+						point_light
+					})
+				},
+				Entity::Mesh(mesh_handle) => {
+					let mesh = scene.meshes.get(&mesh_handle).unwrap();
+					let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+					let indices = &geometry.indices[..];
+					let attributes = &geometry.attributes[..];
+
+					let index_size = mem::size_of_val(indices);
+					let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+					let attribute_offset = offset + index_size + index_padding_size;
+					let attribute_size = mem::size_of_val(attributes);
+					let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
+					let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
+					let uniform_size = 16 * size_of::<f32>();
+
+					mesh_data.push(MeshData {
+						node_handle,
+						mesh,
+						index_offset: offset,
+						attribute_offset,
+						uniform_offset
+					});
+
+					offset = uniform_offset + uniform_size;
+				},
+				_ => ()
 			}
 
-			let geometry = scene.geometries.get(&mesh.geometry).unwrap();
-			let indices = &geometry.indices[..];
-			let attributes = &geometry.attributes[..];
+			nodes_to_visit.extend_from_slice(&node.child_handles);
+			
+			if let Some(parent_handle) = node.parent_handle {
+				let parent = scene.graph.get_node(&parent_handle).unwrap();
+				let parent_matrix = parent.transform.matrix.clone();
 
-			let index_size = mem::size_of_val(indices);
-			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(attributes);
-			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-			let uniform_size = 16 * size_of::<f32>();
-
-			mesh_data.push(MeshData {
-				mesh,
-				index_offset: offset,
-				attribute_offset,
-				uniform_offset
-			});
-
-			offset = uniform_offset + uniform_size;
+				let node = scene.graph.get_node_mut(&node_handle).unwrap();
+				node.transform.update_matrix();
+				node.transform.matrix = parent_matrix * node.transform.matrix;
+			}
 		}
 
 		for text in scene.text.iter_mut() {
@@ -744,30 +785,30 @@ impl Renderer {
 			ptr::copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
 		}
 
-		let mut point_light_count = 0;
+		assert!(point_light_data.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 		let position_base_offest = 36 * size_of::<f32>();
 		let color_base_offest = 40 * size_of::<f32>();
 		let stride = 8 * size_of::<f32>();
 
-		for point_light in scene.point_lights.iter() {
+		for (index, point_light_data) in point_light_data.iter().enumerate() {
+			let node = scene.graph.get_node(&point_light_data.node_handle).unwrap();
+			let position = &node.transform.position;
+
+			let point_light = point_light_data.point_light;
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				ptr::copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * index) as *mut Vector3;
+				ptr::copy_nonoverlapping(position as *const Vector3, position_dst_ptr, 1);
 
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * index) as *mut Vector3;
 				ptr::copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
 			}
-
-			point_light_count += 1;
 		}
-
-		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 
 		unsafe {
 			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
-			ptr::copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+			ptr::copy_nonoverlapping(&(point_light_data.len() as u32) as *const u32, point_light_count_dst_ptr, 1);
 		}
 
 		// Begin the secondary command buffers
@@ -819,11 +860,14 @@ impl Renderer {
 			};
 
 		// Copy dynamic mesh data into dynamic buffer and record draw commands
-		for mesh_data in mesh_data {
+		for mesh_data in &mesh_data {
 			let mesh = mesh_data.mesh;
-			let geometry = scene.geometries.get(&mesh.geometry).unwrap();
+			let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
+
+			let node = scene.graph.get_node(&mesh_data.node_handle).unwrap();
+			let matrix = &node.transform.matrix.elements;
 
 			unsafe {
 				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
@@ -832,7 +876,6 @@ impl Renderer {
 				let attribute_dst_ptr = buffer_ptr.add(mesh_data.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
-				let matrix = &mesh.transform.matrix.elements;
 				let uniform_dst_ptr = buffer_ptr.add(mesh_data.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 
@@ -854,7 +897,7 @@ impl Renderer {
 		}
 
 		// Copy text data into dynamic buffer and record draw commands
-		for text_data in text_data {
+		for text_data in &text_data {
 			let text = text_data.text;
 
 			unsafe {
@@ -891,14 +934,13 @@ impl Renderer {
 		}
 
 		// Record static mesh draw commands
-		for render_info in &self.mesh_manager.static_mesh_render_info {
-			let (index_offset, attribute_offset, uniform_offset, index_count, material) = *render_info;
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(material);
+		for static_mesh_data in &self.mesh_manager.static_mesh_data {
+			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_mesh_data.material);
 
 			unsafe {
 				let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[attribute_offset as u64]);
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_mesh_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_mesh_data.attribute_offset as u64]);
 				
 				logical_device.cmd_bind_descriptor_sets(
 					secondary_command_buffer,
@@ -906,9 +948,9 @@ impl Renderer {
 					self.mesh_manager.pipeline_layout,
 					1,
 					&[self.mesh_manager.static_mesh_data_descriptor_set],
-					&[uniform_offset as u32]);
+					&[static_mesh_data.uniform_offset as u32]);
 				
-				logical_device.cmd_draw_indexed(secondary_command_buffer, index_count as u32, 1, 0, 0, 0);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, static_mesh_data.index_count as u32, 1, 0, 0, 0);
 			}
 		}
 

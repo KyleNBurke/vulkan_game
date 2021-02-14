@@ -13,8 +13,8 @@ use mesh_manager::MeshManager;
 mod text_manager;
 use text_manager::TextManager;
 
-pub(crate) mod font;
-pub(crate) use font::Font;
+pub mod font;
+pub use font::Font;
 
 mod buffer;
 use buffer::Buffer;

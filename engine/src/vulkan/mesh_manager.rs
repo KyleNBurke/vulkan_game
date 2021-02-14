@@ -1,6 +1,14 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, Material, Mesh, Pool};
+use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, Material, StaticMesh, Pool};
+
+pub struct StaticMeshData {
+	pub index_offset: usize,
+	pub attribute_offset: usize,
+	pub uniform_offset: usize,
+	pub index_count: usize,
+	pub material: Material
+}
 
 pub struct MeshManager {
 	pub frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
@@ -10,7 +18,7 @@ pub struct MeshManager {
 	pub lambert_pipeline: vk::Pipeline,
 	pub static_mesh_data_descriptor_set: vk::DescriptorSet,
 	pub static_mesh_buffer: Buffer,
-	pub static_mesh_render_info: Vec<(usize, usize, usize, usize, Material)> //make this a struct
+	pub static_mesh_data: Vec<StaticMeshData>
 }
 
 impl MeshManager {
@@ -32,7 +40,7 @@ impl MeshManager {
 			lambert_pipeline,
 			static_mesh_data_descriptor_set,
 			static_mesh_buffer,
-			static_mesh_render_info: vec![]
+			static_mesh_data: vec![]
 		}
 	}
 
@@ -242,16 +250,16 @@ impl MeshManager {
 		unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap()[0]
 	}
 
-	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [Mesh]) {
+	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh]) {
 		let logical_device = &context.logical_device;
-		self.static_mesh_render_info.clear();
+		self.static_mesh_data.clear();
 
 		// Calculate total buffer size and offsets
 		let mut offset = 0;
 		let uniform_alignment = context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
-			let geometry = geometries.get(&mesh.geometry).unwrap();
+			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
@@ -263,7 +271,13 @@ impl MeshManager {
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			self.static_mesh_render_info.push((offset, attribute_offset, uniform_offset, indices.len(), mesh.material));
+			self.static_mesh_data.push(StaticMeshData {
+				index_offset: offset,
+				attribute_offset,
+				uniform_offset,
+				index_count: indices.len(),
+				material: mesh.material
+			});
 			
 			offset = uniform_offset + uniform_size;
 		}
@@ -276,25 +290,23 @@ impl MeshManager {
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
 		for (i, mesh) in meshes.iter_mut().enumerate() {
-			if mesh.auto_update_matrix {
-				mesh.transform.update_matrix();
-			}
+			mesh.transform.update_matrix();
 
-			let (index_offset, attribute_offset, uniform_offset, _, _) = self.static_mesh_render_info[i];
+			let static_mesh_data = &self.static_mesh_data[i];
 
-			let geometry = geometries.get(&mesh.geometry).unwrap();
+			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
 			unsafe {
-				let index_dst_ptr = buffer_ptr.add(index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(static_mesh_data.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_dst_ptr = buffer_ptr.add(attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(static_mesh_data.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
 
 				let matrix = &mesh.transform.matrix.elements;
-				let uniform_dst_ptr = buffer_ptr.add(uniform_offset) as *mut [f32; 4];
+				let uniform_dst_ptr = buffer_ptr.add(static_mesh_data.uniform_offset) as *mut [f32; 4];
 				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
 			}
 		}

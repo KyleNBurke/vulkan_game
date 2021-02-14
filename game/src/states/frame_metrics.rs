@@ -6,7 +6,7 @@ const UPDATE_INTERVAL_SECONDS: f32 = 0.5;
 const MAX_SAMPLED_FRAMES: usize = 100;
 
 pub struct FrameMetricsState {
-	label: Handle,
+	label: Handle<Text>,
 	update_interval: Duration,
 	duration: Duration,
 	fps_sampled_frames: usize,

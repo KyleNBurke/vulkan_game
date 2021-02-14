@@ -1,12 +1,27 @@
-#[derive(Clone, Copy)]
-pub struct Handle {
+use std::marker::PhantomData;
+
+pub struct Handle<T> {
+	type_marker: PhantomData<T>,
 	pub index: usize,
 	pub generation: u32
 }
 
-impl Handle {
+impl<T> Clone for Handle<T> {
+	fn clone(&self) -> Self {
+		Self {
+			type_marker: PhantomData,
+			index: self.index,
+			generation: self.generation
+		}
+	}
+}
+
+impl<T> Copy for Handle<T> {}
+
+impl<T> Handle<T> {
 	pub fn null() -> Self {
 		Self {
+			type_marker: PhantomData,
 			index: std::usize::MAX,
 			generation: std::u32::MAX
 		}
@@ -31,7 +46,7 @@ impl<T> Pool<T> {
 		}
 	}
 
-	pub fn add(&mut self, payload: T) -> Handle {
+	pub fn add(&mut self, payload: T) -> Handle<T> {
 		if let Some(index) = self.vacant_records.pop() {
 			let record = &mut self.records[index];
 			let new_generation = record.generation + 1;
@@ -40,6 +55,7 @@ impl<T> Pool<T> {
 			record.payload = Some(payload);
 
 			Handle {
+				type_marker: PhantomData,
 				generation: new_generation,
 				index
 			}
@@ -53,13 +69,18 @@ impl<T> Pool<T> {
 			});
 
 			Handle {
+				type_marker: PhantomData,
 				generation,
 				index: self.records.len() - 1
 			}
 		}
 	}
 
-	fn get_record(&self, handle: &Handle) -> Option<&Record<T>> {
+	pub fn valid(&self, handle: &Handle<T>) -> bool {
+		return handle.index < self.records.len() && handle.generation == self.records[handle.index].generation;
+	}
+
+	fn get_record(&self, handle: &Handle<T>) -> Option<&Record<T>> {
 		if handle.index >= self.records.len() {
 			return None;
 		}
@@ -73,7 +94,7 @@ impl<T> Pool<T> {
 		Some(record)
 	}
 
-	fn get_record_mut(&mut self, handle: &Handle) -> Option<&mut Record<T>> {
+	fn get_record_mut(&mut self, handle: &Handle<T>) -> Option<&mut Record<T>> {
 		if handle.index >= self.records.len() {
 			return None;
 		}
@@ -87,14 +108,14 @@ impl<T> Pool<T> {
 		Some(record)
 	}
 
-	pub fn remove(&mut self, handle: &Handle) {
+	pub fn remove(&mut self, handle: &Handle<T>) {
 		if let Some(record) = self.get_record_mut(handle) {
 			record.payload = None;
 			self.vacant_records.push(handle.index);
 		}
 	}
 
-	pub fn get(&self, handle: &Handle) -> Option<&T> {
+	pub fn get(&self, handle: &Handle<T>) -> Option<&T> {
 		if let Some(record) = self.get_record(handle) {
 			record.payload.as_ref()
 		}
@@ -103,7 +124,7 @@ impl<T> Pool<T> {
 		}
 	}
 
-	pub fn get_mut(&mut self, handle: &Handle) -> Option<&mut T> {
+	pub fn get_mut(&mut self, handle: &Handle<T>) -> Option<&mut T> {
 		if let Some(record) = self.get_record_mut(handle) {
 			record.payload.as_mut()
 		}

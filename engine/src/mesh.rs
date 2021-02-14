@@ -1,4 +1,4 @@
-use crate::{Transform3D, Handle};
+use crate::{Geometry3D, Transform3D, Handle};
 
 #[derive(Copy, Clone)]
 pub enum Material {
@@ -7,18 +7,30 @@ pub enum Material {
 }
 
 pub struct Mesh {
-	pub transform: Transform3D,
-	pub auto_update_matrix: bool,
-	pub geometry: Handle,
+	pub geometry_handle: Handle<Geometry3D>,
 	pub material: Material
 }
 
 impl Mesh {
-	pub fn new(geometry: Handle, material: Material) -> Self {
+	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
+		Self {
+			geometry_handle,
+			material
+		}
+	}
+}
+
+pub struct StaticMesh {
+	pub transform: Transform3D,
+	pub geometry_handle: Handle<Geometry3D>,
+	pub material: Material
+}
+
+impl StaticMesh {
+	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
 		Self {
 			transform: Transform3D::new(),
-			auto_update_matrix: true,
-			geometry,
+			geometry_handle,
 			material
 		}
 	}
