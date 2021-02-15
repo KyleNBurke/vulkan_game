@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-use engine::{Renderer, Camera, lights::AmbientLight, Scene, math::Vector3, Text};
+use engine::{Renderer, Camera, lights::AmbientLight, scene::Scene, math::Vector3, Text};
 
 mod state_manager;
 use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};

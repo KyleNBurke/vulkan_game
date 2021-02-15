@@ -1,10 +1,9 @@
 use crate::{
-	Pool,
-	Handle,
+	pool::{Pool, Handle},
 	Camera,
 	lights::{AmbientLight, PointLight},
 	Geometry3D,
-	Mesh,
+	mesh::Mesh,
 	Text,
 	Transform3D
 };

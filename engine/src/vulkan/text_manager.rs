@@ -1,6 +1,6 @@
 use std::{fs, io, ptr, ffi::CString, io::{Read, Seek}, mem::size_of};
 use ash::{vk, version::DeviceV1_0};
-use crate::{Pool, vulkan::{Context, Renderer, Buffer, Font}};
+use crate::{pool::Pool, vulkan::{Context, Renderer, Buffer, Font}};
 
 pub const MAX_FONTS: usize = 10;
 

@@ -2,17 +2,12 @@ use std::{mem::{self, size_of}, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
 	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
-	Pool,
+	pool::{Pool, Handle},
 	Geometry3D,
-	Material,
-	Mesh,
-	StaticMesh,
+	mesh::{Material, StaticMesh, Mesh},
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
-	Scene,
-	Handle,
-	scene::Node,
-	Entity,
+	scene::{Scene, Node, Entity},
 	lights::PointLight
 };
 

@@ -1,6 +1,6 @@
 use std::time::Duration;
 use glfw::Window;
-use engine::{Handle, Renderer, Scene, vulkan::Font};
+use engine::{pool::Handle, Renderer, scene::Scene, vulkan::Font};
 
 pub struct GameResources {
 	pub roboto_14: Handle<Font>

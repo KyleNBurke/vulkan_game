@@ -1,5 +1,5 @@
 use std::time::Duration;
-use engine::Handle;
+use engine::pool::Handle;
 use crate::{EngineResources, State, StateAction, Text};
 
 const UPDATE_INTERVAL_SECONDS: f32 = 0.5;

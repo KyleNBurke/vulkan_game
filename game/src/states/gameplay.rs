@@ -1,17 +1,13 @@
 use std::time::Duration;
 
 use engine::{
-	Pool,
+	pool::{Pool, Handle},
 	Geometry3D,
-	Mesh,
-	StaticMesh,
-	Material,
+	mesh::{Material, Mesh, StaticMesh},
 	lights::PointLight,
 	math::Vector3,
-	Handle,
 	Text,
-	Entity,
-	scene::Node,
+	scene::{Entity, Node},
 	vulkan::Font
 };
 

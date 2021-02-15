@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, Material, StaticMesh, Pool};
+use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, mesh::{Material, StaticMesh}, pool::Pool};
 
 pub struct StaticMeshData {
 	pub index_offset: usize,
