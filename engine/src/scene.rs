@@ -9,15 +9,14 @@ use crate::{
 };
 
 pub enum Entity {
-	PointLight(Handle<PointLight>),
-	Mesh(Handle<Mesh>),
-	None
+	PointLight(PointLight),
+	Mesh(Mesh)
 }
 
 pub struct Node {
 	pub parent_handle: Option<Handle<Node>>,
 	pub child_handles: Vec<Handle<Node>>,
-	pub entity: Entity,
+	pub entity_handle: Option<Handle<Entity>>,
 	pub transform: Transform3D
 }
 
@@ -39,11 +38,10 @@ pub struct TraverseIterMut<'a> {
 pub struct Scene {
 	pub camera: Camera,
 	pub ambient_light: AmbientLight,
-	pub point_lights: Pool<PointLight>,
 	pub geometries: Pool<Geometry3D>,
-	pub meshes: Pool<Mesh>,
-	pub text: Pool<Text>,
-	pub graph: Graph
+	pub entities: Pool<Entity>,
+	pub graph: Graph,
+	pub text: Pool<Text>
 }
 
 impl Scene {
@@ -51,11 +49,10 @@ impl Scene {
 		Self {
 			camera,
 			ambient_light,
-			point_lights: Pool::new(),
 			geometries: Pool::new(),
-			meshes: Pool::new(),
-			text: Pool::new(),
-			graph: Graph::new()
+			entities: Pool::new(),
+			graph: Graph::new(),
+			text: Pool::new()
 		}
 	}
 }
@@ -67,7 +64,7 @@ impl Graph {
 		let root_handle = nodes.add(Node {
 			parent_handle: None,
 			child_handles: vec![],
-			entity: Entity::None,
+			entity_handle: None,
 			transform: Transform3D::new()
 		});
 
@@ -81,11 +78,11 @@ impl Graph {
 		self.root_handle
 	}
 
-	pub fn add_node(&mut self, entity: Entity) -> Handle<Node> {
-		self.add_child_node(self.root_handle, entity).unwrap()
+	pub fn add_node(&mut self, entity_handle: Option<Handle<Entity>>) -> Handle<Node> {
+		self.add_child_node(self.root_handle, entity_handle).unwrap()
 	}
 
-	pub fn add_child_node(&mut self, parent_handle: Handle<Node>, entity: Entity) -> Option<Handle<Node>> {
+	pub fn add_child_node(&mut self, parent_handle: Handle<Node>, entity_handle: Option<Handle<Entity>>) -> Option<Handle<Node>> {
 		if !self.nodes.valid(&parent_handle) {
 			return None;
 		}
@@ -93,7 +90,7 @@ impl Graph {
 		let child_handle = self.nodes.add(Node {
 			parent_handle: Some(parent_handle),
 			child_handles: vec![],
-			entity,
+			entity_handle,
 			transform: Transform3D::new()
 		});
 

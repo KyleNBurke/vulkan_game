@@ -64,24 +64,24 @@ impl State for GameplayState {
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());
 		let box_geo = scene.geometries.add(Geometry3D::create_box());
 
-		let triangle_lambert_mesh = scene.meshes.add(Mesh::new(triangle_geo, Material::Lambert));
-		let box_lambert_mesh = scene.meshes.add(Mesh::new(box_geo, Material::Lambert));
+		let triangle_lambert_mesh = scene.entities.add(Entity::Mesh(Mesh::new(triangle_geo, Material::Lambert)));
+		let box_lambert_mesh = scene.entities.add(Entity::Mesh(Mesh::new(box_geo, Material::Lambert)));
 
-		let node_handle = scene.graph.add_node(Entity::Mesh(triangle_lambert_mesh));
+		let node_handle = scene.graph.add_node(Some(triangle_lambert_mesh));
 		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(-0.5, -0.6, 2.0);
 
-		self.box_handle = scene.graph.add_node(Entity::Mesh(box_lambert_mesh));
+		self.box_handle = scene.graph.add_node(Some(box_lambert_mesh));
 		scene.graph.get_node_mut(&self.box_handle).unwrap().transform.position.set(2.0, 0.0, 0.0);
 
-		let node_handle = scene.graph.add_child_node(self.box_handle, Entity::Mesh(box_lambert_mesh)).unwrap();
+		let node_handle = scene.graph.add_child_node(self.box_handle, Some(box_lambert_mesh)).unwrap();
 		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(0.5, -0.6, 2.0);
 
-		let point_light = scene.point_lights.add(PointLight::from(Vector3::from_scalar(1.0), 0.3));
+		let point_light = scene.entities.add(Entity::PointLight(PointLight::from(Vector3::from_scalar(1.0), 0.3)));
 
-		let node_handle = scene.graph.add_node(Entity::PointLight(point_light));
+		let node_handle = scene.graph.add_node(Some(point_light));
 		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(0.0, -1.0, 0.0);
 
-		let node_handle = scene.graph.add_node(Entity::PointLight(point_light));
+		let node_handle = scene.graph.add_node(Some(point_light));
 		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(-1.0, -1.0, 0.0);
 
 		resources.window.set_cursor_mode(glfw::CursorMode::Disabled);

@@ -659,41 +659,41 @@ impl Renderer {
 
 		while let Some(node_handle) = nodes_to_visit.pop() {
 			let node = scene.graph.get_node(&node_handle).unwrap();
+			
+			if let Some(entity_handle) = &node.entity_handle {
+				let entity = scene.entities.get(entity_handle).unwrap();
 
-			match node.entity {
-				Entity::PointLight(point_light_handle) => {
-					let point_light = scene.point_lights.get(&point_light_handle).unwrap();
-					
-					point_light_data.push(PointLightData {
-						node_handle,
-						point_light
-					})
-				},
-				Entity::Mesh(mesh_handle) => {
-					let mesh = scene.meshes.get(&mesh_handle).unwrap();
-					let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
-					let indices = &geometry.indices[..];
-					let attributes = &geometry.attributes[..];
+				match entity {
+					Entity::PointLight(point_light) => {
+						point_light_data.push(PointLightData {
+							node_handle,
+							point_light
+						})
+					},
+					Entity::Mesh(mesh) => {
+						let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+						let indices = &geometry.indices[..];
+						let attributes = &geometry.attributes[..];
 
-					let index_size = mem::size_of_val(indices);
-					let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-					let attribute_offset = offset + index_size + index_padding_size;
-					let attribute_size = mem::size_of_val(attributes);
-					let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-					let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-					let uniform_size = 16 * size_of::<f32>();
+						let index_size = mem::size_of_val(indices);
+						let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+						let attribute_offset = offset + index_size + index_padding_size;
+						let attribute_size = mem::size_of_val(attributes);
+						let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
+						let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
+						let uniform_size = 16 * size_of::<f32>();
 
-					mesh_data.push(MeshData {
-						node_handle,
-						mesh,
-						index_offset: offset,
-						attribute_offset,
-						uniform_offset
-					});
+						mesh_data.push(MeshData {
+							node_handle,
+							mesh,
+							index_offset: offset,
+							attribute_offset,
+							uniform_offset
+						});
 
-					offset = uniform_offset + uniform_size;
-				},
-				_ => ()
+						offset = uniform_offset + uniform_size;
+					}
+				}
 			}
 
 			nodes_to_visit.extend_from_slice(&node.child_handles);
