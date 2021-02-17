@@ -12,14 +12,14 @@ fn main() {
 	let mut scene = Scene::new(camera, ambient_light);
 
 	let box_geometry_handle = scene.geometries.add(Geometry3D::create_box());
-	let box_handle = scene.meshes.add(Mesh::new(box_geometry_handle, Material::Basic));
+	let box_handle = scene.entities.add(Entity::Mesh(Mesh::new(box_geometry_handle, Material::Basic)));
 
-	let node_a_handle = scene.graph.add_node(Entity::Mesh(box_handle));
+	let node_a_handle = scene.graph.add_node(Some(box_handle));
 
-	let node_b_handle = scene.graph.add_child_node(node_a_handle, Entity::Mesh(box_handle)).unwrap();
+	let node_b_handle = scene.graph.add_child_node(node_a_handle, Some(box_handle)).unwrap();
 	scene.graph.get_node_mut(&node_b_handle).unwrap().transform.position.set(0.0, 0.0, 2.0);
 
-	let node_c_handle = scene.graph.add_child_node(node_b_handle, Entity::Mesh(box_handle)).unwrap();
+	let node_c_handle = scene.graph.add_child_node(node_b_handle, Some(box_handle)).unwrap();
 	scene.graph.get_node_mut(&node_c_handle).unwrap().transform.position.set(0.0, 2.0, 0.0);
 
 	let mut surface_changed = false;
