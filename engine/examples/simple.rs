@@ -2,11 +2,10 @@ use engine::{
 	Renderer,
 	Camera,
 	lights::AmbientLight,
-	Scene,
+	scene::{Scene, Entity},
 	math::Vector3,
-	Mesh,
-	Material,
-	geometry3d
+	Geometry3D,
+	mesh::{Mesh, Material}
 };
 
 fn main() {
@@ -25,7 +24,9 @@ fn main() {
 
 	scene.camera.transform.position.z = -2.0;
 
-	let mesh = scene.meshes.add(Mesh::new(Box::new(geometry3d::Box::new()), Material::Basic));
+	let box_geometry_handle = scene.geometries.add(Geometry3D::create_box());
+	let box_handle = scene.entities.add(Entity::Mesh(Mesh::new(box_geometry_handle, Material::Basic)));
+	let node_handle = scene.graph.add_node(Some(box_handle));
 
 	let mut minimized = false;
 	let mut resized;
@@ -70,7 +71,7 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
 		}
 		
-		scene.meshes.get_mut(&mesh).unwrap().transform.rotate_y(0.0001);
+		scene.graph.get_node_mut(&node_handle).unwrap().transform.rotate_y(0.005);
 
 		surface_changed = renderer.render(&mut scene);
 	}
