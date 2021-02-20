@@ -781,6 +781,12 @@ impl Renderer {
 		}
 
 		assert!(point_light_data.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+
+		unsafe {
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
+			ptr::copy_nonoverlapping(&(point_light_data.len() as u32) as *const u32, point_light_count_dst_ptr, 1);
+		}
+
 		let position_base_offest = 36 * size_of::<f32>();
 		let color_base_offest = 40 * size_of::<f32>();
 		let stride = 8 * size_of::<f32>();
@@ -799,11 +805,6 @@ impl Renderer {
 				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * index) as *mut Vector3;
 				ptr::copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
 			}
-		}
-
-		unsafe {
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
-			ptr::copy_nonoverlapping(&(point_light_data.len() as u32) as *const u32, point_light_count_dst_ptr, 1);
 		}
 
 		// Begin the secondary command buffers
