@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, mesh::{Material, StaticMesh}, pool::Pool};
+use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, mesh::{Material, StaticMesh, StaticInstancedMesh}, pool::Pool};
 
 pub struct StaticMeshData {
 	pub index_offset: usize,
@@ -10,22 +10,35 @@ pub struct StaticMeshData {
 	pub material: Material
 }
 
+pub struct StaticInstancedMeshData {
+	pub index_offset: usize,
+	pub attribute_offset: usize,
+	pub matrix_offset: usize,
+	pub index_count: usize,
+	pub instance_count: usize,
+	pub material: Material
+}
+
 pub struct MeshManager {
 	pub frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub mesh_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub pipeline_layout: vk::PipelineLayout,
+	pub instanced_pipeline_layout: vk::PipelineLayout,
 	pub basic_pipeline: vk::Pipeline,
+	pub basic_instanced_pipeline: vk::Pipeline,
 	pub lambert_pipeline: vk::Pipeline,
 	pub static_mesh_data_descriptor_set: vk::DescriptorSet,
 	pub static_mesh_buffer: Buffer,
-	pub static_mesh_data: Vec<StaticMeshData>
+	pub static_mesh_data: Vec<StaticMeshData>,
+	pub static_instanced_mesh_data: Vec<StaticInstancedMeshData>
 }
 
 impl MeshManager {
 	pub fn new(logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool) -> Self {
 		let (frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout) = Self::create_descriptor_set_layouts(logical_device);
 		let pipeline_layout = Self::create_pipeline_layout(logical_device, frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout);
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, pipeline_layout, render_pass);
+		let instanced_pipeline_layout = Self::create_instanced_pipeline_layout(logical_device, frame_data_descriptor_set_layout);
+		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, pipeline_layout, instanced_pipeline_layout, render_pass);
 		let static_mesh_data_descriptor_set = Self::create_static_mesh_data_descriptor_set(logical_device, mesh_data_descriptor_set_layout, descriptor_pool);
 
 		let static_mesh_buffer = Buffer::null(
@@ -36,11 +49,14 @@ impl MeshManager {
 			frame_data_descriptor_set_layout,
 			mesh_data_descriptor_set_layout,
 			pipeline_layout,
+			instanced_pipeline_layout,
 			basic_pipeline,
+			basic_instanced_pipeline,
 			lambert_pipeline,
 			static_mesh_data_descriptor_set,
 			static_mesh_buffer,
-			static_mesh_data: vec![]
+			static_mesh_data: vec![],
+			static_instanced_mesh_data: vec![]
 		}
 	}
 
@@ -83,7 +99,22 @@ impl MeshManager {
 		unsafe { logical_device.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap()
 	}
 
-	fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipeline_layout: vk::PipelineLayout, render_pass: vk::RenderPass) -> (vk::Pipeline, vk::Pipeline) {
+	fn create_instanced_pipeline_layout(logical_device: &ash::Device, frame_data_descriptor_set_layout: vk::DescriptorSetLayout) -> vk::PipelineLayout {
+		let descriptor_set_layouts = [frame_data_descriptor_set_layout];
+
+		let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
+			.set_layouts(&descriptor_set_layouts);
+
+		unsafe { logical_device.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap()
+	}
+
+	fn create_pipelines(
+		logical_device: &ash::Device,
+		extent: vk::Extent2D,
+		pipeline_layout: vk::PipelineLayout,
+		instanced_pipeline_layout: vk::PipelineLayout,
+		render_pass: vk::RenderPass,
+	) -> (vk::Pipeline, vk::Pipeline, vk::Pipeline) {
 		// Shared
 		let entry_point = CString::new("main").unwrap();
 		let entry_point_cstr = entry_point.as_c_str();
@@ -185,6 +216,85 @@ impl MeshManager {
 			.render_pass(render_pass)
 			.subpass(0);
 		
+		// Basic instanced
+		let basic_instanced_vert_module = Renderer::create_shader_module(logical_device, "basic_instanced.vert.spv");
+		let basic_instanced_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.module(basic_instanced_vert_module)
+			.name(entry_point_cstr);
+		
+		let basic_instanced_frag_module = Renderer::create_shader_module(logical_device, "basic.frag.spv");
+		let basic_instanced_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.module(basic_instanced_frag_module)
+			.name(entry_point_cstr);
+		
+		let basic_instanced_stage_create_infos = [basic_instanced_vert_stage_create_info.build(), basic_instanced_frag_stage_create_info.build()];
+
+		let input_binding_description_vertex = vk::VertexInputBindingDescription::builder()
+			.binding(0)
+			.stride(24)
+			.input_rate(vk::VertexInputRate::VERTEX);
+
+		let input_binding_description_instance = vk::VertexInputBindingDescription::builder()
+			.binding(1)
+			.stride(64)
+			.input_rate(vk::VertexInputRate::INSTANCE);
+		
+		let basic_instanced_input_binding_descriptions = [input_binding_description_vertex.build(), input_binding_description_instance.build()];
+
+		let input_attribute_description_model_matrix_1 = vk::VertexInputAttributeDescription::builder()
+			.binding(1)
+			.location(1)
+			.format(vk::Format::R32G32B32A32_SFLOAT)
+			.offset(0)
+			.build();
+		
+		let input_attribute_description_model_matrix_2 = vk::VertexInputAttributeDescription::builder()
+			.binding(1)
+			.location(2)
+			.format(vk::Format::R32G32B32A32_SFLOAT)
+			.offset(16)
+			.build();
+		
+		let input_attribute_description_model_matrix_3 = vk::VertexInputAttributeDescription::builder()
+			.binding(1)
+			.location(3)
+			.format(vk::Format::R32G32B32A32_SFLOAT)
+			.offset(32)
+			.build();
+		
+		let input_attribute_description_model_matrix_4 = vk::VertexInputAttributeDescription::builder()
+			.binding(1)
+			.location(4)
+			.format(vk::Format::R32G32B32A32_SFLOAT)
+			.offset(48)
+			.build();
+		
+		let basic_instanced_input_attribute_descriptions = [
+			input_attribute_description_position,
+			input_attribute_description_model_matrix_1,
+			input_attribute_description_model_matrix_2,
+			input_attribute_description_model_matrix_3,
+			input_attribute_description_model_matrix_4];
+
+		let basic_instanced_vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&basic_instanced_input_binding_descriptions)
+			.vertex_attribute_descriptions(&basic_instanced_input_attribute_descriptions);
+
+		let basic_instanced_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+			.stages(&basic_instanced_stage_create_infos)
+			.vertex_input_state(&basic_instanced_vertex_input_state_create_info)
+			.input_assembly_state(&input_assembly_state_create_info)
+			.viewport_state(&viewport_state_create_info)
+			.rasterization_state(&rasterization_state_create_info)
+			.multisample_state(&multisample_state_create_info)
+			.depth_stencil_state(&depth_stencil_state_create_info)
+			.color_blend_state(&color_blend_state_create_info)
+			.layout(instanced_pipeline_layout)
+			.render_pass(render_pass)
+			.subpass(0);
+		
 		// Lambert
 		let lambert_vert_module =  Renderer::create_shader_module(logical_device, "lambert.vert.spv");
 		let lambert_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
@@ -227,17 +337,25 @@ impl MeshManager {
 			.subpass(0);
 		
 		// Create pipelines
-		let pipeline_create_infos = [basic_pipeline_create_info.build(), lambert_pipeline_create_info.build()];
+		let pipeline_create_infos = [
+			basic_pipeline_create_info.build(),
+			basic_instanced_pipeline_create_info.build(),
+			lambert_pipeline_create_info.build()];
+		
 		let pipelines = unsafe { logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None) }.unwrap();
 
 		unsafe {
 			logical_device.destroy_shader_module(basic_vert_module, None);
 			logical_device.destroy_shader_module(basic_frag_module, None);
+
+			logical_device.destroy_shader_module(basic_instanced_vert_module, None);
+			logical_device.destroy_shader_module(basic_instanced_frag_module, None);
+
 			logical_device.destroy_shader_module(lambert_vert_module, None);
 			logical_device.destroy_shader_module(lambert_frag_module, None);
 		}
 
-		(pipelines[0], pipelines[1])
+		(pipelines[0], pipelines[1], pipelines[2])
 	}
 
 	fn create_static_mesh_data_descriptor_set(logical_device: &ash::Device, mesh_data_descriptor_set_layout: vk::DescriptorSetLayout, descriptor_pool: vk::DescriptorPool) -> vk::DescriptorSet {
@@ -250,9 +368,10 @@ impl MeshManager {
 		unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap()[0]
 	}
 
-	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh]) {
+	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
 		let logical_device = &context.logical_device;
 		self.static_mesh_data.clear();
+		self.static_instanced_mesh_data.clear();
 
 		// Calculate total buffer size and offsets
 		let mut offset = 0;
@@ -282,6 +401,30 @@ impl MeshManager {
 			offset = uniform_offset + uniform_size;
 		}
 
+		for mesh in instanced_meshes.iter() {
+			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
+			let index_size = size_of_val(indices);
+			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = offset + index_size + index_padding_size;
+			let attribute_size = size_of_val(attributes);
+			let matrix_offset = attribute_offset + attribute_size;
+			let matrix_size = 16 * size_of::<f32>() * mesh.transforms.len();
+
+			self.static_instanced_mesh_data.push(StaticInstancedMeshData {
+				index_offset: offset,
+				attribute_offset,
+				matrix_offset,
+				index_count: indices.len(),
+				instance_count: mesh.transforms.len(),
+				material: mesh.material
+			});
+
+			offset = matrix_offset + matrix_size;
+		}
+
 		// Create a host visible staging buffer
 		let buffer_size = offset as u64;
 		let mut staging_buffer = Buffer::new(context, buffer_size, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
@@ -292,22 +435,51 @@ impl MeshManager {
 		for (i, mesh) in meshes.iter_mut().enumerate() {
 			mesh.transform.update_matrix();
 
-			let static_mesh_data = &self.static_mesh_data[i];
+			let mesh_data = &self.static_mesh_data[i];
+
+			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
+			let matrix = &mesh.transform.matrix.elements;
+
+			unsafe {
+				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
+				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+
+				let attribute_dst_ptr = buffer_ptr.add(mesh_data.attribute_offset) as *mut f32;
+				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+
+				let uniform_dst_ptr = buffer_ptr.add(mesh_data.uniform_offset) as *mut [f32; 4];
+				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
+			}
+		}
+
+		for (i, mesh) in instanced_meshes.iter_mut().enumerate() {
+			let mesh_data = &self.static_instanced_mesh_data[i];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
 			unsafe {
-				let index_dst_ptr = buffer_ptr.add(static_mesh_data.index_offset) as *mut u16;
+				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
 				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
 
-				let attribute_dst_ptr = buffer_ptr.add(static_mesh_data.attribute_offset) as *mut f32;
+				let attribute_dst_ptr = buffer_ptr.add(mesh_data.attribute_offset) as *mut f32;
 				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+			}
 
-				let matrix = &mesh.transform.matrix.elements;
-				let uniform_dst_ptr = buffer_ptr.add(static_mesh_data.uniform_offset) as *mut [f32; 4];
-				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
+			for (transform_index, transform) in mesh.transforms.iter_mut().enumerate() {
+				transform.update_matrix();
+				transform.matrix.transpose();
+
+				let matrix = &transform.matrix.elements;
+
+				unsafe {
+					let matrix_dst_ptr = buffer_ptr.add(mesh_data.matrix_offset + 16 * size_of::<f32>() * transform_index) as *mut [f32; 4];
+					ptr::copy_nonoverlapping(matrix.as_ptr(), matrix_dst_ptr, matrix.len());
+				}
 			}
 		}
 
@@ -381,12 +553,14 @@ impl MeshManager {
 	pub fn handle_resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
 		unsafe {
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 		}
 
-		let (basic_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, self.pipeline_layout, render_pass);
+		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, self.pipeline_layout, self.instanced_pipeline_layout, render_pass);
 
 		self.basic_pipeline = basic_pipeline;
+		self.basic_instanced_pipeline = basic_instanced_pipeline;
 		self.lambert_pipeline = lambert_pipeline;
 	}
 
@@ -394,8 +568,12 @@ impl MeshManager {
 		unsafe {
 			logical_device.destroy_descriptor_set_layout(self.frame_data_descriptor_set_layout, None);
 			logical_device.destroy_descriptor_set_layout(self.mesh_data_descriptor_set_layout, None);
+
 			logical_device.destroy_pipeline_layout(self.pipeline_layout, None);
+			logical_device.destroy_pipeline_layout(self.instanced_pipeline_layout, None);
+			
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 		}
 

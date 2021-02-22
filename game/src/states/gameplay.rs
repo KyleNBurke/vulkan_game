@@ -1,9 +1,10 @@
-use std::time::Duration;
+use std::{time::Duration, vec};
 
 use engine::{
 	pool::{Pool, Handle},
 	Geometry3D,
-	mesh::{Material, Mesh, StaticMesh},
+	Transform3D,
+	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
 	lights::PointLight,
 	math::Vector3,
 	Text,
@@ -58,7 +59,12 @@ impl State for GameplayState {
 		point_light_box2.transform.position.set(-1.0, -1.0, 0.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 
-		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
+		let mut instanced_box = StaticInstancedMesh::new(box_geo, Material::Basic);
+		let mut transform = Transform3D::new();
+		transform.position.set(0.0, 2.0, 0.0);
+		instanced_box.transforms.push(transform);
+
+		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2], &mut vec![instanced_box]);
 
 		// Dynamic
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());

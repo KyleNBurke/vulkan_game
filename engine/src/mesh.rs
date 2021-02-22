@@ -21,6 +21,22 @@ impl StaticMesh {
 	}
 }
 
+pub struct StaticInstancedMesh {
+	pub transforms: Vec<Transform3D>,
+	pub geometry_handle: Handle<Geometry3D>,
+	pub material: Material
+}
+
+impl StaticInstancedMesh {
+	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
+		Self {
+			transforms: vec![],
+			geometry_handle,
+			material
+		}
+	}
+}
+
 pub struct Mesh {
 	pub geometry_handle: Handle<Geometry3D>,
 	pub material: Material

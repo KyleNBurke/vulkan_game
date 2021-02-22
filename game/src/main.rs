@@ -24,7 +24,7 @@ fn main() {
 	let mut renderer = Renderer::new(&glfw, &window);
 	let roboto_14 = renderer.add_font("game/res/roboto.ttf", 14);
 
-	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
+	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 50.0);
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
 	let scene = Scene::new(camera, ambient_light);
 

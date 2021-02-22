@@ -4,7 +4,7 @@ use crate::{
 	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
 	pool::{Pool, Handle},
 	Geometry3D,
-	mesh::{Material, StaticMesh, Mesh},
+	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
 	scene::{Scene, Node, Entity},
@@ -449,6 +449,8 @@ impl Renderer {
 				FRAME_DATA_MEMORY_SIZE as u64,
 				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
 				vk::MemoryPropertyFlags::HOST_VISIBLE);
+			
+			Self::update_in_flight_frame_descriptor_sets(&context.logical_device, &frame_data_descriptor_set, &mesh_data_descriptor_set, &text_data_descriptor_set, &buffer.handle);
 
 			*frame = mem::MaybeUninit::new(InFlightFrame {
 				image_available,
@@ -568,8 +570,8 @@ impl Renderer {
 		println!("Swapchain recreated");
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh]) {
-		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, geometries, meshes);
+	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
+		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, geometries, meshes, instanced_meshes);
 	}
 
 	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle<Font> {
@@ -807,7 +809,7 @@ impl Renderer {
 			}
 		}
 
-		// Begin the secondary command buffers
+		// Begin the secondary command buffers and bind frame data descriptor sets
 		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
 			.render_pass(self.render_pass)
 			.subpass(0)
@@ -892,6 +894,53 @@ impl Renderer {
 			}
 		}
 
+		// Record static mesh draw commands
+		for static_mesh_data in &self.mesh_manager.static_mesh_data {
+			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_mesh_data.material);
+			let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
+
+			unsafe {
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_mesh_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_mesh_data.attribute_offset as u64]);
+				
+				logical_device.cmd_bind_descriptor_sets(
+					secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					1,
+					&[self.mesh_manager.static_mesh_data_descriptor_set],
+					&[static_mesh_data.uniform_offset as u32]);
+				
+				logical_device.cmd_draw_indexed(secondary_command_buffer, static_mesh_data.index_count as u32, 1, 0, 0, 0);
+			}
+		}
+
+		// Bind instanced mesh pipelines and frame data descriptor sets
+		unsafe {
+			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_instanced_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				in_flight_frame.basic_secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_manager.instanced_pipeline_layout,
+				0,
+				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
+		}
+
+		// Record static instanced mesh draw commands
+		for static_instanced_mesh_data in &self.mesh_manager.static_instanced_mesh_data {
+			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_instanced_mesh_data.material);
+			let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
+
+			unsafe {
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_instanced_mesh_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_instanced_mesh_data.attribute_offset as u64]);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 1, &[static_mesh_buffer_handle], &[static_instanced_mesh_data.matrix_offset as u64]);
+
+				logical_device.cmd_draw_indexed(secondary_command_buffer, static_instanced_mesh_data.index_count as u32, static_instanced_mesh_data.instance_count as u32, 0, 0, 0);
+			}
+		}
+
 		// Copy text data into dynamic buffer and record draw commands
 		for text_data in &text_data {
 			let text = text_data.text;
@@ -926,27 +975,6 @@ impl Renderer {
 					&[text_data.matrix_uniform_offset as u32, text_data.atlas_index_uniform_offset as u32]);
 
 				logical_device.cmd_draw_indexed(in_flight_frame.text_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
-			}
-		}
-
-		// Record static mesh draw commands
-		for static_mesh_data in &self.mesh_manager.static_mesh_data {
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_mesh_data.material);
-
-			unsafe {
-				let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_mesh_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_mesh_data.attribute_offset as u64]);
-				
-				logical_device.cmd_bind_descriptor_sets(
-					secondary_command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.mesh_manager.pipeline_layout,
-					1,
-					&[self.mesh_manager.static_mesh_data_descriptor_set],
-					&[static_mesh_data.uniform_offset as u32]);
-				
-				logical_device.cmd_draw_indexed(secondary_command_buffer, static_mesh_data.index_count as u32, 1, 0, 0, 0);
 			}
 		}
 
