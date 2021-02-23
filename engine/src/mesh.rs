@@ -39,14 +39,16 @@ impl StaticInstancedMesh {
 
 pub struct Mesh {
 	pub geometry_handle: Handle<Geometry3D>,
-	pub material: Material
+	pub material: Material,
+	pub transform: Transform3D
 }
 
 impl Mesh {
 	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
 		Self {
 			geometry_handle,
-			material
+			material,
+			transform: Transform3D::new()
 		}
 	}
 }

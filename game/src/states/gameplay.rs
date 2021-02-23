@@ -6,9 +6,7 @@ use engine::{
 	Transform3D,
 	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
 	lights::PointLight,
-	math::Vector3,
 	Text,
-	scene::{Entity, Node},
 	vulkan::Font
 };
 
@@ -17,7 +15,7 @@ use crate::{CameraController, State, StateAction, EngineResources};
 pub struct GameplayState {
 	camera_controller: CameraController,
 	camera_controller_enabled: bool,
-	box_handle: Handle<Node>,
+	box_handle: Handle<Mesh>,
 	font_handle: Handle<Font>
 }
 
@@ -70,25 +68,23 @@ impl State for GameplayState {
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());
 		let box_geo = scene.geometries.add(Geometry3D::create_box());
 
-		let triangle_lambert_mesh = scene.entities.add(Entity::Mesh(Mesh::new(triangle_geo, Material::Lambert)));
-		let box_lambert_mesh = scene.entities.add(Entity::Mesh(Mesh::new(box_geo, Material::Lambert)));
+		let mut triangle_lambert_mesh = Mesh::new(triangle_geo, Material::Basic);
+		triangle_lambert_mesh.transform.position.set(-0.5, -0.6, 2.0);
+		triangle_lambert_mesh.transform.update_matrix();
+		scene.meshes.add(triangle_lambert_mesh);
 
-		let node_handle = scene.graph.add_node(Some(triangle_lambert_mesh));
-		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(-0.5, -0.6, 2.0);
+		let mut box_lambert_mesh = Mesh::new(box_geo, Material::Lambert);
+		box_lambert_mesh.transform.position.set(2.0, 0.0, 0.0);
+		box_lambert_mesh.transform.update_matrix();
+		self.box_handle = scene.meshes.add(box_lambert_mesh);
 
-		self.box_handle = scene.graph.add_node(Some(box_lambert_mesh));
-		scene.graph.get_node_mut(&self.box_handle).unwrap().transform.position.set(2.0, 0.0, 0.0);
+		let mut point_light_1 = PointLight::new();
+		point_light_1.position.set(0.0, -1.0, 0.0);
+		resources.scene.point_lights.add(point_light_1);
 
-		let node_handle = scene.graph.add_child_node(self.box_handle, Some(box_lambert_mesh)).unwrap();
-		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(0.5, -0.6, 2.0);
-
-		let point_light = scene.entities.add(Entity::PointLight(PointLight::from(Vector3::from_scalar(1.0), 0.3)));
-
-		let node_handle = scene.graph.add_node(Some(point_light));
-		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(0.0, -1.0, 0.0);
-
-		let node_handle = scene.graph.add_node(Some(point_light));
-		scene.graph.get_node_mut(&node_handle).unwrap().transform.position.set(-1.0, -1.0, 0.0);
+		let mut point_light_2 = PointLight::new();
+		point_light_2.position.set(-1.0, -1.0, 0.0);
+		resources.scene.point_lights.add(point_light_2);
 
 		resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
 		self.camera_controller.poll_mouse_pos(&resources.window);
@@ -125,8 +121,9 @@ impl State for GameplayState {
 			self.camera_controller.update(&resources.window, &mut resources.scene.camera, frame_time);
 		}
 
-		let node = resources.scene.graph.get_node_mut(&self.box_handle).unwrap();
-		node.transform.rotate_y(1.0 * frame_time.as_secs_f32());
+		let mesh = resources.scene.meshes.get_mut(&self.box_handle).unwrap();
+		mesh.transform.rotate_y(frame_time.as_secs_f32());
+		mesh.transform.update_matrix();
 
 		StateAction::None
 	}

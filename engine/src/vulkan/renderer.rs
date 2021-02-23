@@ -7,8 +7,7 @@ use crate::{
 	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
-	scene::{Scene, Node, Entity},
-	lights::PointLight
+	scene::Scene
 };
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
@@ -624,13 +623,7 @@ impl Renderer {
 		swapchain_frame.fence = in_flight_frame.fence;
 
 		// Define local structs used to store separate lists of scene objects and buffer offset information
-		struct PointLightData<'a> {
-			node_handle: Handle<Node>,
-			point_light: &'a PointLight
-		};
-
 		struct MeshData<'a> {
-			node_handle: Handle<Node>,
 			mesh: &'a Mesh,
 			index_offset: usize,
 			attribute_offset: usize,
@@ -653,61 +646,30 @@ impl Renderer {
 		// - Calculate the total buffer size
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 		let mut offset = FRAME_DATA_MEMORY_SIZE;
-		let mut point_light_data: Vec<PointLightData> = vec![];
 		let mut mesh_data: Vec<MeshData> = vec![];
 		let mut text_data: Vec<TextData> = vec![];
 
-		let mut nodes_to_visit: Vec<Handle<Node>> = vec![scene.graph.get_root_handle()];
+		for mesh in scene.meshes.iter() {
+			let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
 
-		while let Some(node_handle) = nodes_to_visit.pop() {
-			let node = scene.graph.get_node(&node_handle).unwrap();
-			
-			if let Some(entity_handle) = &node.entity_handle {
-				let entity = scene.entities.get(entity_handle).unwrap();
+			let index_size = mem::size_of_val(indices);
+			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(attributes);
+			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
+			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
+			let uniform_size = 16 * size_of::<f32>();
 
-				match entity {
-					Entity::PointLight(point_light) => {
-						point_light_data.push(PointLightData {
-							node_handle,
-							point_light
-						})
-					},
-					Entity::Mesh(mesh) => {
-						let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
-						let indices = &geometry.indices[..];
-						let attributes = &geometry.attributes[..];
+			mesh_data.push(MeshData {
+				mesh,
+				index_offset: offset,
+				attribute_offset,
+				uniform_offset
+			});
 
-						let index_size = mem::size_of_val(indices);
-						let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-						let attribute_offset = offset + index_size + index_padding_size;
-						let attribute_size = mem::size_of_val(attributes);
-						let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-						let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-						let uniform_size = 16 * size_of::<f32>();
-
-						mesh_data.push(MeshData {
-							node_handle,
-							mesh,
-							index_offset: offset,
-							attribute_offset,
-							uniform_offset
-						});
-
-						offset = uniform_offset + uniform_size;
-					}
-				}
-			}
-
-			nodes_to_visit.extend_from_slice(&node.child_handles);
-			
-			if let Some(parent_handle) = node.parent_handle {
-				let parent = scene.graph.get_node(&parent_handle).unwrap();
-				let parent_matrix = parent.transform.matrix.clone();
-
-				let node = scene.graph.get_node_mut(&node_handle).unwrap();
-				node.transform.update_matrix();
-				node.transform.matrix = parent_matrix * node.transform.matrix;
-			}
+			offset = uniform_offset + uniform_size;
 		}
 
 		for text in scene.text.iter_mut() {
@@ -782,31 +744,29 @@ impl Renderer {
 			ptr::copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
 		}
 
-		assert!(point_light_data.len() <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
-
-		unsafe {
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
-			ptr::copy_nonoverlapping(&(point_light_data.len() as u32) as *const u32, point_light_count_dst_ptr, 1);
-		}
-
+		let mut point_light_count = 0;
 		let position_base_offest = 36 * size_of::<f32>();
 		let color_base_offest = 40 * size_of::<f32>();
 		let stride = 8 * size_of::<f32>();
 
-		for (index, point_light_data) in point_light_data.iter().enumerate() {
-			let node = scene.graph.get_node(&point_light_data.node_handle).unwrap();
-			let position = &node.transform.position;
-
-			let point_light = point_light_data.point_light;
+		for point_light in scene.point_lights.iter() {
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * index) as *mut Vector3;
-				ptr::copy_nonoverlapping(position as *const Vector3, position_dst_ptr, 1);
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+				ptr::copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
 
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * index) as *mut Vector3;
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
 				ptr::copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
 			}
+
+			point_light_count += 1;
+		}
+
+		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+		unsafe {
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
+			ptr::copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
 		}
 
 		// Begin the secondary command buffers and bind frame data descriptor sets
@@ -864,8 +824,7 @@ impl Renderer {
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
-			let node = scene.graph.get_node(&mesh_data.node_handle).unwrap();
-			let matrix = &node.transform.matrix.elements;
+			let matrix = &mesh.transform.matrix.elements;
 
 			unsafe {
 				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
