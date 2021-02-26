@@ -3,7 +3,7 @@ use crate::{
 	Camera,
 	lights::{AmbientLight, PointLight},
 	Geometry3D,
-	mesh::Mesh,
+	mesh::{Mesh, InstancedMesh},
 	Text
 };
 
@@ -13,6 +13,7 @@ pub struct Scene {
 	pub point_lights: Pool<PointLight>,
 	pub geometries: Pool<Geometry3D>,
 	pub meshes: Pool<Mesh>,
+	pub instanced_meshes: Pool<InstancedMesh>,
 	pub text: Pool<Text>
 }
 
@@ -24,6 +25,7 @@ impl Scene {
 			point_lights: Pool::new(),
 			geometries: Pool::new(),
 			meshes: Pool::new(),
+			instanced_meshes: Pool::new(),
 			text: Pool::new()
 		}
 	}

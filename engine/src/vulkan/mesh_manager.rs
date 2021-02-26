@@ -432,10 +432,10 @@ impl MeshManager {
 		// Copy mesh data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
-		for (i, mesh) in meshes.iter_mut().enumerate() {
+		for (index, mesh) in meshes.iter_mut().enumerate() {
 			mesh.transform.update_matrix();
 
-			let mesh_data = &self.static_mesh_data[i];
+			let mesh_data = &self.static_mesh_data[index];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
@@ -455,8 +455,8 @@ impl MeshManager {
 			}
 		}
 
-		for (i, mesh) in instanced_meshes.iter_mut().enumerate() {
-			let mesh_data = &self.static_instanced_mesh_data[i];
+		for (mesh_index, mesh) in instanced_meshes.iter_mut().enumerate() {
+			let mesh_data = &self.static_instanced_mesh_data[mesh_index];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];

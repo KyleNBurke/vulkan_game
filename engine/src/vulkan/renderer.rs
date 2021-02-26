@@ -4,7 +4,7 @@ use crate::{
 	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
 	pool::{Pool, Handle},
 	Geometry3D,
-	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
+	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh, InstancedMesh},
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
 	scene::Scene
@@ -630,6 +630,13 @@ impl Renderer {
 			uniform_offset: usize
 		};
 
+		struct InstancedMeshData<'a> {
+			instanced_mesh: &'a InstancedMesh,
+			index_offset: usize,
+			attribute_offset: usize,
+			matrix_offset: usize
+		}
+
 		struct TextData<'a> {
 			text: &'a Text,
 			index_offset: usize,
@@ -647,6 +654,7 @@ impl Renderer {
 		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
 		let mut offset = FRAME_DATA_MEMORY_SIZE;
 		let mut mesh_data: Vec<MeshData> = vec![];
+		let mut instanced_mesh_data: Vec<InstancedMeshData> = vec![];
 		let mut text_data: Vec<TextData> = vec![];
 
 		for mesh in scene.meshes.iter() {
@@ -670,6 +678,28 @@ impl Renderer {
 			});
 
 			offset = uniform_offset + uniform_size;
+		}
+
+		for instanced_mesh in scene.instanced_meshes.iter() {
+			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
+			let index_size = mem::size_of_val(indices);
+			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
+			let attribute_offset = offset + index_size + index_padding_size;
+			let attribute_size = mem::size_of_val(attributes);
+			let matrix_offset = attribute_offset + attribute_size;
+			let matrix_size = 16 * size_of::<f32>() * instanced_mesh.transforms.len();
+
+			instanced_mesh_data.push(InstancedMeshData {
+				instanced_mesh,
+				index_offset: offset,
+				attribute_offset,
+				matrix_offset
+			});
+
+			offset = matrix_offset + matrix_size;
 		}
 
 		for text in scene.text.iter_mut() {
@@ -884,6 +914,43 @@ impl Renderer {
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
+		}
+
+		// Copy dynamic instanced mesh data into dynamic buffer and record draw commands
+		for instanced_mesh_data in &instanced_mesh_data {
+			let instanced_mesh = instanced_mesh_data.instanced_mesh;
+			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).unwrap();
+			let indices = &geometry.indices[..];
+			let attributes = &geometry.attributes[..];
+
+			unsafe {
+				let index_dst_ptr = buffer_ptr.add(instanced_mesh_data.index_offset) as *mut u16;
+				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+
+				let attribute_dst_ptr = buffer_ptr.add(instanced_mesh_data.attribute_offset) as *mut f32;
+				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
+			}
+
+			for (index, transform) in instanced_mesh.transforms.iter().enumerate() {
+				let mut matrix = transform.matrix.clone();
+				matrix.transpose();
+				let matrix_elements = &matrix.elements;
+
+				unsafe {
+					let matrix_dst_ptr = buffer_ptr.add(instanced_mesh_data.matrix_offset + 16 * size_of::<f32>() * index) as *mut [f32; 4];
+					ptr::copy_nonoverlapping(matrix_elements.as_ptr(), matrix_dst_ptr, matrix_elements.len());
+				}
+			}
+
+			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(instanced_mesh.material);
+
+			unsafe {
+				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, instanced_mesh_data.index_offset as u64, vk::IndexType::UINT16);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[instanced_mesh_data.attribute_offset as u64]);
+				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 1, &[in_flight_frame.buffer.handle], &[instanced_mesh_data.matrix_offset as u64]);
+
+				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, instanced_mesh.transforms.len() as u32, 0, 0, 0);
+			}
 		}
 
 		// Record static instanced mesh draw commands
