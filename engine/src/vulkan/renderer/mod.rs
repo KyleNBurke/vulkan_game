@@ -1,14 +1,20 @@
 use std::{mem::{self, size_of}, ptr, fs};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
-	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
-	pool::{Pool, Handle},
-	Geometry3D,
-	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh, InstancedMesh},
+	vulkan::{Context, Buffer, Font},
+	pool::Handle,
+	mesh::{Material, Mesh, InstancedMesh},
 	Text,
 	math::{Vector3, Matrix3, Matrix4},
 	scene::Scene
 };
+
+mod mesh_manager;
+use mesh_manager::MeshManager;
+
+mod text_manager;
+use text_manager::TextManager;
+use text_manager::MAX_FONTS;
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
@@ -567,10 +573,6 @@ impl Renderer {
 		self.ui_projection_matrix.elements[1][1] = 2.0 / framebuffer_height as f32;
 
 		println!("Swapchain recreated");
-	}
-
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
-		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, geometries, meshes, instanced_meshes);
 	}
 
 	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle<Font> {
