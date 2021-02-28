@@ -42,24 +42,30 @@ impl State for GameplayState {
 
 		let mut static_triangle = StaticMesh::new(triangle_geo, Material::Basic);
 		static_triangle.transform.position.set(0.0, 1.0, 1.7);
+		static_triangle.transform.update_matrix();
 
 		let mut static_plane = StaticMesh::new(plane_geo, Material::Basic);
 		static_plane.transform.position.set(0.0, 1.0, 2.0);
+		static_plane.transform.update_matrix();
 
 		let mut static_box = StaticMesh::new(box_geo, Material::Lambert);
 		static_box.transform.position.set(-2.0, 0.0, 0.0);
+		static_box.transform.update_matrix();
 
 		let mut point_light_box1 = StaticMesh::new(box_geo, Material::Basic);
 		point_light_box1.transform.position.set(0.0, -1.0, 0.0);
 		point_light_box1.transform.scale.set_from_scalar(0.2);
+		point_light_box1.transform.update_matrix();
 
 		let mut point_light_box2 = StaticMesh::new(box_geo, Material::Basic);
 		point_light_box2.transform.position.set(-1.0, -1.0, 0.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
+		point_light_box2.transform.update_matrix();
 
 		let mut instanced_box = StaticInstancedMesh::new(box_geo, Material::Basic);
 		let mut transform = Transform3D::new();
 		transform.position.set(0.0, 2.0, 0.0);
+		transform.update_matrix();
 		instanced_box.transforms.push(transform);
 
 		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2], &mut vec![instanced_box]);

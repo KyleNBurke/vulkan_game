@@ -658,7 +658,7 @@ impl Renderer {
 		let mut text_data: Vec<TextData> = vec![];
 
 		for mesh in scene.meshes.iter() {
-			let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+			let geometry = scene.geometries.get(&mesh.geometry_handle).expect("Geometry for mesh not found");
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
@@ -681,7 +681,7 @@ impl Renderer {
 		}
 
 		for instanced_mesh in scene.instanced_meshes.iter() {
-			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).unwrap();
+			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).expect("Geometry for instanced mesh not found");
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
@@ -703,11 +703,7 @@ impl Renderer {
 		}
 
 		for text in scene.text.iter_mut() {
-			if text.auto_update_matrix {
-				text.transform.update_matrix();
-			}
-
-			let font = self.text_manager.fonts.get(&text.font).expect("Text's font not found");
+			let font = self.text_manager.fonts.get(&text.font).expect("Font for text not found");
 			
 			if text.generate {
 				text.generate(font);

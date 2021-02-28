@@ -378,7 +378,7 @@ impl MeshManager {
 		let uniform_alignment = context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
-			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+			let geometry = geometries.get(&mesh.geometry_handle).expect("Geometry for static mesh not found");
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
@@ -402,7 +402,7 @@ impl MeshManager {
 		}
 
 		for mesh in instanced_meshes.iter() {
-			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+			let geometry = geometries.get(&mesh.geometry_handle).expect("Geometry for static instanced mesh not found");
 			let indices = &geometry.indices[..];
 			let attributes = &geometry.attributes[..];
 
@@ -433,8 +433,6 @@ impl MeshManager {
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
 
 		for (index, mesh) in meshes.iter_mut().enumerate() {
-			mesh.transform.update_matrix();
-
 			let mesh_data = &self.static_mesh_data[index];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();

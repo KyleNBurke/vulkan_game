@@ -19,6 +19,7 @@ impl FrameMetricsState {
 	pub fn new(resources: &mut EngineResources) -> Self {
 		let mut label_text = Text::new(resources.game_resources.roboto_14, String::new());
 		label_text.transform.position.set(10.0, 20.0);
+		label_text.transform.update_matrix();
 		let label = resources.scene.text.add(label_text);
 
 		Self {
