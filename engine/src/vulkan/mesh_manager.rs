@@ -1,6 +1,6 @@
 use std::{ffi::CString, mem::{size_of, size_of_val}, ptr};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Buffer, Renderer}, Geometry3D, mesh::{Material, StaticMesh, StaticInstancedMesh}, pool::Pool};
+use crate::{vulkan::{Context, Buffer, Renderer}, Geometry3D, mesh::{Material, StaticMesh, StaticInstancedMesh}, pool::Pool};
 
 pub struct StaticMeshData {
 	pub index_offset: usize,
@@ -368,51 +368,14 @@ impl MeshManager {
 		unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap()[0]
 	}
 
-	pub fn handle_resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
-		unsafe {
-			logical_device.destroy_pipeline(self.basic_pipeline, None);
-			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
-			logical_device.destroy_pipeline(self.lambert_pipeline, None);
-		}
-
-		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, self.pipeline_layout, self.instanced_pipeline_layout, render_pass);
-
-		self.basic_pipeline = basic_pipeline;
-		self.basic_instanced_pipeline = basic_instanced_pipeline;
-		self.lambert_pipeline = lambert_pipeline;
-	}
-
-	pub fn drop(&mut self, logical_device: &ash::Device) {
-		unsafe {
-			logical_device.destroy_descriptor_set_layout(self.frame_data_descriptor_set_layout, None);
-			logical_device.destroy_descriptor_set_layout(self.mesh_data_descriptor_set_layout, None);
-
-			logical_device.destroy_pipeline_layout(self.pipeline_layout, None);
-			logical_device.destroy_pipeline_layout(self.instanced_pipeline_layout, None);
-			
-			logical_device.destroy_pipeline(self.basic_pipeline, None);
-			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
-			logical_device.destroy_pipeline(self.lambert_pipeline, None);
-		}
-
-		self.static_mesh_buffer.drop(logical_device);
-	}
-}
-
-impl Renderer {
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
-		let context = &self.context;
+	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
 		let logical_device = &context.logical_device;
-		let static_mesh_data = &mut self.mesh_manager.static_mesh_data;
-		let static_instanced_mesh_data = &mut self.mesh_manager.static_instanced_mesh_data;
-		let static_mesh_buffer = &mut self.mesh_manager.static_mesh_buffer;
-
-		static_mesh_data.clear();
-		static_instanced_mesh_data.clear();
+		self.static_mesh_data.clear();
+		self.static_instanced_mesh_data.clear();
 
 		// Calculate total buffer size and offsets
 		let mut offset = 0;
-		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
+		let uniform_alignment = context.physical_device.min_uniform_buffer_offset_alignment as usize;
 
 		for mesh in meshes.iter() {
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
@@ -427,7 +390,7 @@ impl Renderer {
 			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
 			let uniform_size = 16 * size_of::<f32>();
 
-			static_mesh_data.push(StaticMeshData {
+			self.static_mesh_data.push(StaticMeshData {
 				index_offset: offset,
 				attribute_offset,
 				uniform_offset,
@@ -450,7 +413,7 @@ impl Renderer {
 			let matrix_offset = attribute_offset + attribute_size;
 			let matrix_size = 16 * size_of::<f32>() * mesh.transforms.len();
 
-			static_instanced_mesh_data.push(StaticInstancedMeshData {
+			self.static_instanced_mesh_data.push(StaticInstancedMeshData {
 				index_offset: offset,
 				attribute_offset,
 				matrix_offset,
@@ -464,7 +427,7 @@ impl Renderer {
 
 		// Create a host visible staging buffer
 		let buffer_size = offset as u64;
-		let mut staging_buffer = Buffer::new(&self.context, buffer_size, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
+		let mut staging_buffer = Buffer::new(context, buffer_size, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
 		// Copy mesh data into staging buffer
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
@@ -472,7 +435,7 @@ impl Renderer {
 		for (index, mesh) in meshes.iter_mut().enumerate() {
 			mesh.transform.update_matrix();
 
-			let mesh_data = &static_mesh_data[index];
+			let mesh_data = &self.static_mesh_data[index];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
@@ -493,7 +456,7 @@ impl Renderer {
 		}
 
 		for (mesh_index, mesh) in instanced_meshes.iter_mut().enumerate() {
-			let mesh_data = &static_instanced_mesh_data[mesh_index];
+			let mesh_data = &self.static_instanced_mesh_data[mesh_index];
 
 			let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 			let indices = &geometry.indices[..];
@@ -531,19 +494,19 @@ impl Renderer {
 		}
 
 		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
-		if buffer_size > static_mesh_buffer.capacity {
-			unsafe { logical_device.queue_wait_idle(self.context.graphics_queue).unwrap() };
+		if buffer_size > self.static_mesh_buffer.capacity {
+			unsafe { logical_device.queue_wait_idle(context.graphics_queue).unwrap() };
 
-			static_mesh_buffer.reallocate(&self.context, buffer_size);
+			self.static_mesh_buffer.reallocate(context, buffer_size);
 
 			let model_matrix_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(static_mesh_buffer.handle)
+				.buffer(self.static_mesh_buffer.handle)
 				.offset(0)
 				.range(16 * size_of::<f32>() as u64);
 			let model_matrix_buffer_infos = [model_matrix_buffer_info.build()];
 
 			let model_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.mesh_manager.static_mesh_data_descriptor_set)
+				.dst_set(self.static_mesh_data_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -555,7 +518,7 @@ impl Renderer {
 		// Record a command buffer to copy the data from the staging buffer to the device local buffer
 		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.level(vk::CommandBufferLevel::PRIMARY)
-			.command_pool(self.command_pool)
+			.command_pool(command_pool)
 			.command_buffer_count(1);
 
 		let command_buffer = unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info).unwrap()[0] };
@@ -568,7 +531,7 @@ impl Renderer {
 		
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, static_mesh_buffer.handle, &[region.build()]);
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_buffer.handle, &[region.build()]);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
@@ -581,9 +544,39 @@ impl Renderer {
 			logical_device.queue_wait_idle(context.graphics_queue).unwrap();
 			logical_device.queue_submit(context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
 			logical_device.queue_wait_idle(context.graphics_queue).unwrap();
-			logical_device.free_command_buffers(self.command_pool, &command_buffers);
+			logical_device.free_command_buffers(command_pool, &command_buffers);
 		}
 
 		staging_buffer.drop(logical_device);
+	}
+
+	pub fn handle_resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
+		unsafe {
+			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
+			logical_device.destroy_pipeline(self.lambert_pipeline, None);
+		}
+
+		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, self.pipeline_layout, self.instanced_pipeline_layout, render_pass);
+
+		self.basic_pipeline = basic_pipeline;
+		self.basic_instanced_pipeline = basic_instanced_pipeline;
+		self.lambert_pipeline = lambert_pipeline;
+	}
+
+	pub fn drop(&mut self, logical_device: &ash::Device) {
+		unsafe {
+			logical_device.destroy_descriptor_set_layout(self.frame_data_descriptor_set_layout, None);
+			logical_device.destroy_descriptor_set_layout(self.mesh_data_descriptor_set_layout, None);
+
+			logical_device.destroy_pipeline_layout(self.pipeline_layout, None);
+			logical_device.destroy_pipeline_layout(self.instanced_pipeline_layout, None);
+			
+			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
+			logical_device.destroy_pipeline(self.lambert_pipeline, None);
+		}
+
+		self.static_mesh_buffer.drop(logical_device);
 	}
 }
