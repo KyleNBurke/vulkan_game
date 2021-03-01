@@ -3,6 +3,7 @@ use crate::{Geometry3D, Transform3D, pool::Handle};
 #[derive(Copy, Clone)]
 pub enum Material {
 	Basic,
+	Normal,
 	Lambert
 }
 pub struct StaticMesh {

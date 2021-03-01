@@ -26,6 +26,7 @@ pub struct MeshManager {
 	pub instanced_pipeline_layout: vk::PipelineLayout,
 	pub basic_pipeline: vk::Pipeline,
 	pub basic_instanced_pipeline: vk::Pipeline,
+	pub normal_pipeline: vk::Pipeline,
 	pub lambert_pipeline: vk::Pipeline,
 	pub static_mesh_data_descriptor_set: vk::DescriptorSet,
 	pub static_mesh_buffer: Buffer,
@@ -38,7 +39,7 @@ impl MeshManager {
 		let (frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout) = Self::create_descriptor_set_layouts(logical_device);
 		let pipeline_layout = Self::create_pipeline_layout(logical_device, frame_data_descriptor_set_layout, mesh_data_descriptor_set_layout);
 		let instanced_pipeline_layout = Self::create_instanced_pipeline_layout(logical_device, frame_data_descriptor_set_layout);
-		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, pipeline_layout, instanced_pipeline_layout, render_pass);
+		let pipelines = Self::create_pipelines(logical_device, extent, pipeline_layout, instanced_pipeline_layout, render_pass);
 		let static_mesh_data_descriptor_set = Self::create_static_mesh_data_descriptor_set(logical_device, mesh_data_descriptor_set_layout, descriptor_pool);
 
 		let static_mesh_buffer = Buffer::null(
@@ -50,9 +51,10 @@ impl MeshManager {
 			mesh_data_descriptor_set_layout,
 			pipeline_layout,
 			instanced_pipeline_layout,
-			basic_pipeline,
-			basic_instanced_pipeline,
-			lambert_pipeline,
+			basic_pipeline: pipelines[0],
+			basic_instanced_pipeline: pipelines[1],
+			normal_pipeline: pipelines[2],
+			lambert_pipeline: pipelines[3],
 			static_mesh_data_descriptor_set,
 			static_mesh_buffer,
 			static_mesh_data: vec![],
@@ -114,7 +116,7 @@ impl MeshManager {
 		pipeline_layout: vk::PipelineLayout,
 		instanced_pipeline_layout: vk::PipelineLayout,
 		render_pass: vk::RenderPass,
-	) -> (vk::Pipeline, vk::Pipeline, vk::Pipeline) {
+	) -> Vec<vk::Pipeline> {
 		// Shared
 		let entry_point = CString::new("main").unwrap();
 		let entry_point_cstr = entry_point.as_c_str();
@@ -130,6 +132,13 @@ impl MeshManager {
 			.location(0)
 			.format(vk::Format::R32G32B32_SFLOAT)
 			.offset(0)
+			.build();
+		
+		let input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
+			.binding(0)
+			.location(1)
+			.format(vk::Format::R32G32B32_SFLOAT)
+			.offset(12)
 			.build();
 		
 		let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
@@ -295,8 +304,41 @@ impl MeshManager {
 			.render_pass(render_pass)
 			.subpass(0);
 		
+		// Normal
+		let normal_vert_module = Renderer::create_shader_module(logical_device, "normal.vert.spv");
+		let normal_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::VERTEX)
+			.module(normal_vert_module)
+			.name(entry_point_cstr);
+
+		let normal_frag_module =  Renderer::create_shader_module(logical_device, "normal.frag.spv");
+		let normal_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+			.stage(vk::ShaderStageFlags::FRAGMENT)
+			.module(normal_frag_module)
+			.name(entry_point_cstr);
+		
+		let normal_stage_create_infos = [normal_vert_stage_create_info.build(), normal_frag_stage_create_info.build()];
+		let normal_input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
+
+		let normal_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+			.vertex_binding_descriptions(&input_binding_descriptions)
+			.vertex_attribute_descriptions(&normal_input_attribute_descriptions);
+		
+		let normal_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+			.stages(&normal_stage_create_infos)
+			.vertex_input_state(&normal_vert_input_state_create_info)
+			.input_assembly_state(&input_assembly_state_create_info)
+			.viewport_state(&viewport_state_create_info)
+			.rasterization_state(&rasterization_state_create_info)
+			.multisample_state(&multisample_state_create_info)
+			.depth_stencil_state(&depth_stencil_state_create_info)
+			.color_blend_state(&color_blend_state_create_info)
+			.layout(pipeline_layout)
+			.render_pass(render_pass)
+			.subpass(0);
+		
 		// Lambert
-		let lambert_vert_module =  Renderer::create_shader_module(logical_device, "lambert.vert.spv");
+		let lambert_vert_module = Renderer::create_shader_module(logical_device, "lambert.vert.spv");
 		let lambert_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
 			.stage(vk::ShaderStageFlags::VERTEX)
 			.module(lambert_vert_module)
@@ -309,14 +351,6 @@ impl MeshManager {
 			.name(entry_point_cstr);
 
 		let lambert_stage_create_infos = [lambert_vert_stage_create_info.build(), lambert_frag_stage_create_info.build()];
-
-		let input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
-			.binding(0)
-			.location(1)
-			.format(vk::Format::R32G32B32_SFLOAT)
-			.offset(12)
-			.build();
-
 		let lambert_input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
 
 		let lambert_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
@@ -340,6 +374,7 @@ impl MeshManager {
 		let pipeline_create_infos = [
 			basic_pipeline_create_info.build(),
 			basic_instanced_pipeline_create_info.build(),
+			normal_pipeline_create_info.build(),
 			lambert_pipeline_create_info.build()];
 		
 		let pipelines = unsafe { logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None) }.unwrap();
@@ -351,11 +386,14 @@ impl MeshManager {
 			logical_device.destroy_shader_module(basic_instanced_vert_module, None);
 			logical_device.destroy_shader_module(basic_instanced_frag_module, None);
 
+			logical_device.destroy_shader_module(normal_vert_module, None);
+			logical_device.destroy_shader_module(normal_frag_module, None);
+
 			logical_device.destroy_shader_module(lambert_vert_module, None);
 			logical_device.destroy_shader_module(lambert_frag_module, None);
 		}
 
-		(pipelines[0], pipelines[1], pipelines[2])
+		pipelines
 	}
 
 	fn create_static_mesh_data_descriptor_set(logical_device: &ash::Device, mesh_data_descriptor_set_layout: vk::DescriptorSetLayout, descriptor_pool: vk::DescriptorPool) -> vk::DescriptorSet {
@@ -552,14 +590,16 @@ impl MeshManager {
 		unsafe {
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
 			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
+			logical_device.destroy_pipeline(self.normal_pipeline, None);
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 		}
 
-		let (basic_pipeline, basic_instanced_pipeline, lambert_pipeline) = Self::create_pipelines(logical_device, extent, self.pipeline_layout, self.instanced_pipeline_layout, render_pass);
+		let pipelines = Self::create_pipelines(logical_device, extent, self.pipeline_layout, self.instanced_pipeline_layout, render_pass);
 
-		self.basic_pipeline = basic_pipeline;
-		self.basic_instanced_pipeline = basic_instanced_pipeline;
-		self.lambert_pipeline = lambert_pipeline;
+		self.basic_pipeline = pipelines[0];
+		self.basic_instanced_pipeline = pipelines[1];
+		self.normal_pipeline = pipelines[2];
+		self.lambert_pipeline = pipelines[3];
 	}
 
 	pub fn drop(&mut self, logical_device: &ash::Device) {
@@ -572,6 +612,7 @@ impl MeshManager {
 			
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
 			logical_device.destroy_pipeline(self.basic_instanced_pipeline, None);
+			logical_device.destroy_pipeline(self.normal_pipeline, None);
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 		}
 

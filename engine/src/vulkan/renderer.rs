@@ -56,6 +56,7 @@ struct InFlightFrame {
 	fence: vk::Fence,
 	primary_command_buffer: vk::CommandBuffer,
 	basic_secondary_command_buffer: vk::CommandBuffer,
+	normal_secondary_command_buffer: vk::CommandBuffer,
 	lambert_secondary_command_buffer: vk::CommandBuffer,
 	text_secondary_command_buffer: vk::CommandBuffer,
 	buffer: Buffer,
@@ -418,7 +419,7 @@ impl Renderer {
 		let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.command_pool(*command_pool)
 			.level(vk::CommandBufferLevel::SECONDARY)
-			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 3);
+			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 4);
 		
 		let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info).unwrap() };
 
@@ -434,9 +435,10 @@ impl Renderer {
 			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
 			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None).unwrap() };
 			let primary_command_buffer = primary_command_buffers[i];
-			let basic_secondary_command_buffer = secondary_command_buffers[i * 3];
-			let lambert_secondary_command_buffer = secondary_command_buffers[i * 3 + 1];
-			let text_secondary_command_buffer = secondary_command_buffers[i * 3 + 2];
+			let basic_secondary_command_buffer = secondary_command_buffers[i * 4];
+			let normal_secondary_command_buffer = secondary_command_buffers[i * 4 + 1];
+			let lambert_secondary_command_buffer = secondary_command_buffers[i * 4 + 2];
+			let text_secondary_command_buffer = secondary_command_buffers[i * 4 + 3];
 			
 			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap() };
 			let frame_data_descriptor_set = descriptor_sets[0];
@@ -457,6 +459,7 @@ impl Renderer {
 				fence,
 				primary_command_buffer,
 				basic_secondary_command_buffer,
+				normal_secondary_command_buffer,
 				lambert_secondary_command_buffer,
 				text_secondary_command_buffer,
 				buffer,
@@ -815,6 +818,16 @@ impl Renderer {
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
+			
+			logical_device.begin_command_buffer(in_flight_frame.normal_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(in_flight_frame.normal_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.normal_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				in_flight_frame.normal_secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_manager.pipeline_layout,
+				0,
+				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
 
 			logical_device.begin_command_buffer(in_flight_frame.lambert_secondary_command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.lambert_pipeline);
@@ -840,6 +853,7 @@ impl Renderer {
 		let find_mesh_rendering_secondary_command_buffer_from_material = |m: Material|
 			match m {
 				Material::Basic => in_flight_frame.basic_secondary_command_buffer,
+				Material::Normal => in_flight_frame.normal_secondary_command_buffer,
 				Material::Lambert => in_flight_frame.lambert_secondary_command_buffer
 			};
 
@@ -1003,6 +1017,7 @@ impl Renderer {
 		// End secondary command buffers, flush and unmap dynamic memory buffer
 		unsafe {
 			logical_device.end_command_buffer(in_flight_frame.basic_secondary_command_buffer).unwrap();
+			logical_device.end_command_buffer(in_flight_frame.normal_secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(in_flight_frame.lambert_secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(in_flight_frame.text_secondary_command_buffer).unwrap();
 
@@ -1041,7 +1056,11 @@ impl Renderer {
 				.build())
 			.clear_values(&clear_colors);
 		
-		let secondary_command_buffers = [in_flight_frame.basic_secondary_command_buffer, in_flight_frame.lambert_secondary_command_buffer, in_flight_frame.text_secondary_command_buffer];
+		let secondary_command_buffers = [
+			in_flight_frame.basic_secondary_command_buffer,
+			in_flight_frame.normal_secondary_command_buffer,
+			in_flight_frame.lambert_secondary_command_buffer,
+			in_flight_frame.text_secondary_command_buffer];
 		
 		unsafe {
 			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();

@@ -48,7 +48,7 @@ impl State for GameplayState {
 		static_plane.transform.position.set(0.0, 1.0, 2.0);
 		static_plane.transform.update_matrix();
 
-		let mut static_box = StaticMesh::new(box_geo, Material::Lambert);
+		let mut static_box = StaticMesh::new(box_geo, Material::Normal);
 		static_box.transform.position.set(-2.0, 0.0, 0.0);
 		static_box.transform.update_matrix();
 
