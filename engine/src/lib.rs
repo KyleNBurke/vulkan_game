@@ -13,6 +13,8 @@ pub mod geometry3d;
 pub use geometry3d::Geometry3D;
 
 pub mod mesh;
+pub use mesh::Mesh;
+pub use mesh::Material;
 
 pub mod camera;
 pub use camera::Camera;

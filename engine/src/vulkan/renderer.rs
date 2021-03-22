@@ -1,14 +1,13 @@
-use std::{mem::{self, size_of}, ptr, fs};
+use std::{cmp::max, convert::TryInto, fs, mem::{self, MaybeUninit, transmute, size_of, size_of_val}, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::{
-	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font},
-	pool::{Pool, Handle},
 	Geometry3D,
-	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh, InstancedMesh},
-	Text,
-	math::{Vector3, Matrix3, Matrix4},
-	scene::Scene
-};
+	math::{Matrix3, Matrix4, Vector3},
+	Mesh,
+	Material,
+	pool::{Pool, Handle},
+	scene::Scene,
+	vulkan::{Context, Buffer, MeshManager, TextManager, text_manager::MAX_FONTS, Font}};
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * size_of::<f32>();
@@ -24,10 +23,10 @@ pub struct Renderer {
 	text_manager: TextManager,
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
+	current_group_index: usize,
 	submit_fonts: bool,
 	inverse_view_matrix: Matrix4,
-	ui_projection_matrix: Matrix3,
-	temp_matrix: Matrix3
+	ui_projection_matrix: Matrix3
 }
 
 struct Swapchain {
@@ -54,15 +53,100 @@ struct InFlightFrame {
 	image_available: vk::Semaphore,
 	render_finished: vk::Semaphore,
 	fence: vk::Fence,
-	primary_command_buffer: vk::CommandBuffer,
-	basic_secondary_command_buffer: vk::CommandBuffer,
-	normal_secondary_command_buffer: vk::CommandBuffer,
-	lambert_secondary_command_buffer: vk::CommandBuffer,
-	text_secondary_command_buffer: vk::CommandBuffer,
-	buffer: Buffer,
 	frame_data_descriptor_set: vk::DescriptorSet,
-	mesh_data_descriptor_set: vk::DescriptorSet,
-	text_data_descriptor_set: vk::DescriptorSet
+	primary_command_buffer: vk::CommandBuffer,
+	frame_data_buffer: Buffer,
+	mesh_data_buffer: Buffer,
+	basic_material_data: MaterialData,
+	normal_material_data: MaterialData,
+	lambert_material_data: MaterialData,
+	index_arrays_offset: usize,
+}
+
+#[derive(Clone, Copy)]
+struct MaterialData {
+	descriptor_set: vk::DescriptorSet,
+	secondary_command_buffer: vk::CommandBuffer,
+	static_secondary_command_buffer: vk::CommandBuffer,
+	array_offset: usize,
+	array_size: usize
+}
+
+impl InFlightFrame {
+	fn update_descriptor_sets(
+		&mut self,
+		logical_device: &ash::Device,
+		basic_instance_data_array_offset: usize,
+		basic_instance_data_array_size: usize,
+		normal_instance_data_array_offset: usize,
+		normal_instance_data_array_size: usize,
+		lambert_instance_data_array_offset: usize,
+		lambert_instance_data_array_size: usize,
+		index_arrays_offset: usize)
+	{
+		// Basic
+		let basic_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.mesh_data_buffer.handle)
+			.offset(basic_instance_data_array_offset as u64)
+			.range(max(1, basic_instance_data_array_size) as u64);
+		let basic_descriptor_buffer_infos = [basic_descriptor_buffer_info.build()];
+
+		let basic_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.basic_material_data.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+			.buffer_info(&basic_descriptor_buffer_infos);
+		
+		// Normal
+		let normal_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.mesh_data_buffer.handle)
+			.offset(normal_instance_data_array_offset as u64)
+			.range(max(1, normal_instance_data_array_size) as u64);
+		let normal_descriptor_buffer_infos = [normal_descriptor_buffer_info.build()];
+
+		let normal_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.normal_material_data.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+			.buffer_info(&normal_descriptor_buffer_infos);
+		
+		// Lambert
+		let lambert_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.mesh_data_buffer.handle)
+			.offset(lambert_instance_data_array_offset as u64)
+			.range(max(1, lambert_instance_data_array_size) as u64);
+		let lambert_descriptor_buffer_infos = [lambert_descriptor_buffer_info.build()];
+
+		let lambert_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.lambert_material_data.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+			.buffer_info(&lambert_descriptor_buffer_infos);
+		
+		// Update descriptor sets
+		let write_descriptor_sets = [
+			basic_write_descriptor_set.build(),
+			normal_write_descriptor_set.build(),
+			lambert_write_descriptor_set.build()
+		];
+		
+		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+
+		// Set offsets and sizes
+		self.basic_material_data.array_offset = basic_instance_data_array_offset;
+		self.basic_material_data.array_size = basic_instance_data_array_size;
+
+		self.normal_material_data.array_offset = normal_instance_data_array_offset;
+		self.normal_material_data.array_size = normal_instance_data_array_size;
+
+		self.lambert_material_data.array_offset = lambert_instance_data_array_offset;
+		self.lambert_material_data.array_size = lambert_instance_data_array_size;
+
+		self.index_arrays_offset = index_arrays_offset;
+	}
 }
 
 impl Renderer {
@@ -81,7 +165,7 @@ impl Renderer {
 			&descriptor_pool,
 			&command_pool,
 			&mesh_manager.frame_data_descriptor_set_layout,
-			&mesh_manager.mesh_data_descriptor_set_layout,
+			&mesh_manager.instance_data_descriptor_set_layout,
 			&text_manager.text_data_descriptor_set_layout);
 		
 		let ui_projection_matrix = Matrix3::from([
@@ -100,10 +184,10 @@ impl Renderer {
 			text_manager,
 			in_flight_frames,
 			current_in_flight_frame: 0,
+			current_group_index: 0,
 			submit_fonts: false,
 			inverse_view_matrix: Matrix4::new(),
-			ui_projection_matrix,
-			temp_matrix: Matrix3::new()
+			ui_projection_matrix
 		}
 	}
 
@@ -370,7 +454,7 @@ impl Renderer {
 			// 3 times each in flight frame for the frame data, mesh data & text data
 			// One for the static mesh data
 			// One for the text sampler and atlas textures
-			.max_sets(3 * max_frames + 2);
+			.max_sets(20);
 		
 		unsafe { context.logical_device.create_descriptor_pool(&create_info, None).unwrap() }
 	}
@@ -401,7 +485,7 @@ impl Renderer {
 		descriptor_pool: &vk::DescriptorPool,
 		command_pool: &vk::CommandPool,
 		frame_data_descriptor_set_layout: &vk::DescriptorSetLayout,
-		mesh_data_descriptor_set_layout: &vk::DescriptorSetLayout,
+		instance_data_descriptor_set_layout: &vk::DescriptorSetLayout,
 		text_data_descriptor_set_layout: &vk::DescriptorSetLayout) -> [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]
 	{
 		let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
@@ -414,135 +498,94 @@ impl Renderer {
 			.level(vk::CommandBufferLevel::PRIMARY)
 			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32);
 		
-		let primary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&primary_command_buffer_allocate_info).unwrap() };
+		let primary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&primary_command_buffer_allocate_info) }.unwrap();
 
 		let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 			.command_pool(*command_pool)
 			.level(vk::CommandBufferLevel::SECONDARY)
-			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 4);
+			.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 6);
 		
-		let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info).unwrap() };
+		let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info) }.unwrap();
 
-		let descriptor_set_layouts = [*frame_data_descriptor_set_layout, *mesh_data_descriptor_set_layout, *text_data_descriptor_set_layout];
+		let descriptor_set_layouts = [*frame_data_descriptor_set_layout, *instance_data_descriptor_set_layout, *instance_data_descriptor_set_layout, *instance_data_descriptor_set_layout];
 		let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 			.descriptor_pool(*descriptor_pool)
 			.set_layouts(&descriptor_set_layouts);
 
-		let mut frames: [mem::MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { mem::MaybeUninit::uninit().assume_init() };
+		let mut frames: [MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { MaybeUninit::uninit().assume_init() };
 		
-		for (i, frame) in frames.iter_mut().enumerate() {
-			let image_available = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
-			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None).unwrap() };
-			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None).unwrap() };
-			let primary_command_buffer = primary_command_buffers[i];
-			let basic_secondary_command_buffer = secondary_command_buffers[i * 4];
-			let normal_secondary_command_buffer = secondary_command_buffers[i * 4 + 1];
-			let lambert_secondary_command_buffer = secondary_command_buffers[i * 4 + 2];
-			let text_secondary_command_buffer = secondary_command_buffers[i * 4 + 3];
-			
-			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info).unwrap() };
+		for (index, frame) in frames.iter_mut().enumerate() {
+			let image_available = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None) }.unwrap();
+			let render_finished = unsafe { context.logical_device.create_semaphore(&semaphore_create_info, None) }.unwrap();
+			let fence = unsafe { context.logical_device.create_fence(&fence_create_info, None) }.unwrap();
+			let descriptor_sets = unsafe { context.logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap();
 			let frame_data_descriptor_set = descriptor_sets[0];
-			let mesh_data_descriptor_set = descriptor_sets[1];
-			let text_data_descriptor_set = descriptor_sets[2];
+			let primary_command_buffer = primary_command_buffers[index];
 
-			let buffer = Buffer::new(
+			let frame_data_buffer = Buffer::new(context, FRAME_DATA_MEMORY_SIZE as u64, vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE);
+
+			let mesh_data_buffer = Buffer::new(
 				context,
-				FRAME_DATA_MEMORY_SIZE as u64,
-				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::UNIFORM_BUFFER,
+				1,
+				vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
 				vk::MemoryPropertyFlags::HOST_VISIBLE);
 			
-			Self::update_in_flight_frame_descriptor_sets(&context.logical_device, &frame_data_descriptor_set, &mesh_data_descriptor_set, &text_data_descriptor_set, &buffer.handle);
+			let frame_data_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(frame_data_buffer.handle)
+				.offset(0)
+				.range(vk::WHOLE_SIZE);
+			let frame_data_descriptor_buffer_infos = [frame_data_descriptor_buffer_info.build()];
 
-			*frame = mem::MaybeUninit::new(InFlightFrame {
+			let frame_data_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(frame_data_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+				.buffer_info(&frame_data_descriptor_buffer_infos);
+			
+			let write_descriptor_sets = [frame_data_write_descriptor_set.build()];
+			unsafe { context.logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+
+			let basic_material_data = MaterialData {
+				descriptor_set: descriptor_sets[1],
+				secondary_command_buffer: secondary_command_buffers[6 * index],
+				static_secondary_command_buffer: secondary_command_buffers[6 * index + 1],
+				array_offset: 0,
+				array_size: 0
+			};
+
+			let normal_material_data = MaterialData {
+				descriptor_set: descriptor_sets[2],
+				secondary_command_buffer: secondary_command_buffers[6 * index + 2],
+				static_secondary_command_buffer: secondary_command_buffers[6 * index + 3],
+				array_offset: 0,
+				array_size: 0
+			};
+
+			let lambert_material_data = MaterialData {
+				descriptor_set: descriptor_sets[3],
+				secondary_command_buffer: secondary_command_buffers[6 * index + 4],
+				static_secondary_command_buffer: secondary_command_buffers[6 * index + 5],
+				array_offset: 0,
+				array_size: 0
+			};
+
+			*frame = MaybeUninit::new(InFlightFrame {
 				image_available,
 				render_finished,
 				fence,
-				primary_command_buffer,
-				basic_secondary_command_buffer,
-				normal_secondary_command_buffer,
-				lambert_secondary_command_buffer,
-				text_secondary_command_buffer,
-				buffer,
 				frame_data_descriptor_set,
-				mesh_data_descriptor_set,
-				text_data_descriptor_set
+				primary_command_buffer,
+				frame_data_buffer,
+				mesh_data_buffer,
+				basic_material_data,
+				normal_material_data,
+				lambert_material_data,
+				index_arrays_offset: 0
 			});
 		}
 
-		unsafe { mem::transmute::<_, [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]>(frames) }
-	}
-
-	fn update_in_flight_frame_descriptor_sets(
-		logical_device: &ash::Device,
-		frame_data_descriptor_set: &vk::DescriptorSet,
-		mesh_data_descriptor_set: &vk::DescriptorSet,
-		text_data_descriptor_set: &vk::DescriptorSet,
-		buffer: &vk::Buffer)
-	{
-		// Frame
-		let frame_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(*buffer)
-			.offset(0)
-			.range(FRAME_DATA_MEMORY_SIZE as u64);
-		let frame_descriptor_buffer_infos = [frame_descriptor_buffer_info.build()];
-
-		let frame_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(*frame_data_descriptor_set)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-			.buffer_info(&frame_descriptor_buffer_infos);
-
-		// Mesh
-		let mesh_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(*buffer)
-			.offset(0)
-			.range(16 * size_of::<f32>() as u64);
-		let mesh_descriptor_buffer_infos = [mesh_descriptor_buffer_info.build()];
-
-		let mesh_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(*mesh_data_descriptor_set)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.buffer_info(&mesh_descriptor_buffer_infos);
-		
-		// Text
-		let text_matrix_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(*buffer)
-			.offset(0)
-			.range(12 * size_of::<f32>() as u64);
-		let text_matrix_descriptor_buffer_infos = [text_matrix_descriptor_buffer_info.build()];
-
-		let text_matrix_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(*text_data_descriptor_set)
-			.dst_binding(0)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.buffer_info(&text_matrix_descriptor_buffer_infos);
-		
-		let text_atlas_index_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(*buffer)
-			.offset(0)
-			.range(size_of::<u32>() as u64);
-		let text_atlas_index_descriptor_buffer_infos = [text_atlas_index_descriptor_buffer_info.build()];
-
-		let text_atlas_index_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(*text_data_descriptor_set)
-			.dst_binding(1)
-			.dst_array_element(0)
-			.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-			.buffer_info(&text_atlas_index_descriptor_buffer_infos);
-		
-		// Update the descriptor sets
-		let write_descriptor_sets = [
-			frame_write_descriptor_set.build(),
-			mesh_write_descriptor_set.build(),
-			text_matrix_write_descriptor_set.build(),
-			text_atlas_index_write_descriptor_set.build()
-		];
-
-		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+		unsafe { transmute::<_, [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]>(frames) }
 	}
 
 	pub fn handle_resize(&mut self, framebuffer_width: i32, framebuffer_height: i32) {
@@ -572,8 +615,351 @@ impl Renderer {
 		println!("Swapchain recreated");
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [StaticMesh], instanced_meshes: &mut [StaticInstancedMesh]) {
-		self.mesh_manager.submit_static_meshes(&self.context, self.command_pool, geometries, meshes, instanced_meshes);
+	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [Mesh]) {
+		let logical_device = &self.context.logical_device;
+
+		// Iterate over meshes to
+		// - Group meshes together which share the same geometry and material
+		// - Calculate the offsets and size of the data
+		struct GeometryGroup<'a> {
+			index_array_relative_offset: usize,
+			attribute_array_relative_offset: usize,
+			material_groups: Vec<Vec<&'a Mesh>>,
+			copied: bool
+		}
+
+		let mut geometry_groups: Vec<GeometryGroup> = vec![];
+		let mut index_arrays_size = 0;
+		let mut attribute_arrays_size = 0;
+		let mut instance_counts = [0; 3];
+
+		for mesh in meshes {
+			let other_group_index = (self.current_group_index + 1) % 2;
+			mesh.geometry_group_indices[other_group_index] = None;
+			mesh.material_group_indices[other_group_index] = None;
+
+			let current_geometry_group_index = &mut mesh.geometry_group_indices[self.current_group_index];
+			let current_material_group_index = &mut mesh.material_group_indices[self.current_group_index];
+
+			if let Some(geometry_group_index) = current_geometry_group_index {
+				let geometry_group = &mut geometry_groups[*geometry_group_index];
+
+				if let Some(material_group_index) = current_material_group_index {
+					geometry_group.material_groups[*material_group_index].push(mesh);
+				}
+				else {
+					*current_material_group_index = Some(geometry_group.material_groups.len());
+
+					geometry_group.material_groups.push(vec![mesh]);
+				}
+			}
+			else {
+				*current_geometry_group_index = Some(geometry_groups.len());
+				*current_material_group_index = Some(0);
+
+				let geometry_group = GeometryGroup {
+					index_array_relative_offset: index_arrays_size,
+					attribute_array_relative_offset: attribute_arrays_size,
+					material_groups: vec![vec![mesh]],
+					copied: false
+				};
+
+				geometry_groups.push(geometry_group);
+
+				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+				index_arrays_size += size_of_val(&geometry.indices[..]);
+				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+			}
+
+			instance_counts[mesh.material as usize] += 1;
+		}
+
+		let basic_instance_data_array_offset = 0;
+		let basic_instance_data_array_size = 4 * 16 * instance_counts[Material::Basic as usize];
+
+		let normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
+		let normal_instance_data_array_size = 4 * 16 * instance_counts[Material::Normal as usize];
+		
+		let lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
+		let lambert_instance_data_array_size = 4 * 16 * instance_counts[Material::Lambert as usize];
+
+		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
+		
+		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
+		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
+		let attribute_arrays_offset = unaligned_attribute_arrays_offset + attribute_arrays_padding;
+
+		let buffer_size = (attribute_arrays_offset + attribute_arrays_size) as u64;
+
+		// Create a host visible staging buffer
+		let mut staging_buffer = Buffer::new(&self.context, buffer_size, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
+
+		// Allocate larger device local buffer if necessary and update descriptor sets to reference new buffer
+		if buffer_size > self.mesh_manager.static_mesh_buffer.capacity {
+			unsafe { logical_device.queue_wait_idle(self.context.graphics_queue) }.unwrap();
+			self.mesh_manager.static_mesh_buffer.reallocate(&self.context, buffer_size);
+		}
+
+		// Update the descriptor sets to potentially use the new device local buffer and to use the calculated offsets and sizes
+		{
+			// Basic
+			let basic_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(self.mesh_manager.static_mesh_buffer.handle)
+				.offset(basic_instance_data_array_offset as u64)
+				.range(max(1, basic_instance_data_array_size) as u64);
+			let basic_descriptor_buffer_infos = [basic_descriptor_buffer_info.build()];
+
+			let basic_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(self.mesh_manager.static_basic_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+				.buffer_info(&basic_descriptor_buffer_infos);
+			
+			// Normal
+			let normal_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(self.mesh_manager.static_mesh_buffer.handle)
+				.offset(normal_instance_data_array_offset as u64)
+				.range(max(1, normal_instance_data_array_size) as u64);
+			let normal_descriptor_buffer_infos = [normal_descriptor_buffer_info.build()];
+
+			let normal_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(self.mesh_manager.static_normal_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+				.buffer_info(&normal_descriptor_buffer_infos);
+			
+			// Lambert
+			let lambert_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(self.mesh_manager.static_mesh_buffer.handle)
+				.offset(lambert_instance_data_array_offset as u64)
+				.range(max(1, lambert_instance_data_array_size) as u64);
+			let lambert_descriptor_buffer_infos = [lambert_descriptor_buffer_info.build()];
+
+			let lambert_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(self.mesh_manager.static_lambert_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+				.buffer_info(&lambert_descriptor_buffer_infos);
+			
+			// Update descriptor sets
+			let write_descriptor_sets = [
+				basic_write_descriptor_set.build(),
+				normal_write_descriptor_set.build(),
+				lambert_write_descriptor_set.build()
+			];
+			
+			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
+		}
+
+		// Copy mesh data into staging buffer and record draw commands
+		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
+
+		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
+			.render_pass(self.render_pass)
+			.subpass(0);
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE)
+			.inheritance_info(&command_buffer_inheritance_info);
+
+		println!("{} | {} | {} | {} | {}",
+			basic_instance_data_array_size,
+			normal_instance_data_array_size,
+			lambert_instance_data_array_size,
+			index_arrays_size,
+			attribute_arrays_size);
+		
+		for in_flight_frame in &self.in_flight_frames {
+			let basic_static_secondary_command_buffer = in_flight_frame.basic_material_data.static_secondary_command_buffer;
+			let normal_static_secondary_command_buffer = in_flight_frame.normal_material_data.static_secondary_command_buffer;
+			let lambert_static_secondary_command_buffer = in_flight_frame.lambert_material_data.static_secondary_command_buffer;
+
+			// Begin secondary command buffers, bind pipelines and descriptor sets
+			unsafe {
+				logical_device.begin_command_buffer(basic_static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(basic_static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					basic_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					basic_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					1,
+					&[self.mesh_manager.static_basic_descriptor_set],
+					&[]);
+				
+				logical_device.begin_command_buffer(normal_static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(normal_static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.normal_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					normal_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					normal_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					1,
+					&[self.mesh_manager.static_normal_descriptor_set],
+					&[]);
+				
+				logical_device.begin_command_buffer(lambert_static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(lambert_static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.lambert_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					lambert_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					lambert_static_secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.mesh_manager.pipeline_layout,
+					1,
+					&[self.mesh_manager.static_lambert_descriptor_set],
+					&[]);
+			}
+
+			let mut current_instance_indices = [0; 3];
+
+			for geometry_group in &mut geometry_groups {
+				let geometry_handle = &geometry_group.material_groups[0][0].geometry_handle;
+				let geometry = geometries.get(geometry_handle).unwrap();
+
+				let index_array_offset = index_arrays_offset + geometry_group.index_array_relative_offset;
+				let attribute_array_offset = attribute_arrays_offset + geometry_group.attribute_array_relative_offset;
+
+				// Ensure geometry data is copied into the staging buffer
+				if !geometry_group.copied {
+					let indices = &geometry.indices;
+					let attributes = &geometry.attributes;
+
+					unsafe {
+						let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
+						copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+
+						let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
+						copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+					}
+
+					geometry_group.copied = true;
+				}
+
+				for material_group in &geometry_group.material_groups {
+					let material = material_group[0].material;
+					let current_instance_index = current_instance_indices[material as usize];
+
+					let secondary_command_buffer = match material {
+						Material::Basic => in_flight_frame.basic_material_data.static_secondary_command_buffer,
+						Material::Normal => in_flight_frame.normal_material_data.static_secondary_command_buffer,
+						Material::Lambert => in_flight_frame.lambert_material_data.static_secondary_command_buffer,
+					};
+
+					// Record draw commands
+					unsafe {
+						logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.mesh_manager.static_mesh_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
+						logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.mesh_manager.static_mesh_buffer.handle], &[attribute_array_offset as u64]);
+						logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, material_group.len() as u32, 0, 0, current_instance_index as u32);
+					}
+
+					// Ensure the instance data is copied into the staging buffer
+					for instance in material_group {
+						match material {
+							Material::Basic => {
+								let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * current_instance_index;
+
+								unsafe {
+									let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+									copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+								}
+							},
+							Material::Normal => {
+								let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * current_instance_index;
+
+								unsafe {
+									let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+									copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+								}
+							},
+							Material::Lambert => {
+								let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * current_instance_index;
+
+								unsafe {
+									let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+									copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+								}
+							}
+						}
+					}
+
+					current_instance_indices[material as usize] += material_group.len();
+				}
+			}
+
+			// End command buffers
+			unsafe {
+				logical_device.end_command_buffer(basic_static_secondary_command_buffer).unwrap();
+				logical_device.end_command_buffer(normal_static_secondary_command_buffer).unwrap();
+				logical_device.end_command_buffer(lambert_static_secondary_command_buffer).unwrap();
+			}
+		}
+
+		// Flush and unmap staging buffer
+		let range = vk::MappedMemoryRange::builder()
+			.memory(staging_buffer.memory)
+			.offset(0)
+			.size(vk::WHOLE_SIZE);
+
+		unsafe {
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
+			logical_device.unmap_memory(staging_buffer.memory);
+		}
+
+		// Record a command buffer to copy the data from the staging buffer to the device local buffer
+		let command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
+			.level(vk::CommandBufferLevel::PRIMARY)
+			.command_pool(self.command_pool)
+			.command_buffer_count(1);
+
+		let command_buffer = unsafe { logical_device.allocate_command_buffers(&command_buffer_allocate_info) }.unwrap()[0];
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+		
+		let region = vk::BufferCopy::builder()
+			.size(buffer_size);
+		
+		unsafe {
+			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.mesh_manager.static_mesh_buffer.handle, &[region.build()]);
+			logical_device.end_command_buffer(command_buffer).unwrap();
+		}
+
+		// Submit the command buffer
+		let command_buffers = [command_buffer];
+		let submit_info = vk::SubmitInfo::builder()
+			.command_buffers(&command_buffers);
+		
+		unsafe {
+			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], vk::Fence::null()).unwrap();
+			logical_device.queue_wait_idle(self.context.graphics_queue).unwrap();
+			logical_device.free_command_buffers(self.command_pool, &command_buffers);
+		}
+
+		staging_buffer.drop(logical_device);
+		self.current_group_index = (self.current_group_index + 1) % 2;
 	}
 
 	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle<Font> {
@@ -625,180 +1011,180 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
-		// Define local structs used to store separate lists of scene objects and buffer offset information
-		struct MeshData<'a> {
-			mesh: &'a Mesh,
-			index_offset: usize,
-			attribute_offset: usize,
-			uniform_offset: usize
-		};
-
-		struct InstancedMeshData<'a> {
-			instanced_mesh: &'a InstancedMesh,
-			index_offset: usize,
-			attribute_offset: usize,
-			matrix_offset: usize
-		}
-
-		struct TextData<'a> {
-			text: &'a Text,
-			index_offset: usize,
-			attribute_offset: usize,
-			matrix_uniform_offset: usize,
-			atlas_index_uniform_offset: usize,
-			atlas_index: u32
-		};
-
-		// Traverse the scene graph to
-		// - Separate scene objects into individual lists
-		// - Calaculate buffer offsets
-		// - Update child node matrices relative to its parent
-		// - Calculate the total buffer size
-		let uniform_alignment = self.context.physical_device.min_uniform_buffer_offset_alignment as usize;
-		let mut offset = FRAME_DATA_MEMORY_SIZE;
-		let mut mesh_data: Vec<MeshData> = vec![];
-		let mut instanced_mesh_data: Vec<InstancedMeshData> = vec![];
-		let mut text_data: Vec<TextData> = vec![];
-
-		for mesh in scene.meshes.iter() {
-			let geometry = scene.geometries.get(&mesh.geometry_handle).expect("Geometry for mesh not found");
-			let indices = &geometry.indices[..];
-			let attributes = &geometry.attributes[..];
-
-			let index_size = mem::size_of_val(indices);
-			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(attributes);
-			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-			let uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-			let uniform_size = 16 * size_of::<f32>();
-
-			mesh_data.push(MeshData {
-				mesh,
-				index_offset: offset,
-				attribute_offset,
-				uniform_offset
-			});
-
-			offset = uniform_offset + uniform_size;
-		}
-
-		for instanced_mesh in scene.instanced_meshes.iter() {
-			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).expect("Geometry for instanced mesh not found");
-			let indices = &geometry.indices[..];
-			let attributes = &geometry.attributes[..];
-
-			let index_size = mem::size_of_val(indices);
-			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(attributes);
-			let matrix_offset = attribute_offset + attribute_size;
-			let matrix_size = 16 * size_of::<f32>() * instanced_mesh.transforms.len();
-
-			instanced_mesh_data.push(InstancedMeshData {
-				instanced_mesh,
-				index_offset: offset,
-				attribute_offset,
-				matrix_offset
-			});
-
-			offset = matrix_offset + matrix_size;
-		}
-
-		for text in scene.text.iter_mut() {
-			let font = self.text_manager.fonts.get(&text.font).expect("Font for text not found");
+		// Copy frame data into frame data buffer
+		{
+			let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 			
-			if text.generate {
-				text.generate(font);
+			let camera = &mut scene.camera;
+			let projection_matrix = &camera.projection_matrix.elements;
+			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
+			unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len()) };
+
+			if camera.auto_update_view_matrix {
+				camera.transform.update_matrix();
 			}
 
-			let index_size = mem::size_of_val(text.get_vertex_indices());
-			let index_padding_size = (size_of::<f32>() - (offset + index_size) % size_of::<f32>()) % size_of::<f32>();
-			let attribute_offset = offset + index_size + index_padding_size;
-			let attribute_size = mem::size_of_val(text.get_vertex_attributes());
-			let attribute_padding_size = (uniform_alignment - (attribute_offset + attribute_size) % uniform_alignment) % uniform_alignment;
-			let matrix_uniform_offset = attribute_offset + attribute_size + attribute_padding_size;
-			let atlas_index_uniform_offset = matrix_uniform_offset + self.text_manager.atlas_index_uniform_relative_offset;
-			let atlas_index_uniform_size = size_of::<u32>();
-
-			text_data.push(TextData {
-				text,
-				index_offset: offset,
-				attribute_offset,
-				matrix_uniform_offset,
-				atlas_index_uniform_offset,
-				atlas_index: font.submission_index as u32
-			});
-
-			offset = atlas_index_uniform_offset + atlas_index_uniform_size;
-		}
-		
-		// Allocate larger device local memory buffer if necessary and update descriptor sets to reference new buffer
-		let buffer_size = offset as vk::DeviceSize;
-
-		if buffer_size > in_flight_frame.buffer.capacity {
-			in_flight_frame.buffer.reallocate(&self.context, buffer_size);
-
-			Self::update_in_flight_frame_descriptor_sets(
-				&self.context.logical_device,
-				&in_flight_frame.frame_data_descriptor_set,
-				&in_flight_frame.mesh_data_descriptor_set,
-				&in_flight_frame.text_data_descriptor_set,
-				&in_flight_frame.buffer.handle);
-		}
-
-		// Copy frame data into dynamic memory buffer
-		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()).unwrap() };
-		
-		let camera = &mut scene.camera;
-		let projection_matrix = &camera.projection_matrix.elements;
-		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-		unsafe { ptr::copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len()) };
-
-		if camera.auto_update_view_matrix {
-			camera.transform.update_matrix();
-		}
-
-		self.inverse_view_matrix = camera.transform.matrix;
-		self.inverse_view_matrix.invert();
-		unsafe {
-			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
-			ptr::copy_nonoverlapping(self.inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, self.inverse_view_matrix.elements.len());
-		}
-
-		let ambient_light = &scene.ambient_light;
-		let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
-		unsafe {
-			let ambient_light_dst_ptr = buffer_ptr.add(32 * size_of::<f32>()) as *mut Vector3;
-			ptr::copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
-		}
-
-		let mut point_light_count = 0;
-		let position_base_offest = 36 * size_of::<f32>();
-		let color_base_offest = 40 * size_of::<f32>();
-		let stride = 8 * size_of::<f32>();
-
-		for point_light in scene.point_lights.iter() {
-			let intensified_color = point_light.color * point_light.intensity;
-
+			self.inverse_view_matrix = camera.transform.matrix;
+			self.inverse_view_matrix.invert();
 			unsafe {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				ptr::copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
-
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
-				ptr::copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+				let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
+				copy_nonoverlapping(self.inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, self.inverse_view_matrix.elements.len());
 			}
 
-			point_light_count += 1;
+			let ambient_light = &scene.ambient_light;
+			let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
+			unsafe {
+				let ambient_light_dst_ptr = buffer_ptr.add(32 * size_of::<f32>()) as *mut Vector3;
+				copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
+			}
+
+			let mut point_light_count = 0;
+			let position_base_offest = 36 * size_of::<f32>();
+			let color_base_offest = 40 * size_of::<f32>();
+			let stride = 8 * size_of::<f32>();
+
+			for point_light in scene.point_lights.iter() {
+				let intensified_color = point_light.color * point_light.intensity;
+
+				unsafe {
+					let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+					copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
+
+					let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+					copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+				}
+
+				point_light_count += 1;
+			}
+
+			assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+			unsafe {
+				let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
+				copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+			}
+
+			// Flush and unmap buffer
+			let range = vk::MappedMemoryRange::builder()
+				.memory(in_flight_frame.frame_data_buffer.memory)
+				.offset(0)
+				.size(vk::WHOLE_SIZE);
+			
+			unsafe {		
+				logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
+				logical_device.unmap_memory(in_flight_frame.frame_data_buffer.memory);
+			}
 		}
 
-		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
-		unsafe {
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * size_of::<f32>()) as *mut u32;
-			ptr::copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+		// Iterate over meshes to
+		// - Group meshes together which share the same geometry and material
+		// - Calculate the offsets and size of the data
+		struct GeometryGroup<'a> {
+			index_array_relative_offset: usize,
+			attribute_array_relative_offset: usize,
+			material_groups: Vec<Vec<&'a Mesh>>,
+			copied: bool
 		}
 
-		// Begin the secondary command buffers and bind frame data descriptor sets
+		let mut geometry_groups: Vec<GeometryGroup> = vec![];
+		let mut index_arrays_size = 0;
+		let mut attribute_arrays_size = 0;
+		let mut instance_counts = [0; 3];
+
+		for mesh in scene.meshes.iter_mut() {
+			let other_group_index = (self.current_group_index + 1) % 2;
+			mesh.geometry_group_indices[other_group_index] = None;
+			mesh.material_group_indices[other_group_index] = None;
+
+			let current_geometry_group_index = &mut mesh.geometry_group_indices[self.current_group_index];
+			let current_material_group_index = &mut mesh.material_group_indices[self.current_group_index];
+
+			if let Some(geometry_group_index) = current_geometry_group_index {
+				let geometry_group = &mut geometry_groups[*geometry_group_index];
+
+				if let Some(material_group_index) = current_material_group_index {
+					geometry_group.material_groups[*material_group_index].push(mesh);
+				}
+				else {
+					*current_material_group_index = Some(geometry_group.material_groups.len());
+
+					geometry_group.material_groups.push(vec![mesh]);
+				}
+			}
+			else {
+				*current_geometry_group_index = Some(geometry_groups.len());
+				*current_material_group_index = Some(0);
+
+				let geometry_group = GeometryGroup {
+					index_array_relative_offset: index_arrays_size,
+					attribute_array_relative_offset: attribute_arrays_size,
+					material_groups: vec![vec![mesh]],
+					copied: false
+				};
+
+				geometry_groups.push(geometry_group);
+
+				let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+				index_arrays_size += size_of_val(&geometry.indices[..]);
+				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+			}
+
+			instance_counts[mesh.material as usize] += 1;
+		}
+
+		let basic_instance_data_array_offset = 0;
+		let basic_instance_data_array_size = 4 * 16 * instance_counts[Material::Basic as usize];
+
+		let normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
+		let normal_instance_data_array_size = 4 * 16 * instance_counts[Material::Normal as usize];
+		
+		let lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
+		let lambert_instance_data_array_size = 4 * 16 * instance_counts[Material::Lambert as usize];
+
+		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
+		
+		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
+		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
+		let attribute_arrays_offset = unaligned_attribute_arrays_offset + attribute_arrays_padding;
+
+		// Allocate larger mesh data buffer and update descriptor sets if necessary
+		let buffer_size = (attribute_arrays_offset + attribute_arrays_size) as u64;
+
+		if buffer_size > in_flight_frame.mesh_data_buffer.capacity {
+			in_flight_frame.mesh_data_buffer.reallocate(&self.context, buffer_size);
+
+			in_flight_frame.update_descriptor_sets(
+				logical_device,
+				basic_instance_data_array_offset,
+				basic_instance_data_array_size,
+				normal_instance_data_array_offset,
+				normal_instance_data_array_size,
+				lambert_instance_data_array_offset,
+				lambert_instance_data_array_size,
+				index_arrays_offset);
+		}
+		else if
+			basic_instance_data_array_size > in_flight_frame.basic_material_data.array_size ||
+			normal_instance_data_array_size > in_flight_frame.normal_material_data.array_size ||
+			lambert_instance_data_array_size > in_flight_frame.lambert_material_data.array_size
+		{
+			in_flight_frame.update_descriptor_sets(
+				logical_device,
+				basic_instance_data_array_offset,
+				basic_instance_data_array_size,
+				normal_instance_data_array_offset,
+				normal_instance_data_array_size,
+				lambert_instance_data_array_offset,
+				lambert_instance_data_array_size,
+				index_arrays_offset);
+		}
+
+		let basic_material_data = &in_flight_frame.basic_material_data;
+		let normal_material_data = &in_flight_frame.normal_material_data;
+		let lambert_material_data = &in_flight_frame.lambert_material_data;
+
+		// Copy mesh data into mesh data buffer and record draw commands
+		let mesh_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.mesh_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
+
 		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
 			.render_pass(self.render_pass)
 			.subpass(0)
@@ -809,228 +1195,155 @@ impl Renderer {
 			.inheritance_info(&command_buffer_inheritance_info);
 		
 		unsafe {
-			logical_device.begin_command_buffer(in_flight_frame.basic_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_pipeline);
+			logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(basic_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.basic_secondary_command_buffer,
+				basic_material_data.secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_manager.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
+			logical_device.cmd_bind_descriptor_sets(
+				basic_material_data.secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_manager.pipeline_layout,
+				1,
+				&[basic_material_data.descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(in_flight_frame.normal_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.normal_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.normal_pipeline);
+			logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(normal_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.normal_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.normal_secondary_command_buffer,
+				normal_material_data.secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_manager.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
-
-			logical_device.begin_command_buffer(in_flight_frame.lambert_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.lambert_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.lambert_secondary_command_buffer,
+				normal_material_data.secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_manager.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
+				1,
+				&[normal_material_data.descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(in_flight_frame.text_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(in_flight_frame.text_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_manager.pipeline);
+			logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.text_secondary_command_buffer,
+				lambert_material_data.secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
-				self.text_manager.pipeline_layout,
-				0,
-				&[self.text_manager.sampler_and_atlases_descriptor_set],
-				&[]);
-		}
-
-		let find_mesh_rendering_secondary_command_buffer_from_material = |m: Material|
-			match m {
-				Material::Basic => in_flight_frame.basic_secondary_command_buffer,
-				Material::Normal => in_flight_frame.normal_secondary_command_buffer,
-				Material::Lambert => in_flight_frame.lambert_secondary_command_buffer
-			};
-
-		// Copy dynamic mesh data into dynamic buffer and record draw commands
-		for mesh_data in &mesh_data {
-			let mesh = mesh_data.mesh;
-			let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
-			let indices = &geometry.indices[..];
-			let attributes = &geometry.attributes[..];
-
-			let matrix = &mesh.transform.matrix.elements;
-
-			unsafe {
-				let index_dst_ptr = buffer_ptr.add(mesh_data.index_offset) as *mut u16;
-				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
-
-				let attribute_dst_ptr = buffer_ptr.add(mesh_data.attribute_offset) as *mut f32;
-				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
-
-				let uniform_dst_ptr = buffer_ptr.add(mesh_data.uniform_offset) as *mut [f32; 4];
-				ptr::copy_nonoverlapping(matrix.as_ptr(), uniform_dst_ptr, matrix.len());
-
-				let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(mesh.material);
-
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, mesh_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[mesh_data.attribute_offset as u64]);
-
-				logical_device.cmd_bind_descriptor_sets(
-					secondary_command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.mesh_manager.pipeline_layout,
-					1,
-					&[in_flight_frame.mesh_data_descriptor_set],
-					&[mesh_data.uniform_offset as u32]);
-				
-				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
-			}
-		}
-
-		// Record static mesh draw commands
-		for static_mesh_data in &self.mesh_manager.static_mesh_data {
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_mesh_data.material);
-			let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
-
-			unsafe {
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_mesh_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_mesh_data.attribute_offset as u64]);
-				
-				logical_device.cmd_bind_descriptor_sets(
-					secondary_command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.mesh_manager.pipeline_layout,
-					1,
-					&[self.mesh_manager.static_mesh_data_descriptor_set],
-					&[static_mesh_data.uniform_offset as u32]);
-				
-				logical_device.cmd_draw_indexed(secondary_command_buffer, static_mesh_data.index_count as u32, 1, 0, 0, 0);
-			}
-		}
-
-		// Bind instanced mesh pipelines and frame data descriptor sets
-		unsafe {
-			logical_device.cmd_bind_pipeline(in_flight_frame.basic_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_manager.basic_instanced_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				in_flight_frame.basic_secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_manager.instanced_pipeline_layout,
+				self.mesh_manager.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
+			logical_device.cmd_bind_descriptor_sets(
+				lambert_material_data.secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_manager.pipeline_layout,
+				1,
+				&[lambert_material_data.descriptor_set],
+				&[]);
 		}
 
-		// Copy dynamic instanced mesh data into dynamic buffer and record draw commands
-		for instanced_mesh_data in &instanced_mesh_data {
-			let instanced_mesh = instanced_mesh_data.instanced_mesh;
-			let geometry = scene.geometries.get(&instanced_mesh.geometry_handle).unwrap();
-			let indices = &geometry.indices[..];
-			let attributes = &geometry.attributes[..];
+		let index_arrays_offset = in_flight_frame.index_arrays_offset;
+		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
+		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
+		let attribute_arrays_offset = unaligned_attribute_arrays_offset + attribute_arrays_padding;
 
-			unsafe {
-				let index_dst_ptr = buffer_ptr.add(instanced_mesh_data.index_offset) as *mut u16;
-				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
+		let mut current_instance_indices = [0; 3];
 
-				let attribute_dst_ptr = buffer_ptr.add(instanced_mesh_data.attribute_offset) as *mut f32;
-				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
-			}
+		for geometry_group in &mut geometry_groups {
+			let geometry_handle = &geometry_group.material_groups[0][0].geometry_handle;
+			let geometry = scene.geometries.get(geometry_handle).unwrap();
 
-			for (index, transform) in instanced_mesh.transforms.iter().enumerate() {
-				let mut matrix = transform.matrix.clone();
-				matrix.transpose();
-				let matrix_elements = &matrix.elements;
+			let index_array_offset = index_arrays_offset + geometry_group.index_array_relative_offset;
+			let attribute_array_offset = attribute_arrays_offset + geometry_group.attribute_array_relative_offset;
+
+			// Ensure geometry data is copied into the mesh data buffer
+			if !geometry_group.copied {
+				let indices = &geometry.indices;
+				let attributes = &geometry.attributes;
 
 				unsafe {
-					let matrix_dst_ptr = buffer_ptr.add(instanced_mesh_data.matrix_offset + 16 * size_of::<f32>() * index) as *mut [f32; 4];
-					ptr::copy_nonoverlapping(matrix_elements.as_ptr(), matrix_dst_ptr, matrix_elements.len());
+					let index_array_dst_ptr = mesh_data_buffer_ptr.add(index_array_offset) as *mut u16;
+					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+
+					let attribute_array_dst_ptr = mesh_data_buffer_ptr.add(attribute_array_offset) as *mut f32;
+					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
 				}
+
+				geometry_group.copied = true;
 			}
 
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(instanced_mesh.material);
+			for material_group in &geometry_group.material_groups {
+				let material = material_group[0].material;
+				let current_instance_index = current_instance_indices[material as usize];
 
-			unsafe {
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.buffer.handle, instanced_mesh_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[instanced_mesh_data.attribute_offset as u64]);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 1, &[in_flight_frame.buffer.handle], &[instanced_mesh_data.matrix_offset as u64]);
+				let secondary_command_buffer = match material {
+					Material::Basic => basic_material_data.secondary_command_buffer,
+					Material::Normal => normal_material_data.secondary_command_buffer,
+					Material::Lambert => lambert_material_data.secondary_command_buffer,
+				};
 
-				logical_device.cmd_draw_indexed(secondary_command_buffer, indices.len() as u32, instanced_mesh.transforms.len() as u32, 0, 0, 0);
-			}
-		}
+				// Record draw commands
+				unsafe {
+					logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.mesh_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
+					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.mesh_data_buffer.handle], &[attribute_array_offset as u64]);
+					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, material_group.len() as u32, 0, 0, current_instance_index as u32);
+				}
 
-		// Record static instanced mesh draw commands
-		for static_instanced_mesh_data in &self.mesh_manager.static_instanced_mesh_data {
-			let secondary_command_buffer = find_mesh_rendering_secondary_command_buffer_from_material(static_instanced_mesh_data.material);
-			let static_mesh_buffer_handle = self.mesh_manager.static_mesh_buffer.handle;
+				// Ensure the instance data is copied into the mesh data buffer
+				for instance in material_group {
+					match material {
+						Material::Basic => {
+							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * current_instance_index;
 
-			unsafe {
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, static_mesh_buffer_handle, static_instanced_mesh_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[static_mesh_buffer_handle], &[static_instanced_mesh_data.attribute_offset as u64]);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 1, &[static_mesh_buffer_handle], &[static_instanced_mesh_data.matrix_offset as u64]);
+							unsafe {
+								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							}
+						},
+						Material::Normal => {
+							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * current_instance_index;
 
-				logical_device.cmd_draw_indexed(secondary_command_buffer, static_instanced_mesh_data.index_count as u32, static_instanced_mesh_data.instance_count as u32, 0, 0, 0);
-			}
-		}
+							unsafe {
+								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							}
+						},
+						Material::Lambert => {
+							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * current_instance_index;
 
-		// Copy text data into dynamic buffer and record draw commands
-		for text_data in &text_data {
-			let text = text_data.text;
+							unsafe {
+								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							}
+						}
+					}
+				}
 
-			unsafe {
-				let indices = text.get_vertex_indices();
-				let index_dst_ptr = buffer_ptr.add(text_data.index_offset) as *mut u16;
-				ptr::copy_nonoverlapping(indices.as_ptr(), index_dst_ptr, indices.len());
-
-				let attributes = text.get_vertex_attributes();
-				let attribute_dst_ptr = buffer_ptr.add(text_data.attribute_offset) as *mut f32;
-				ptr::copy_nonoverlapping(attributes.as_ptr(), attribute_dst_ptr, attributes.len());
-
-				self.temp_matrix.set(self.ui_projection_matrix.elements);
-				self.temp_matrix *= &text.transform.matrix;
-				let matrix = self.temp_matrix.to_padded_array();
-				let matrix_uniform_dst_ptr = buffer_ptr.add(text_data.matrix_uniform_offset) as *mut [f32; 4];
-				ptr::copy_nonoverlapping(matrix.as_ptr(), matrix_uniform_dst_ptr, matrix.len());
-
-				let atlas_index_uniform_dst_ptr = buffer_ptr.add(text_data.atlas_index_uniform_offset) as *mut u32;
-				ptr::copy_nonoverlapping(&text_data.atlas_index, atlas_index_uniform_dst_ptr, 1);
-
-				logical_device.cmd_bind_index_buffer(in_flight_frame.text_secondary_command_buffer, in_flight_frame.buffer.handle, text_data.index_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(in_flight_frame.text_secondary_command_buffer, 0, &[in_flight_frame.buffer.handle], &[text_data.attribute_offset as u64]);
-
-				logical_device.cmd_bind_descriptor_sets(
-					in_flight_frame.text_secondary_command_buffer,
-					vk::PipelineBindPoint::GRAPHICS,
-					self.text_manager.pipeline_layout,
-					1,
-					&[in_flight_frame.text_data_descriptor_set],
-					&[text_data.matrix_uniform_offset as u32, text_data.atlas_index_uniform_offset as u32]);
-
-				logical_device.cmd_draw_indexed(in_flight_frame.text_secondary_command_buffer, indices.len() as u32, 1, 0, 0, 0);
+				current_instance_indices[material as usize] += material_group.len();
 			}
 		}
 
-		// End secondary command buffers, flush and unmap dynamic memory buffer
+		// End secondary command buffers, flush and unmap mesh data buffer
+		let range = vk::MappedMemoryRange::builder()
+			.memory(in_flight_frame.mesh_data_buffer.memory)
+			.offset(0)
+			.size(vk::WHOLE_SIZE);
+		
 		unsafe {
-			logical_device.end_command_buffer(in_flight_frame.basic_secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(in_flight_frame.normal_secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(in_flight_frame.lambert_secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(in_flight_frame.text_secondary_command_buffer).unwrap();
-
-			let range = vk::MappedMemoryRange::builder()
-				.memory(in_flight_frame.buffer.memory)
-				.offset(0)
-				.size(vk::WHOLE_SIZE);
+			logical_device.end_command_buffer(basic_material_data.secondary_command_buffer).unwrap();
+			logical_device.end_command_buffer(normal_material_data.secondary_command_buffer).unwrap();
+			logical_device.end_command_buffer(lambert_material_data.secondary_command_buffer).unwrap();
 			
 			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
-			logical_device.unmap_memory(in_flight_frame.buffer.memory);
+			logical_device.unmap_memory(in_flight_frame.mesh_data_buffer.memory);
 		}
 
-		// Record the primary command buffer
+		// Record primary command buffer
 		let color_attachment_clear_value = vk::ClearValue {
 			color: vk::ClearColorValue {
 				float32: [0.0, 0.0, 0.0, 1.0]
@@ -1057,10 +1370,13 @@ impl Renderer {
 			.clear_values(&clear_colors);
 		
 		let secondary_command_buffers = [
-			in_flight_frame.basic_secondary_command_buffer,
-			in_flight_frame.normal_secondary_command_buffer,
-			in_flight_frame.lambert_secondary_command_buffer,
-			in_flight_frame.text_secondary_command_buffer];
+			basic_material_data.secondary_command_buffer,
+			basic_material_data.static_secondary_command_buffer,
+			normal_material_data.secondary_command_buffer,
+			normal_material_data.static_secondary_command_buffer,
+			lambert_material_data.secondary_command_buffer,
+			lambert_material_data.static_secondary_command_buffer,
+		];
 		
 		unsafe {
 			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
@@ -1103,6 +1419,7 @@ impl Renderer {
 		};
 
 		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;
+		self.current_group_index = (self.current_group_index + 1) % 2;
 
 		surface_changed
 	}
@@ -1120,7 +1437,8 @@ impl Drop for Renderer {
 				logical_device.destroy_fence(frame.fence, None);
 				logical_device.destroy_semaphore(frame.render_finished, None);
 				logical_device.destroy_semaphore(frame.image_available, None);
-				frame.buffer.drop(&self.context.logical_device);
+				frame.frame_data_buffer.drop(&self.context.logical_device);
+				frame.mesh_data_buffer.drop(&self.context.logical_device);
 			}
 
 			self.mesh_manager.drop(&self.context.logical_device);

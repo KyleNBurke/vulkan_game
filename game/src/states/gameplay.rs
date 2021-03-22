@@ -3,8 +3,8 @@ use std::{time::Duration, vec};
 use engine::{
 	pool::{Pool, Handle},
 	Geometry3D,
-	Transform3D,
-	mesh::{Material, StaticMesh, StaticInstancedMesh, Mesh},
+	Mesh,
+	Material,
 	lights::PointLight,
 	Text,
 	vulkan::Font
@@ -40,35 +40,29 @@ impl State for GameplayState {
 		let plane_geo = geometries.add(Geometry3D::create_plane());
 		let box_geo = geometries.add(Geometry3D::create_box());
 
-		let mut static_triangle = StaticMesh::new(triangle_geo, Material::Basic);
+		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
 		static_triangle.transform.position.set(0.0, 1.0, 1.7);
 		static_triangle.transform.update_matrix();
 
-		let mut static_plane = StaticMesh::new(plane_geo, Material::Basic);
+		let mut static_plane = Mesh::new(plane_geo, Material::Lambert);
 		static_plane.transform.position.set(0.0, 1.0, 2.0);
 		static_plane.transform.update_matrix();
 
-		let mut static_box = StaticMesh::new(box_geo, Material::Normal);
+		let mut static_box = Mesh::new(box_geo, Material::Normal);
 		static_box.transform.position.set(-2.0, 0.0, 0.0);
 		static_box.transform.update_matrix();
 
-		let mut point_light_box1 = StaticMesh::new(box_geo, Material::Basic);
+		let mut point_light_box1 = Mesh::new(box_geo, Material::Basic);
 		point_light_box1.transform.position.set(0.0, -1.0, 0.0);
 		point_light_box1.transform.scale.set_from_scalar(0.2);
 		point_light_box1.transform.update_matrix();
 
-		let mut point_light_box2 = StaticMesh::new(box_geo, Material::Basic);
+		let mut point_light_box2 = Mesh::new(box_geo, Material::Basic);
 		point_light_box2.transform.position.set(-1.0, -1.0, 0.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 		point_light_box2.transform.update_matrix();
 
-		let mut instanced_box = StaticInstancedMesh::new(box_geo, Material::Basic);
-		let mut transform = Transform3D::new();
-		transform.position.set(0.0, 2.0, 0.0);
-		transform.update_matrix();
-		instanced_box.transforms.push(transform);
-
-		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2], &mut vec![instanced_box]);
+		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
 
 		// Dynamic
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());

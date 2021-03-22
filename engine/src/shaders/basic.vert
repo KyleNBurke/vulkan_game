@@ -6,8 +6,8 @@ layout(set = 0, binding = 0, std140, row_major) uniform FrameData {
 	mat4 viewMatrix;
 };
 
-layout(set = 1, binding = 0, std140, row_major) uniform MeshData {
-	mat4 modelMatrix;
+layout(set = 1, binding = 0, std140, row_major) buffer InstanceData {
+	mat4 modelMatrix[];
 };
 
 layout(location = 0) in vec3 inPosition;
@@ -20,6 +20,6 @@ vec3 colors[3] = vec3[](
 );
 
 void main() {
-	gl_Position = projectionMatrix * viewMatrix * modelMatrix * vec4(inPosition, 1.0);
+	gl_Position = projectionMatrix * viewMatrix * modelMatrix[gl_InstanceIndex] * vec4(inPosition, 1.0);
 	fragColor = colors[gl_VertexIndex % 3];
 }
