@@ -75,5 +75,6 @@ impl CameraController {
 		self.prev_mouse_pos_y = mouse_pos_y;
 
 		camera.transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * frame_time.as_secs_f32());
+		camera.transform.update_matrix();
 	}
 }

@@ -610,7 +610,7 @@ pub(super) fn create_in_flight_frames(
 		let basic_material_data = MaterialData {
 			descriptor_set: descriptor_sets[1],
 			secondary_command_buffer: secondary_command_buffers[6 * index],
-			static_secondary_command_buffer: secondary_command_buffers[6 * index + 1],
+			secondary_static_command_buffer: secondary_command_buffers[6 * index + 1],
 			array_offset: 0,
 			array_size: 0
 		};
@@ -618,7 +618,7 @@ pub(super) fn create_in_flight_frames(
 		let normal_material_data = MaterialData {
 			descriptor_set: descriptor_sets[2],
 			secondary_command_buffer: secondary_command_buffers[6 * index + 2],
-			static_secondary_command_buffer: secondary_command_buffers[6 * index + 3],
+			secondary_static_command_buffer: secondary_command_buffers[6 * index + 3],
 			array_offset: 0,
 			array_size: 0
 		};
@@ -626,7 +626,7 @@ pub(super) fn create_in_flight_frames(
 		let lambert_material_data = MaterialData {
 			descriptor_set: descriptor_sets[3],
 			secondary_command_buffer: secondary_command_buffers[6 * index + 4],
-			static_secondary_command_buffer: secondary_command_buffers[6 * index + 5],
+			secondary_static_command_buffer: secondary_command_buffers[6 * index + 5],
 			array_offset: 0,
 			array_size: 0
 		};

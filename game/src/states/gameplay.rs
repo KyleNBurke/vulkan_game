@@ -62,7 +62,7 @@ impl State for GameplayState {
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 		point_light_box2.transform.update_matrix();
 
-		resources.renderer.submit_static_meshes(&geometries, &mut vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
+		resources.renderer.submit_static_meshes(&geometries, &vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
 
 		// Dynamic
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());

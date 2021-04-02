@@ -104,6 +104,6 @@ fn main() {
 			updates += 1;
 		}
 
-		surface_changed = resources.renderer.render(&mut resources.scene);
+		surface_changed = resources.renderer.render(&resources.scene);
 	}
 }

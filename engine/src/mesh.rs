@@ -10,9 +10,7 @@ pub enum Material {
 pub struct Mesh {
 	pub transform: Transform3D,
 	pub geometry_handle: Handle<Geometry3D>,
-	pub material: Material,
-	pub(crate) geometry_group_indices: [Option<usize>; 2],
-	pub(crate) material_group_indices: [Option<usize>; 2]
+	pub material: Material
 }
 
 impl Mesh {
@@ -20,9 +18,7 @@ impl Mesh {
 		Self {
 			transform: Transform3D::new(),
 			geometry_handle,
-			material,
-			geometry_group_indices: [None; 2],
-			material_group_indices: [None; 2]
+			material
 		}
 	}
 }

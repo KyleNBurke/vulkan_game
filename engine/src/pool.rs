@@ -133,6 +133,10 @@ impl<T> Pool<T> {
 		}
 	}
 
+	pub fn len(&self) -> usize {
+		self.records.len()
+	}
+
 	pub fn iter(&self) -> Iter<T> {
 		Iter {
 			records: &self.records,

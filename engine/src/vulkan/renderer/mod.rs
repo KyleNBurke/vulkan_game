@@ -29,9 +29,9 @@ pub struct Renderer {
 	basic_pipeline: vk::Pipeline,
 	normal_pipeline: vk::Pipeline,
 	lambert_pipeline: vk::Pipeline,
-	static_basic_descriptor_set: vk::DescriptorSet,
-	static_normal_descriptor_set: vk::DescriptorSet,
-	static_lambert_descriptor_set: vk::DescriptorSet,
+	basic_static_descriptor_set: vk::DescriptorSet,
+	normal_static_descriptor_set: vk::DescriptorSet,
+	lambert_static_descriptor_set: vk::DescriptorSet,
 	static_mesh_buffer: Buffer,
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame: usize,
@@ -76,11 +76,10 @@ struct InFlightFrame {
 	index_arrays_offset: usize,
 }
 
-#[derive(Clone, Copy)]
 struct MaterialData {
 	descriptor_set: vk::DescriptorSet,
 	secondary_command_buffer: vk::CommandBuffer,
-	static_secondary_command_buffer: vk::CommandBuffer,
+	secondary_static_command_buffer: vk::CommandBuffer,
 	array_offset: usize,
 	array_size: usize
 }
@@ -216,9 +215,9 @@ impl Renderer {
 			basic_pipeline: pipelines[0],
 			normal_pipeline: pipelines[1],
 			lambert_pipeline: pipelines[2],
-			static_basic_descriptor_set: descriptor_sets[0],
-			static_normal_descriptor_set: descriptor_sets[1],
-			static_lambert_descriptor_set: descriptor_sets[2],
+			basic_static_descriptor_set: descriptor_sets[0],
+			normal_static_descriptor_set: descriptor_sets[1],
+			lambert_static_descriptor_set: descriptor_sets[2],
 			static_mesh_buffer,
 			pipeline_layout,
 			in_flight_frames,
@@ -265,7 +264,7 @@ impl Renderer {
 		println!("Swapchain recreated");
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &mut [Mesh]) {
+	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[Mesh]) {
 		let logical_device = &self.context.logical_device;
 
 		// Iterate over meshes to
@@ -278,34 +277,29 @@ impl Renderer {
 			material_groups: Vec<Vec<&'a Mesh>>
 		}
 
+		let mut map: Vec<[Option<usize>; 4]> = vec![[None; 4]; geometries.len()];
 		let mut geometry_groups: Vec<GeometryGroup> = vec![];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
 		let mut instance_counts = [0; 3];
 
-		for mesh in meshes {
-			let other_group_index = (self.current_group_index + 1) % 2;
-			mesh.geometry_group_indices[other_group_index] = None;
-			mesh.material_group_indices[other_group_index] = None;
+		for mesh in meshes.iter() {
+			let geometry_map_index = mesh.geometry_handle.index;
+			let mesh_map_index = mesh.material as usize + 1;
 
-			let current_geometry_group_index = &mut mesh.geometry_group_indices[self.current_group_index];
-			let current_material_group_index = &mut mesh.material_group_indices[self.current_group_index];
-
-			if let Some(geometry_group_index) = current_geometry_group_index {
-				let geometry_group = &mut geometry_groups[*geometry_group_index];
-
-				if let Some(material_group_index) = current_material_group_index {
-					geometry_group.material_groups[*material_group_index].push(mesh);
+			if let Some(geometry_group_index) = map[geometry_map_index][0] {
+				if let Some(material_group_index) = map[geometry_map_index][mesh_map_index] {
+					geometry_groups[geometry_group_index].material_groups[material_group_index].push(mesh);
 				}
 				else {
-					*current_material_group_index = Some(geometry_group.material_groups.len());
-
+					let geometry_group = &mut geometry_groups[geometry_group_index];
+					map[geometry_map_index][mesh_map_index] = Some(geometry_group.material_groups.len());
 					geometry_group.material_groups.push(vec![mesh]);
 				}
 			}
 			else {
-				*current_geometry_group_index = Some(geometry_groups.len());
-				*current_material_group_index = Some(0);
+				map[geometry_map_index][0] = Some(geometry_groups.len());
+				map[geometry_map_index][mesh_map_index] = Some(0);
 
 				let geometry_group = GeometryGroup {
 					index_array_relative_offset: index_arrays_size,
@@ -360,7 +354,7 @@ impl Renderer {
 			let basic_descriptor_buffer_infos = [basic_descriptor_buffer_info.build()];
 
 			let basic_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.static_basic_descriptor_set)
+				.dst_set(self.basic_static_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -374,7 +368,7 @@ impl Renderer {
 			let normal_descriptor_buffer_infos = [normal_descriptor_buffer_info.build()];
 
 			let normal_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.static_normal_descriptor_set)
+				.dst_set(self.normal_static_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -388,7 +382,7 @@ impl Renderer {
 			let lambert_descriptor_buffer_infos = [lambert_descriptor_buffer_info.build()];
 
 			let lambert_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.static_lambert_descriptor_set)
+				.dst_set(self.lambert_static_descriptor_set)
 				.dst_binding(0)
 				.dst_array_element(0)
 				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -453,26 +447,30 @@ impl Renderer {
 				// Copy instance data into staging buffer
 				let current_instance_index = current_instance_indices[material as usize];
 				
-				for instance in material_group {
-					match material {
-						Material::Basic => {
-							let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * current_instance_index;
+				match material {
+					Material::Basic => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
-						},
-						Material::Normal => {
-							let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * current_instance_index;
+						}
+					},
+					Material::Normal => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
-						},
-						Material::Lambert => {
-							let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * current_instance_index;
+						}
+					},
+					Material::Lambert => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
@@ -544,7 +542,7 @@ impl Renderer {
 		self.submit_fonts = true;
 	}
 
-	pub fn render(&mut self, scene: &mut Scene) -> bool {
+	pub fn render(&mut self, scene: &Scene) -> bool {
 		// If new fonts have been added or removed, submit them
 		/*if self.submit_fonts {
 			self.text_manager.submit_fonts(&self.context, self.command_pool);
@@ -587,16 +585,11 @@ impl Renderer {
 		{
 			let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 			
-			let camera = &mut scene.camera;
-			let projection_matrix = &camera.projection_matrix.elements;
+			let projection_matrix = &scene.camera.projection_matrix.elements;
 			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
 			unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, projection_matrix.len()) };
 
-			if camera.auto_update_view_matrix {
-				camera.transform.update_matrix();
-			}
-
-			self.inverse_view_matrix = camera.transform.matrix;
+			self.inverse_view_matrix = scene.camera.transform.matrix;
 			self.inverse_view_matrix.invert();
 			unsafe {
 				let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * size_of::<f32>()) as *mut [f32; 4];
@@ -657,34 +650,29 @@ impl Renderer {
 			material_groups: Vec<Vec<&'a Mesh>>
 		}
 
+		let mut map: Vec<[Option<usize>; 4]> = vec![[None; 4]; scene.geometries.len()];
 		let mut geometry_groups: Vec<GeometryGroup> = vec![];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
 		let mut instance_counts = [0; 3];
 
-		for mesh in scene.meshes.iter_mut() {
-			let other_group_index = (self.current_group_index + 1) % 2;
-			mesh.geometry_group_indices[other_group_index] = None;
-			mesh.material_group_indices[other_group_index] = None;
+		for mesh in scene.meshes.iter() {
+			let geometry_map_index = mesh.geometry_handle.index;
+			let mesh_map_index = mesh.material as usize + 1;
 
-			let current_geometry_group_index = &mut mesh.geometry_group_indices[self.current_group_index];
-			let current_material_group_index = &mut mesh.material_group_indices[self.current_group_index];
-
-			if let Some(geometry_group_index) = current_geometry_group_index {
-				let geometry_group = &mut geometry_groups[*geometry_group_index];
-
-				if let Some(material_group_index) = current_material_group_index {
-					geometry_group.material_groups[*material_group_index].push(mesh);
+			if let Some(geometry_group_index) = map[geometry_map_index][0] {
+				if let Some(material_group_index) = map[geometry_map_index][mesh_map_index] {
+					geometry_groups[geometry_group_index].material_groups[material_group_index].push(mesh);
 				}
 				else {
-					*current_material_group_index = Some(geometry_group.material_groups.len());
-
+					let geometry_group = &mut geometry_groups[geometry_group_index];
+					map[geometry_map_index][mesh_map_index] = Some(geometry_group.material_groups.len());
 					geometry_group.material_groups.push(vec![mesh]);
 				}
 			}
 			else {
-				*current_geometry_group_index = Some(geometry_groups.len());
-				*current_material_group_index = Some(0);
+				map[geometry_map_index][0] = Some(geometry_groups.len());
+				map[geometry_map_index][mesh_map_index] = Some(0);
 
 				let geometry_group = GeometryGroup {
 					index_array_relative_offset: index_arrays_size,
@@ -853,40 +841,31 @@ impl Renderer {
 				let material = material_group[0].material;
 				let current_instance_index = current_instance_indices[material as usize];
 
-				let secondary_command_buffer = match material {
-					Material::Basic => basic_material_data.secondary_command_buffer,
-					Material::Normal => normal_material_data.secondary_command_buffer,
-					Material::Lambert => lambert_material_data.secondary_command_buffer,
-				};
-
-				// Record draw commands
-				unsafe {
-					logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.mesh_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
-					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.mesh_data_buffer.handle], &[attribute_array_offset as u64]);
-					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, material_group.len() as u32, 0, 0, current_instance_index as u32);
-				}
-
 				// Ensure the instance data is copied into the mesh data buffer
-				for instance in material_group {
-					match material {
-						Material::Basic => {
-							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * current_instance_index;
+				match material {
+					Material::Basic => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
-						},
-						Material::Normal => {
-							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * current_instance_index;
+						}
+					},
+					Material::Normal => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
-						},
-						Material::Lambert => {
-							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * current_instance_index;
+						}
+					},
+					Material::Lambert => {
+						for (instance_index, instance) in material_group.iter().enumerate() {
+							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
@@ -894,6 +873,19 @@ impl Renderer {
 							}
 						}
 					}
+				}
+
+				// Record draw commands
+				let secondary_command_buffer = match material {
+					Material::Basic => basic_material_data.secondary_command_buffer,
+					Material::Normal => normal_material_data.secondary_command_buffer,
+					Material::Lambert => lambert_material_data.secondary_command_buffer,
+				};
+
+				unsafe {
+					logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.mesh_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
+					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.mesh_data_buffer.handle], &[attribute_array_offset as u64]);
+					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, material_group.len() as u32, 0, 0, current_instance_index as u32);
 				}
 
 				current_instance_indices[material as usize] += material_group.len();
@@ -917,55 +909,55 @@ impl Renderer {
 
 		// Record static mesh draw commands
 		unsafe {
-			logical_device.begin_command_buffer(basic_material_data.static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(basic_material_data.static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
+			logical_device.begin_command_buffer(basic_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(basic_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.static_secondary_command_buffer,
+				basic_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
 			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.static_secondary_command_buffer,
+				basic_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				1,
-				&[self.static_basic_descriptor_set],
+				&[self.basic_static_descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(normal_material_data.static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(normal_material_data.static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
+			logical_device.begin_command_buffer(normal_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(normal_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.static_secondary_command_buffer,
+				normal_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
 			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.static_secondary_command_buffer,
+				normal_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				1,
-				&[self.static_normal_descriptor_set],
+				&[self.normal_static_descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(lambert_material_data.static_secondary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(lambert_material_data.static_secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
+			logical_device.begin_command_buffer(lambert_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.static_secondary_command_buffer,
+				lambert_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				0,
 				&[in_flight_frame.frame_data_descriptor_set],
 				&[]);
 			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.static_secondary_command_buffer,
+				lambert_material_data.secondary_static_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.pipeline_layout,
 				1,
-				&[self.static_lambert_descriptor_set],
+				&[self.lambert_static_descriptor_set],
 				&[]);
 		}
 
@@ -974,9 +966,9 @@ impl Renderer {
 		for geometry_group in &self.static_geometry_groups {
 			for material_group in &geometry_group.material_groups {
 				let secondary_command_buffer = match material_group.material {
-					Material::Basic => basic_material_data.static_secondary_command_buffer,
-					Material::Normal => normal_material_data.static_secondary_command_buffer,
-					Material::Lambert => lambert_material_data.static_secondary_command_buffer,
+					Material::Basic => basic_material_data.secondary_static_command_buffer,
+					Material::Normal => normal_material_data.secondary_static_command_buffer,
+					Material::Lambert => lambert_material_data.secondary_static_command_buffer,
 				};
 
 				let current_instance_index = current_instance_indices[material_group.material as usize];
@@ -992,9 +984,9 @@ impl Renderer {
 		}
 
 		unsafe {
-			logical_device.end_command_buffer(basic_material_data.static_secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(normal_material_data.static_secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(lambert_material_data.static_secondary_command_buffer).unwrap();
+			logical_device.end_command_buffer(basic_material_data.secondary_static_command_buffer).unwrap();
+			logical_device.end_command_buffer(normal_material_data.secondary_static_command_buffer).unwrap();
+			logical_device.end_command_buffer(lambert_material_data.secondary_static_command_buffer).unwrap();
 		}
 
 		// Record primary command buffer
@@ -1025,11 +1017,11 @@ impl Renderer {
 		
 		let secondary_command_buffers = [
 			basic_material_data.secondary_command_buffer,
-			basic_material_data.static_secondary_command_buffer,
+			basic_material_data.secondary_static_command_buffer,
 			normal_material_data.secondary_command_buffer,
-			normal_material_data.static_secondary_command_buffer,
+			normal_material_data.secondary_static_command_buffer,
 			lambert_material_data.secondary_command_buffer,
-			lambert_material_data.static_secondary_command_buffer
+			lambert_material_data.secondary_static_command_buffer
 		];
 		
 		unsafe {
