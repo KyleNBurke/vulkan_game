@@ -2,7 +2,7 @@ use std::{cmp::max, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
 use crate::{
 	Geometry3D,
-	math::{Matrix3, Matrix4, Vector3},
+	math::{Matrix3, Vector3},
 	Mesh,
 	Material,
 	pool::{Pool, Handle},
@@ -38,7 +38,6 @@ pub struct Renderer {
 	current_group_index: usize,
 	static_geometry_groups: Vec<StaticGeometryGroup>,
 	submit_fonts: bool,
-	inverse_view_matrix: Matrix4,
 	ui_projection_matrix: Matrix3
 }
 
@@ -171,6 +170,66 @@ impl InFlightFrame {
 
 		self.index_arrays_offset = index_arrays_offset;
 	}
+
+	fn copy_frame_data(&self, logical_device: &ash::Device, scene: &Scene) {
+		// Map buffer
+		let buffer_ptr = unsafe { logical_device.map_memory(self.frame_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
+		
+		// Copy data
+		let projection_matrix = &scene.camera.projection_matrix.elements;
+		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
+		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
+
+		let mut inverse_view_matrix = scene.camera.transform.matrix;
+		inverse_view_matrix.invert();
+		unsafe {
+			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * 4) as *mut [f32; 4];
+			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
+		}
+
+		let ambient_light = &scene.ambient_light;
+		let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
+		unsafe {
+			let ambient_light_dst_ptr = buffer_ptr.add(32 * 4) as *mut Vector3;
+			copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
+		}
+
+		let mut point_light_count = 0;
+		let position_base_offest = 36 * 4;
+		let color_base_offest = 40 * 4;
+		let stride = 8 * 4;
+
+		for point_light in scene.point_lights.iter() {
+			let intensified_color = point_light.color * point_light.intensity;
+
+			unsafe {
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+				copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
+
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+			}
+
+			point_light_count += 1;
+		}
+
+		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+		unsafe {
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * 4) as *mut u32;
+			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+		}
+
+		// Flush and unmap buffer
+		let range = vk::MappedMemoryRange::builder()
+			.memory(self.frame_buffer.memory)
+			.offset(0)
+			.size(vk::WHOLE_SIZE);
+		
+		unsafe {		
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
+			logical_device.unmap_memory(self.frame_buffer.memory);
+		}
+	}
 }
 
 impl Renderer {
@@ -225,7 +284,6 @@ impl Renderer {
 			current_group_index: 0,
 			static_geometry_groups: vec![],
 			submit_fonts: false,
-			inverse_view_matrix: Matrix4::new(),
 			ui_projection_matrix
 		}
 	}
@@ -565,7 +623,7 @@ impl Renderer {
 		}*/
 
 		let logical_device = &self.context.logical_device;
-		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
 		
 		// Wait for this in flight frame to become available
 		let fences = [in_flight_frame.fence];
@@ -596,64 +654,109 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
-		// Copy frame data into frame data buffer
-		{
-			let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-			
-			let projection_matrix = &scene.camera.projection_matrix.elements;
-			let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-			unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
+		// Copy frame data into frame buffer
+		in_flight_frame.copy_frame_data(logical_device, scene);
 
-			self.inverse_view_matrix = scene.camera.transform.matrix;
-			self.inverse_view_matrix.invert();
-			unsafe {
-				let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * 4) as *mut [f32; 4];
-				copy_nonoverlapping(self.inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
+		// Render meshes and static meshes
+		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
+			.render_pass(self.render_pass)
+			.subpass(0)
+			.framebuffer(swapchain_frame.framebuffer);
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+			.inheritance_info(&command_buffer_inheritance_info);
+		
+		self.render_meshes(&command_buffer_begin_info, scene);
+		self.render_static_meshes(&command_buffer_begin_info);
+
+		let logical_device = &self.context.logical_device;
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+
+		// Record primary command buffer
+		let color_attachment_clear_value = vk::ClearValue {
+			color: vk::ClearColorValue {
+				float32: [0.0, 0.0, 0.0, 1.0]
 			}
-
-			let ambient_light = &scene.ambient_light;
-			let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
-			unsafe {
-				let ambient_light_dst_ptr = buffer_ptr.add(32 * 4) as *mut Vector3;
-				copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
+		};
+		let depth_attachment_clear_value = vk::ClearValue {
+			depth_stencil: vk::ClearDepthStencilValue {
+				depth: 1.0,
+				stencil: 0,
 			}
+		};
+		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
 
-			let mut point_light_count = 0;
-			let position_base_offest = 36 * 4;
-			let color_base_offest = 40 * 4;
-			let stride = 8 * 4;
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
 
-			for point_light in scene.point_lights.iter() {
-				let intensified_color = point_light.color * point_light.intensity;
-
-				unsafe {
-					let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-					copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
-
-					let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
-					copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
-				}
-
-				point_light_count += 1;
-			}
-
-			assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
-			unsafe {
-				let point_light_count_dst_ptr = buffer_ptr.add(35 * 4) as *mut u32;
-				copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
-			}
-
-			// Flush and unmap buffer
-			let range = vk::MappedMemoryRange::builder()
-				.memory(in_flight_frame.frame_buffer.memory)
-				.offset(0)
-				.size(vk::WHOLE_SIZE);
-			
-			unsafe {		
-				logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
-				logical_device.unmap_memory(in_flight_frame.frame_buffer.memory);
-			}
+		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+			.render_pass(self.render_pass)
+			.framebuffer(self.swapchain.frames[image_index as usize].framebuffer)
+			.render_area(vk::Rect2D::builder()
+				.offset(vk::Offset2D::builder().x(0).y(0).build())
+				.extent(self.swapchain.extent)
+				.build())
+			.clear_values(&clear_colors);
+		
+		let secondary_command_buffers = [
+			in_flight_frame.basic_material_data.secondary_command_buffer,
+			in_flight_frame.basic_material_data.secondary_static_command_buffer,
+			in_flight_frame.normal_material_data.secondary_command_buffer,
+			in_flight_frame.normal_material_data.secondary_static_command_buffer,
+			in_flight_frame.lambert_material_data.secondary_command_buffer,
+			in_flight_frame.lambert_material_data.secondary_static_command_buffer
+		];
+		
+		unsafe {
+			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_begin_render_pass(in_flight_frame.primary_command_buffer, &render_pass_begin_info, vk::SubpassContents::SECONDARY_COMMAND_BUFFERS);
+			logical_device.cmd_execute_commands(in_flight_frame.primary_command_buffer, &secondary_command_buffers);
+			logical_device.cmd_end_render_pass(in_flight_frame.primary_command_buffer);
+			logical_device.end_command_buffer(in_flight_frame.primary_command_buffer).unwrap();
 		}
+
+		// Wait for image to be available then submit command buffer
+		let image_available_semaphores = [in_flight_frame.image_available];
+		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+		let command_buffers = [in_flight_frame.primary_command_buffer];
+		let render_finished_semaphores = [in_flight_frame.render_finished];
+		let submit_info = vk::SubmitInfo::builder()
+			.wait_semaphores(&image_available_semaphores)
+			.wait_dst_stage_mask(&wait_stages)
+			.command_buffers(&command_buffers)
+			.signal_semaphores(&render_finished_semaphores);
+
+		unsafe {
+			logical_device.reset_fences(&fences).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
+		}
+
+		// Wait for render to finish then present swapchain image
+		let swapchains = [self.swapchain.handle];
+		let image_indices = [image_index];
+		let present_info = vk::PresentInfoKHR::builder()
+			.wait_semaphores(&render_finished_semaphores)
+			.swapchains(&swapchains)
+			.image_indices(&image_indices);
+		
+		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
+
+		let surface_changed = match result {
+			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
+			Err(e) => panic!("Could not present swapchain image: {}", e),
+			_ => false
+		};
+
+		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;
+		self.current_group_index = (self.current_group_index + 1) % 2;
+
+		surface_changed
+	}
+
+	fn render_meshes(&mut self, command_buffer_begin_info: &vk::CommandBufferBeginInfo, scene: &Scene) {
+		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
+		let logical_device = &self.context.logical_device;
 
 		// Iterate over meshes to
 		// - Group meshes together which share the same geometry and material
@@ -767,18 +870,9 @@ impl Renderer {
 
 		// Copy mesh data into mesh data buffer and record draw commands
 		let mesh_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-
-		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
-			.render_pass(self.render_pass)
-			.subpass(0)
-			.framebuffer(swapchain_frame.framebuffer);
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-			.inheritance_info(&command_buffer_inheritance_info);
 		
 		unsafe {
-			logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(basic_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				basic_material_data.secondary_command_buffer,
@@ -795,7 +889,7 @@ impl Renderer {
 				&[basic_material_data.descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(normal_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				normal_material_data.secondary_command_buffer,
@@ -812,7 +906,7 @@ impl Renderer {
 				&[normal_material_data.descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				lambert_material_data.secondary_command_buffer,
@@ -929,10 +1023,18 @@ impl Renderer {
 			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(in_flight_frame.mesh_buffer.memory);
 		}
+	}
 
-		// Record static mesh draw commands
+	fn render_static_meshes(&self, command_buffer_begin_info: &vk::CommandBufferBeginInfo) {
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+		let logical_device = &self.context.logical_device;
+
+		let basic_material_data = &in_flight_frame.basic_material_data;
+		let normal_material_data = &in_flight_frame.normal_material_data;
+		let lambert_material_data = &in_flight_frame.lambert_material_data;
+
 		unsafe {
-			logical_device.begin_command_buffer(basic_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(basic_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(basic_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				basic_material_data.secondary_static_command_buffer,
@@ -949,7 +1051,7 @@ impl Renderer {
 				&[self.basic_static_descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(normal_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(normal_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(normal_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				normal_material_data.secondary_static_command_buffer,
@@ -966,7 +1068,7 @@ impl Renderer {
 				&[self.normal_static_descriptor_set],
 				&[]);
 			
-			logical_device.begin_command_buffer(lambert_material_data.secondary_static_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.begin_command_buffer(lambert_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
 			logical_device.cmd_bind_descriptor_sets(
 				lambert_material_data.secondary_static_command_buffer,
@@ -1011,86 +1113,6 @@ impl Renderer {
 			logical_device.end_command_buffer(normal_material_data.secondary_static_command_buffer).unwrap();
 			logical_device.end_command_buffer(lambert_material_data.secondary_static_command_buffer).unwrap();
 		}
-
-		// Record primary command buffer
-		let color_attachment_clear_value = vk::ClearValue {
-			color: vk::ClearColorValue {
-				float32: [0.0, 0.0, 0.0, 1.0]
-			}
-		};
-		let depth_attachment_clear_value = vk::ClearValue {
-			depth_stencil: vk::ClearDepthStencilValue {
-				depth: 1.0,
-				stencil: 0,
-			}
-		};
-		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-			.render_pass(self.render_pass)
-			.framebuffer(swapchain_frame.framebuffer)
-			.render_area(vk::Rect2D::builder()
-				.offset(vk::Offset2D::builder().x(0).y(0).build())
-				.extent(self.swapchain.extent)
-				.build())
-			.clear_values(&clear_colors);
-		
-		let secondary_command_buffers = [
-			basic_material_data.secondary_command_buffer,
-			basic_material_data.secondary_static_command_buffer,
-			normal_material_data.secondary_command_buffer,
-			normal_material_data.secondary_static_command_buffer,
-			lambert_material_data.secondary_command_buffer,
-			lambert_material_data.secondary_static_command_buffer
-		];
-		
-		unsafe {
-			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_begin_render_pass(in_flight_frame.primary_command_buffer, &render_pass_begin_info, vk::SubpassContents::SECONDARY_COMMAND_BUFFERS);
-			logical_device.cmd_execute_commands(in_flight_frame.primary_command_buffer, &secondary_command_buffers);
-			logical_device.cmd_end_render_pass(in_flight_frame.primary_command_buffer);
-			logical_device.end_command_buffer(in_flight_frame.primary_command_buffer).unwrap();
-		}
-
-		// Wait for image to be available then submit command buffer
-		let image_available_semaphores = [in_flight_frame.image_available];
-		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-		let command_buffers = [in_flight_frame.primary_command_buffer];
-		let render_finished_semaphores = [in_flight_frame.render_finished];
-		let submit_info = vk::SubmitInfo::builder()
-			.wait_semaphores(&image_available_semaphores)
-			.wait_dst_stage_mask(&wait_stages)
-			.command_buffers(&command_buffers)
-			.signal_semaphores(&render_finished_semaphores);
-
-		unsafe {
-			logical_device.reset_fences(&fences).unwrap();
-			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
-		}
-
-		// Wait for render to finish then present swapchain image
-		let swapchains = [self.swapchain.handle];
-		let image_indices = [image_index];
-		let present_info = vk::PresentInfoKHR::builder()
-			.wait_semaphores(&render_finished_semaphores)
-			.swapchains(&swapchains)
-			.image_indices(&image_indices);
-		
-		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
-
-		let surface_changed = match result {
-			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
-			Err(e) => panic!("Could not present swapchain image: {}", e),
-			_ => false
-		};
-
-		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;
-		self.current_group_index = (self.current_group_index + 1) % 2;
-
-		surface_changed
 	}
 }
 
