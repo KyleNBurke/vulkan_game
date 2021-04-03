@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs, mem::{self, MaybeUninit, transmute, size_of, size_of_val}, ptr::copy_nonoverlapping};
+use std::{ffi::CString, fs, mem::{MaybeUninit, transmute}};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::vulkan::{Context, Buffer};
 use super::*;
@@ -583,16 +583,16 @@ pub(super) fn create_in_flight_frames(
 		let frame_data_descriptor_set = descriptor_sets[0];
 		let primary_command_buffer = primary_command_buffers[index];
 
-		let frame_data_buffer = Buffer::new(context, FRAME_DATA_MEMORY_SIZE as u64, vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE);
+		let frame_buffer = Buffer::new(context, FRAME_DATA_MEMORY_SIZE as u64, vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
-		let mesh_data_buffer = Buffer::new(
+		let mesh_buffer = Buffer::new(
 			context,
 			1,
 			vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
 			vk::MemoryPropertyFlags::HOST_VISIBLE);
 		
 		let frame_data_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(frame_data_buffer.handle)
+			.buffer(frame_buffer.handle)
 			.offset(0)
 			.range(vk::WHOLE_SIZE);
 		let frame_data_descriptor_buffer_infos = [frame_data_descriptor_buffer_info.build()];
@@ -637,8 +637,8 @@ pub(super) fn create_in_flight_frames(
 			fence,
 			frame_data_descriptor_set,
 			primary_command_buffer,
-			frame_data_buffer,
-			mesh_data_buffer,
+			frame_buffer,
+			mesh_buffer,
 			basic_material_data,
 			normal_material_data,
 			lambert_material_data,

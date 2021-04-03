@@ -6,7 +6,8 @@ pub struct PhysicalDevice {
 	pub graphics_queue_family: u32,
 	pub present_queue_family: u32,
 	pub memory_properties: vk::PhysicalDeviceMemoryProperties,
-	pub min_uniform_buffer_offset_alignment: u64
+	pub min_uniform_buffer_offset_alignment: u64,
+	pub min_storage_buffer_offset_alignment: u64
 }
 
 impl PhysicalDevice {
@@ -64,7 +65,8 @@ impl PhysicalDevice {
 				graphics_queue_family: graphics_queue_family.unwrap() as u32,
 				present_queue_family: present_queue_family.unwrap() as u32,
 				memory_properties: unsafe { instance.get_physical_device_memory_properties(device) },
-				min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment
+				min_uniform_buffer_offset_alignment: properties.limits.min_uniform_buffer_offset_alignment,
+				min_storage_buffer_offset_alignment: properties.limits.min_storage_buffer_offset_alignment
 			}
 		}
 
