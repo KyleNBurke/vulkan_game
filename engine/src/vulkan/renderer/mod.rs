@@ -34,7 +34,7 @@ pub struct Renderer {
 	lambert_static_descriptor_set: vk::DescriptorSet,
 	static_mesh_buffer: Buffer,
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
-	current_in_flight_frame: usize,
+	current_in_flight_frame_index: usize,
 	current_group_index: usize,
 	static_geometry_groups: Vec<StaticGeometryGroup>,
 	submit_fonts: bool,
@@ -280,7 +280,7 @@ impl Renderer {
 			static_mesh_buffer,
 			pipeline_layout,
 			in_flight_frames,
-			current_in_flight_frame: 0,
+			current_in_flight_frame_index: 0,
 			current_group_index: 0,
 			static_geometry_groups: vec![],
 			submit_fonts: false,
@@ -623,11 +623,10 @@ impl Renderer {
 		}*/
 
 		let logical_device = &self.context.logical_device;
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
 		
 		// Wait for this in flight frame to become available
-		let fences = [in_flight_frame.fence];
-		unsafe { logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
+		unsafe { logical_device.wait_for_fences(&[in_flight_frame.fence], true, std::u64::MAX) }.unwrap();
 		
 		// Acquire a swapchain image to render to
 		let result = unsafe {
@@ -648,8 +647,7 @@ impl Renderer {
 
 		// Wait for swapchain frame to become available
 		if swapchain_frame.fence != vk::Fence::null() {
-			let fences = [swapchain_frame.fence];
-			unsafe { logical_device.wait_for_fences(&fences, true, std::u64::MAX).unwrap() };
+			unsafe { logical_device.wait_for_fences(&[swapchain_frame.fence], true, std::u64::MAX) }.unwrap();
 		}
 
 		swapchain_frame.fence = in_flight_frame.fence;
@@ -671,7 +669,7 @@ impl Renderer {
 		self.render_static_meshes(&command_buffer_begin_info);
 
 		let logical_device = &self.context.logical_device;
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
 
 		// Record primary command buffer
 		let color_attachment_clear_value = vk::ClearValue {
@@ -728,7 +726,7 @@ impl Renderer {
 			.signal_semaphores(&render_finished_semaphores);
 
 		unsafe {
-			logical_device.reset_fences(&fences).unwrap();
+			logical_device.reset_fences(&[in_flight_frame.fence]).unwrap();
 			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
 		}
 
@@ -748,14 +746,14 @@ impl Renderer {
 			_ => false
 		};
 
-		self.current_in_flight_frame = (self.current_in_flight_frame + 1) % IN_FLIGHT_FRAMES_COUNT;
+		self.current_in_flight_frame_index = (self.current_in_flight_frame_index + 1) % IN_FLIGHT_FRAMES_COUNT;
 		self.current_group_index = (self.current_group_index + 1) % 2;
 
 		surface_changed
 	}
 
 	fn render_meshes(&mut self, command_buffer_begin_info: &vk::CommandBufferBeginInfo, scene: &Scene) {
-		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame];
+		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		let logical_device = &self.context.logical_device;
 
 		// Iterate over meshes to
@@ -809,20 +807,24 @@ impl Renderer {
 			instance_counts[mesh.material as usize] += 1;
 		}
 
+		let basic_instance_count = instance_counts[Material::Basic as usize];
+		let normal_instance_count = instance_counts[Material::Normal as usize];
+		let lambert_instance_count = instance_counts[Material::Lambert as usize];
+
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * instance_counts[Material::Basic as usize];
+		let basic_instance_data_array_size = 4 * 16 * basic_instance_count;
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * instance_counts[Material::Normal as usize];
+		let normal_instance_data_array_size = 4 * 16 * normal_instance_count;
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * instance_counts[Material::Lambert as usize];
+		let lambert_instance_data_array_size = 4 * 16 * lambert_instance_count;
 
 		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		
@@ -846,7 +848,7 @@ impl Renderer {
 				lambert_instance_data_array_size,
 				index_arrays_offset);
 			
-			println!("In flight frame {} mesh buffer reallocated", self.current_in_flight_frame);
+			println!("In flight frame {} mesh buffer reallocated", self.current_in_flight_frame_index);
 		}
 		else if
 			basic_instance_data_array_size > in_flight_frame.basic_material_data.array_size ||
@@ -1026,7 +1028,7 @@ impl Renderer {
 	}
 
 	fn render_static_meshes(&self, command_buffer_begin_info: &vk::CommandBufferBeginInfo) {
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame];
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
 		let logical_device = &self.context.logical_device;
 
 		let basic_material_data = &in_flight_frame.basic_material_data;
