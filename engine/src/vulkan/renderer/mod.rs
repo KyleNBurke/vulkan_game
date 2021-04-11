@@ -36,7 +36,10 @@ pub struct Renderer {
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame_index: usize,
 	current_group_index: usize,
-	static_geometry_groups: Vec<StaticGeometryGroup>,
+	static_geometry_infos: Vec<StaticGeometryInfo>,
+	basic_static_instance_infos: Vec<StaticInstanceInfo>,
+	normal_static_instance_infos: Vec<StaticInstanceInfo>,
+	lambert_static_instance_infos: Vec<StaticInstanceInfo>,
 	submit_fonts: bool,
 	ui_projection_matrix: Matrix3
 }
@@ -78,20 +81,18 @@ struct InFlightFrame {
 struct MaterialData {
 	descriptor_set: vk::DescriptorSet,
 	secondary_command_buffer: vk::CommandBuffer,
-	secondary_static_command_buffer: vk::CommandBuffer,
 	array_offset: usize,
 	array_size: usize
 }
 
-struct StaticGeometryGroup {
+struct StaticGeometryInfo {
 	index_array_offset: usize,
 	attribute_array_offset: usize,
-	indices_count: usize,
-	material_groups: Vec<StaticMaterialGroup>
+	indices_count: usize
 }
 
-struct StaticMaterialGroup {
-	material: Material,
+struct StaticInstanceInfo {
+	geometry_info_index: usize,
 	instance_count: usize
 }
 
@@ -282,7 +283,10 @@ impl Renderer {
 			in_flight_frames,
 			current_in_flight_frame_index: 0,
 			current_group_index: 0,
-			static_geometry_groups: vec![],
+			static_geometry_infos: vec![],
+			basic_static_instance_infos: vec![],
+			normal_static_instance_infos: vec![],
+			lambert_static_instance_infos: vec![],
 			submit_fonts: false,
 			ui_projection_matrix
 		}
@@ -323,7 +327,10 @@ impl Renderer {
 	}
 
 	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[Mesh]) {
-		self.static_geometry_groups.clear();
+		self.static_geometry_infos.clear();
+		self.basic_static_instance_infos.clear();
+		self.normal_static_instance_infos.clear();
+		self.lambert_static_instance_infos.clear();
 		
 		if meshes.is_empty() {
 			return;
@@ -334,68 +341,93 @@ impl Renderer {
 		// Iterate over meshes to
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
-		struct GeometryGroup<'a> {
+		#[derive(Clone)]
+		struct TempGeometryInfo {
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize,
 			copied: bool,
-			material_groups: Vec<Vec<&'a Mesh>>
+			static_geometry_info_index: usize
 		}
 
-		let mut map: Vec<[Option<usize>; 4]> = vec![[None; 4]; geometries.len()];
-		let mut geometry_groups: Vec<GeometryGroup> = vec![];
+		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; geometries.len()];
+
+		struct TempMaterialGroup<'a> {
+			map: Vec<Option<usize>>,
+			instance_groups: Vec<Vec<&'a Mesh>>,
+			instance_count: usize
+		}
+
+		let mut material_groups: [TempMaterialGroup; 3] = [
+			TempMaterialGroup {
+				map: vec![None; geometries.len()],
+				instance_groups: vec![],
+				instance_count: 0
+			},
+			TempMaterialGroup {
+				map: vec![None; geometries.len()],
+				instance_groups: vec![],
+				instance_count: 0
+			},
+			TempMaterialGroup {
+				map: vec![None; geometries.len()],
+				instance_groups: vec![],
+				instance_count: 0
+			}
+		];
+		
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
-		let mut instance_counts = [0; 3];
 
 		for mesh in meshes.iter() {
-			let geometry_map_index = mesh.geometry_handle.index;
-			let mesh_map_index = mesh.material as usize + 1;
+			let geometry_info = &mut geometry_infos[mesh.geometry_handle.index];
 
-			if let Some(geometry_group_index) = map[geometry_map_index][0] {
-				if let Some(material_group_index) = map[geometry_map_index][mesh_map_index] {
-					geometry_groups[geometry_group_index].material_groups[material_group_index].push(mesh);
-				}
-				else {
-					let geometry_group = &mut geometry_groups[geometry_group_index];
-					map[geometry_map_index][mesh_map_index] = Some(geometry_group.material_groups.len());
-					geometry_group.material_groups.push(vec![mesh]);
-				}
-			}
-			else {
-				map[geometry_map_index][0] = Some(geometry_groups.len());
-				map[geometry_map_index][mesh_map_index] = Some(0);
-
-				let geometry_group = GeometryGroup {
+			if geometry_info.is_none() {
+				*geometry_info = Some(TempGeometryInfo {
 					index_array_relative_offset: index_arrays_size,
 					attribute_array_relative_offset: attribute_arrays_size,
 					copied: false,
-					material_groups: vec![vec![mesh]]
-				};
-
-				geometry_groups.push(geometry_group);
+					static_geometry_info_index: self.static_geometry_infos.len()
+				});
 
 				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+
+				self.static_geometry_infos.push(StaticGeometryInfo {
+					index_array_offset: 0,
+					attribute_array_offset: 0,
+					indices_count: geometry.indices.len()
+				});
+				
 				index_arrays_size += size_of_val(&geometry.indices[..]);
 				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
 			}
 
-			instance_counts[mesh.material as usize] += 1;
+			let material_group = &mut material_groups[mesh.material as usize];
+
+			if let Some(instance_group_index) = material_group.map[mesh.geometry_handle.index] {
+				material_group.instance_groups[instance_group_index].push(mesh);
+			}
+			else {
+				material_group.map[mesh.geometry_handle.index] = Some(material_group.instance_groups.len());
+				material_group.instance_groups.push(vec![mesh]);
+			}
+
+			material_group.instance_count += 1;
 		}
 
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * instance_counts[Material::Basic as usize];
+		let basic_instance_data_array_size = 4 * 16 * material_groups[Material::Basic as usize].instance_count;
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * instance_counts[Material::Normal as usize];
+		let normal_instance_data_array_size = 4 * 16 * material_groups[Material::Normal as usize].instance_count;
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * instance_counts[Material::Lambert as usize];
+		let lambert_instance_data_array_size = 4 * 16 * material_groups[Material::Lambert as usize].instance_count;
 
 		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		
@@ -471,90 +503,89 @@ impl Renderer {
 
 		// Copy mesh data into staging buffer and save draw information
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-		
-		let mut current_instance_indices = [0; 3];
 
-		for geometry_group in &mut geometry_groups {
-			let geometry_handle = &geometry_group.material_groups[0][0].geometry_handle;
-			let geometry = geometries.get(geometry_handle).unwrap();
+		for material_group in &material_groups {
+			let mut group_index = 0;
 
-			let index_array_offset = index_arrays_offset + geometry_group.index_array_relative_offset;
-			let attribute_array_offset = attribute_arrays_offset + geometry_group.attribute_array_relative_offset;
+			for instance_group in &material_group.instance_groups {
+				let geometry_handle = &instance_group[0].geometry_handle;
+				let geometry_info = geometry_infos[geometry_handle.index].as_mut().unwrap();
+				let geometry = geometries.get(geometry_handle).unwrap();
 
-			// Ensure geometry data is copied into staging buffer
-			if !geometry_group.copied {
-				let indices = &geometry.indices;
-				let attributes = &geometry.attributes;
+				let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
+				let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
 
-				unsafe {
-					let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
-					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+				// Ensure geometry data is copied into the buffer and save the absolute geometry offsets
+				if !geometry_info.copied {
+					let indices = &geometry.indices;
+					let attributes = &geometry.attributes;
 
-					let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
-					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+					unsafe {
+						let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
+						copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+
+						let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
+						copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+					}
+
+					geometry_info.copied = true;
+
+					let static_geometry_info = &mut self.static_geometry_infos[geometry_info.static_geometry_info_index];
+					static_geometry_info.index_array_offset = index_array_offset;
+					static_geometry_info.attribute_array_offset = attribute_array_offset;
 				}
 
-				geometry_group.copied = true;
-			}
-
-			// Create geometry draw information
-			let mut static_geometry_group = StaticGeometryGroup {
-				index_array_offset,
-				attribute_array_offset,
-				indices_count: geometry.indices.len(),
-				material_groups: Vec::with_capacity(geometry_group.material_groups.len())
-			};
-
-			for material_group in &geometry_group.material_groups {
-				let material = material_group[0].material;
-
-				// Create material draw information
-				static_geometry_group.material_groups.push(StaticMaterialGroup {
-					material,
-					instance_count: material_group.len()
-				});
-
-				// Copy instance data into staging buffer
-				let current_instance_index = current_instance_indices[material as usize];
-				
-				match material {
+				// Ensure the instance data is copied into the buffer and save instance group info
+				match instance_group[0].material {
 					Material::Basic => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in instance_group.iter().enumerate() {
+							let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
+
+						self.basic_static_instance_infos.push(StaticInstanceInfo {
+							geometry_info_index: geometry_info.static_geometry_info_index,
+							instance_count: instance_group.len()
+						});
 					},
 					Material::Normal => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in instance_group.iter().enumerate() {
+							let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
+
+						self.normal_static_instance_infos.push(StaticInstanceInfo {
+							geometry_info_index: geometry_info.static_geometry_info_index,
+							instance_count: instance_group.len()
+						});
 					},
 					Material::Lambert => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in instance_group.iter().enumerate() {
+							let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
+
+						self.lambert_static_instance_infos.push(StaticInstanceInfo {
+							geometry_info_index: geometry_info.static_geometry_info_index,
+							instance_count: instance_group.len()
+						});
 					}
 				}
 
-				current_instance_indices[material as usize] += material_group.len();
+				group_index += instance_group.len();
 			}
-
-			// Save draw information
-			self.static_geometry_groups.push(static_geometry_group);
 		}
 
 		// Flush and unmap staging buffer
@@ -623,7 +654,7 @@ impl Renderer {
 		}*/
 
 		let logical_device = &self.context.logical_device;
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
+		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		
 		// Wait for this in flight frame to become available
 		unsafe { logical_device.wait_for_fences(&[in_flight_frame.fence], true, std::u64::MAX) }.unwrap();
@@ -655,176 +686,91 @@ impl Renderer {
 		// Copy frame data into frame buffer
 		in_flight_frame.copy_frame_data(logical_device, scene);
 
-		// Render meshes and static meshes
-		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
-			.render_pass(self.render_pass)
-			.subpass(0)
-			.framebuffer(swapchain_frame.framebuffer);
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
-			.inheritance_info(&command_buffer_inheritance_info);
-		
-		self.render_meshes(&command_buffer_begin_info, scene);
-		self.render_static_meshes(&command_buffer_begin_info);
-
-		let logical_device = &self.context.logical_device;
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
-
-		// Record primary command buffer
-		let color_attachment_clear_value = vk::ClearValue {
-			color: vk::ClearColorValue {
-				float32: [0.0, 0.0, 0.0, 1.0]
-			}
-		};
-		let depth_attachment_clear_value = vk::ClearValue {
-			depth_stencil: vk::ClearDepthStencilValue {
-				depth: 1.0,
-				stencil: 0,
-			}
-		};
-		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
-
-		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
-			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-
-		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
-			.render_pass(self.render_pass)
-			.framebuffer(self.swapchain.frames[image_index as usize].framebuffer)
-			.render_area(vk::Rect2D::builder()
-				.offset(vk::Offset2D::builder().x(0).y(0).build())
-				.extent(self.swapchain.extent)
-				.build())
-			.clear_values(&clear_colors);
-		
-		let secondary_command_buffers = [
-			in_flight_frame.basic_material_data.secondary_command_buffer,
-			in_flight_frame.basic_material_data.secondary_static_command_buffer,
-			in_flight_frame.normal_material_data.secondary_command_buffer,
-			in_flight_frame.normal_material_data.secondary_static_command_buffer,
-			in_flight_frame.lambert_material_data.secondary_command_buffer,
-			in_flight_frame.lambert_material_data.secondary_static_command_buffer
-		];
-		
-		unsafe {
-			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_begin_render_pass(in_flight_frame.primary_command_buffer, &render_pass_begin_info, vk::SubpassContents::SECONDARY_COMMAND_BUFFERS);
-			logical_device.cmd_execute_commands(in_flight_frame.primary_command_buffer, &secondary_command_buffers);
-			logical_device.cmd_end_render_pass(in_flight_frame.primary_command_buffer);
-			logical_device.end_command_buffer(in_flight_frame.primary_command_buffer).unwrap();
-		}
-
-		// Wait for image to be available then submit command buffer
-		let image_available_semaphores = [in_flight_frame.image_available];
-		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-		let command_buffers = [in_flight_frame.primary_command_buffer];
-		let render_finished_semaphores = [in_flight_frame.render_finished];
-		let submit_info = vk::SubmitInfo::builder()
-			.wait_semaphores(&image_available_semaphores)
-			.wait_dst_stage_mask(&wait_stages)
-			.command_buffers(&command_buffers)
-			.signal_semaphores(&render_finished_semaphores);
-
-		unsafe {
-			logical_device.reset_fences(&[in_flight_frame.fence]).unwrap();
-			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
-		}
-
-		// Wait for render to finish then present swapchain image
-		let swapchains = [self.swapchain.handle];
-		let image_indices = [image_index];
-		let present_info = vk::PresentInfoKHR::builder()
-			.wait_semaphores(&render_finished_semaphores)
-			.swapchains(&swapchains)
-			.image_indices(&image_indices);
-		
-		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
-
-		let surface_changed = match result {
-			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
-			Err(e) => panic!("Could not present swapchain image: {}", e),
-			_ => false
-		};
-
-		self.current_in_flight_frame_index = (self.current_in_flight_frame_index + 1) % IN_FLIGHT_FRAMES_COUNT;
-		self.current_group_index = (self.current_group_index + 1) % 2;
-
-		surface_changed
-	}
-
-	fn render_meshes(&mut self, command_buffer_begin_info: &vk::CommandBufferBeginInfo, scene: &Scene) {
-		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
-		let logical_device = &self.context.logical_device;
-
 		// Iterate over meshes to
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
-		struct GeometryGroup<'a> {
+		#[derive(Clone)]
+		struct TempGeometryInfo {
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize,
-			copied: bool,
-			material_groups: Vec<Vec<&'a Mesh>>
+			copied: bool
 		}
 
-		let mut map: Vec<[Option<usize>; 4]> = vec![[None; 4]; scene.geometries.len()];
-		let mut geometry_groups: Vec<GeometryGroup> = vec![];
+		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; scene.geometries.len()];
+
+		struct TempMaterialGroup<'a> {
+			map: Vec<Option<usize>>,
+			instance_groups: Vec<Vec<&'a Mesh>>,
+			instance_count: usize
+		}
+
+		let mut basic_material_group = TempMaterialGroup {
+			map: vec![None; scene.geometries.len()],
+			instance_groups: vec![],
+			instance_count: 0
+		};
+
+		let mut normal_material_group = TempMaterialGroup {
+			map: vec![None; scene.geometries.len()],
+			instance_groups: vec![],
+			instance_count: 0
+		};
+
+		let mut lambert_material_group = TempMaterialGroup {
+			map: vec![None; scene.geometries.len()],
+			instance_groups: vec![],
+			instance_count: 0
+		};
+		
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
-		let mut instance_counts = [0; 3];
 
 		for mesh in scene.meshes.iter() {
-			let geometry_map_index = mesh.geometry_handle.index;
-			let mesh_map_index = mesh.material as usize + 1;
+			let geometry_info = &mut geometry_infos[mesh.geometry_handle.index];
 
-			if let Some(geometry_group_index) = map[geometry_map_index][0] {
-				if let Some(material_group_index) = map[geometry_map_index][mesh_map_index] {
-					geometry_groups[geometry_group_index].material_groups[material_group_index].push(mesh);
-				}
-				else {
-					let geometry_group = &mut geometry_groups[geometry_group_index];
-					map[geometry_map_index][mesh_map_index] = Some(geometry_group.material_groups.len());
-					geometry_group.material_groups.push(vec![mesh]);
-				}
-			}
-			else {
-				map[geometry_map_index][0] = Some(geometry_groups.len());
-				map[geometry_map_index][mesh_map_index] = Some(0);
-
-				let geometry_group = GeometryGroup {
+			if geometry_info.is_none() {
+				*geometry_info = Some(TempGeometryInfo {
 					index_array_relative_offset: index_arrays_size,
 					attribute_array_relative_offset: attribute_arrays_size,
-					copied: false,
-					material_groups: vec![vec![mesh]]
-				};
-
-				geometry_groups.push(geometry_group);
+					copied: false
+				});
 
 				let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
 				index_arrays_size += size_of_val(&geometry.indices[..]);
 				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
 			}
 
-			instance_counts[mesh.material as usize] += 1;
-		}
+			let material_group = match mesh.material {
+				Material::Basic => &mut basic_material_group,
+				Material::Normal => &mut normal_material_group,
+				Material::Lambert => &mut lambert_material_group
+			};
 
-		let basic_instance_count = instance_counts[Material::Basic as usize];
-		let normal_instance_count = instance_counts[Material::Normal as usize];
-		let lambert_instance_count = instance_counts[Material::Lambert as usize];
+			if let Some(instance_group_index) = material_group.map[mesh.geometry_handle.index] {
+				material_group.instance_groups[instance_group_index].push(mesh);
+			}
+			else {
+				material_group.map[mesh.geometry_handle.index] = Some(material_group.instance_groups.len());
+				material_group.instance_groups.push(vec![mesh]);
+			}
+
+			material_group.instance_count += 1;
+		}
 
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * basic_instance_count;
+		let basic_instance_data_array_size = 4 * 16 * basic_material_group.instance_count;
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * normal_instance_count;
+		let normal_instance_data_array_size = 4 * 16 * normal_material_group.instance_count;
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * lambert_instance_count;
+		let lambert_instance_data_array_size = 4 * 16 * lambert_material_group.instance_count;
 
 		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		
@@ -866,128 +812,84 @@ impl Renderer {
 				index_arrays_offset);
 		}
 
+		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
 		let basic_material_data = &in_flight_frame.basic_material_data;
 		let normal_material_data = &in_flight_frame.normal_material_data;
 		let lambert_material_data = &in_flight_frame.lambert_material_data;
 
 		// Copy mesh data into mesh data buffer and record draw commands
-		let mesh_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-		
-		unsafe {
-			logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(basic_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[basic_material_data.descriptor_set],
-				&[]);
-			
-			logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(normal_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[normal_material_data.descriptor_set],
-				&[]);
-			
-			logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[lambert_material_data.descriptor_set],
-				&[]);
-		}
+		let mesh_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 
+		// Copy mesh data into mesh buffer and record draw commands
+		let command_buffer_inheritance_info = vk::CommandBufferInheritanceInfo::builder()
+			.render_pass(self.render_pass)
+			.subpass(0)
+			.framebuffer(swapchain_frame.framebuffer);
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::RENDER_PASS_CONTINUE | vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT)
+			.inheritance_info(&command_buffer_inheritance_info);
+		
 		let index_arrays_offset = in_flight_frame.index_arrays_offset;
 		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
 		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
 		let attribute_arrays_offset = unaligned_attribute_arrays_offset + attribute_arrays_padding;
 
-		let mut current_instance_indices = [0; 3];
+		let mut render_instance_groups = |instance_groups: &Vec<Vec<&Mesh>>, secondary_command_buffer: vk::CommandBuffer| {
+			let mut group_index = 0;
 
-		for geometry_group in &mut geometry_groups {
-			let geometry_handle = &geometry_group.material_groups[0][0].geometry_handle;
-			let geometry = scene.geometries.get(geometry_handle).unwrap();
+			for group in instance_groups {
+				let geometry_handle = &group[0].geometry_handle;
+				let geometry_info = geometry_infos[geometry_handle.index].as_mut().unwrap();
+				let geometry = scene.geometries.get(geometry_handle).unwrap();
 
-			let index_array_offset = index_arrays_offset + geometry_group.index_array_relative_offset;
-			let attribute_array_offset = attribute_arrays_offset + geometry_group.attribute_array_relative_offset;
+				let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
+				let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
 
-			// Ensure geometry data is copied into the mesh data buffer
-			if !geometry_group.copied {
-				let indices = &geometry.indices;
-				let attributes = &geometry.attributes;
+				// Ensure geometry data is copied into the mesh data buffer
+				if !geometry_info.copied {
+					let indices = &geometry.indices;
+					let attributes = &geometry.attributes;
 
-				unsafe {
-					let index_array_dst_ptr = mesh_data_buffer_ptr.add(index_array_offset) as *mut u16;
-					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+					unsafe {
+						let index_array_dst_ptr = mesh_buffer_ptr.add(index_array_offset) as *mut u16;
+						copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
 
-					let attribute_array_dst_ptr = mesh_data_buffer_ptr.add(attribute_array_offset) as *mut f32;
-					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+						let attribute_array_dst_ptr = mesh_buffer_ptr.add(attribute_array_offset) as *mut f32;
+						copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+					}
+
+					geometry_info.copied = true;
 				}
 
-				geometry_group.copied = true;
-			}
-
-			for material_group in &geometry_group.material_groups {
-				let material = material_group[0].material;
-				let current_instance_index = current_instance_indices[material as usize];
-
 				// Ensure the instance data is copied into the mesh data buffer
-				match material {
+				match group[0].material {
 					Material::Basic => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in group.iter().enumerate() {
+							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
-								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								let instance_data_dst_ptr = mesh_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
 					},
 					Material::Normal => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in group.iter().enumerate() {
+							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
-								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								let instance_data_dst_ptr = mesh_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
 					},
 					Material::Lambert => {
-						for (instance_index, instance) in material_group.iter().enumerate() {
-							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * (current_instance_index + instance_index);
+						for (instance_index, instance) in group.iter().enumerate() {
+							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
-								let instance_data_dst_ptr = mesh_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+								let instance_data_dst_ptr = mesh_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
 								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 							}
 						}
@@ -995,126 +897,236 @@ impl Renderer {
 				}
 
 				// Record draw commands
-				let secondary_command_buffer = match material {
-					Material::Basic => basic_material_data.secondary_command_buffer,
-					Material::Normal => normal_material_data.secondary_command_buffer,
-					Material::Lambert => lambert_material_data.secondary_command_buffer,
-				};
-
 				unsafe {
 					logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.mesh_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
 					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.mesh_buffer.handle], &[attribute_array_offset as u64]);
-					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, material_group.len() as u32, 0, 0, current_instance_index as u32);
+					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, group.len() as u32, 0, 0, group_index as u32);
 				}
 
-				current_instance_indices[material as usize] += material_group.len();
+				group_index += group.len();
 			}
+		};
+
+		let render_static_instance_groups = |static_instance_groups: &Vec<StaticInstanceInfo>, secondary_command_buffer: vk::CommandBuffer| {
+			let mut group_index = 0;
+
+			for group in static_instance_groups {
+				let geometry_info = &self.static_geometry_infos[group.geometry_info_index];
+
+				unsafe {
+					logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.static_mesh_buffer.handle, geometry_info.index_array_offset as u64, vk::IndexType::UINT16);
+					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.static_mesh_buffer.handle], &[geometry_info.attribute_array_offset as u64]);
+					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry_info.indices_count as u32, group.instance_count as u32, 0, 0, group_index as u32);
+				}
+
+				group_index += group.instance_count;
+			}
+		};
+
+		let mut secondary_command_buffers = vec![];
+
+		// Basic
+		if !basic_material_group.instance_groups.is_empty() || !self.basic_static_instance_infos.is_empty() {
+			unsafe {
+				logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(basic_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					basic_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					basic_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[basic_material_data.descriptor_set],
+					&[]);
+			}
+
+			render_instance_groups(&basic_material_group.instance_groups, basic_material_data.secondary_command_buffer);
+
+			unsafe {
+				logical_device.cmd_bind_descriptor_sets(
+					basic_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[self.basic_static_descriptor_set],
+					&[]);
+			}
+
+			render_static_instance_groups(&self.basic_static_instance_infos, basic_material_data.secondary_command_buffer);
+
+			unsafe { logical_device.end_command_buffer(basic_material_data.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(basic_material_data.secondary_command_buffer);
 		}
 
-		// End secondary command buffers, flush and unmap mesh data buffer
+		// Normal
+		if !normal_material_group.instance_groups.is_empty() || !self.normal_static_instance_infos.is_empty() {
+			unsafe {
+				logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(normal_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					normal_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					normal_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[normal_material_data.descriptor_set],
+					&[]);
+			}
+
+			render_instance_groups(&normal_material_group.instance_groups, normal_material_data.secondary_command_buffer);
+
+			unsafe {
+				logical_device.cmd_bind_descriptor_sets(
+					normal_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[self.normal_static_descriptor_set],
+					&[]);
+			}
+
+			render_static_instance_groups(&self.normal_static_instance_infos, normal_material_data.secondary_command_buffer);
+
+			unsafe { logical_device.end_command_buffer(normal_material_data.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(normal_material_data.secondary_command_buffer);
+		}
+
+		// Lambert
+		if !lambert_material_group.instance_groups.is_empty() || !self.lambert_static_instance_infos.is_empty() {
+			unsafe {
+				logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(lambert_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					lambert_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					0,
+					&[in_flight_frame.frame_data_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					lambert_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[lambert_material_data.descriptor_set],
+					&[]);
+			}
+
+			render_instance_groups(&lambert_material_group.instance_groups, lambert_material_data.secondary_command_buffer);
+
+			unsafe {
+				logical_device.cmd_bind_descriptor_sets(
+					lambert_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.pipeline_layout,
+					1,
+					&[self.lambert_static_descriptor_set],
+					&[]);
+			}
+
+			render_static_instance_groups(&self.lambert_static_instance_infos, lambert_material_data.secondary_command_buffer);
+
+			unsafe { logical_device.end_command_buffer(lambert_material_data.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(lambert_material_data.secondary_command_buffer);
+		}
+
+		// Flush and unmap mesh buffer
 		let range = vk::MappedMemoryRange::builder()
 			.memory(in_flight_frame.mesh_buffer.memory)
 			.offset(0)
 			.size(vk::WHOLE_SIZE);
 		
 		unsafe {
-			logical_device.end_command_buffer(basic_material_data.secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(normal_material_data.secondary_command_buffer).unwrap();
-			logical_device.end_command_buffer(lambert_material_data.secondary_command_buffer).unwrap();
-			
 			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(in_flight_frame.mesh_buffer.memory);
 		}
-	}
 
-	fn render_static_meshes(&self, command_buffer_begin_info: &vk::CommandBufferBeginInfo) {
-		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
-		let logical_device = &self.context.logical_device;
-
-		let basic_material_data = &in_flight_frame.basic_material_data;
-		let normal_material_data = &in_flight_frame.normal_material_data;
-		let lambert_material_data = &in_flight_frame.lambert_material_data;
-
-		unsafe {
-			logical_device.begin_command_buffer(basic_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(basic_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.basic_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				basic_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[self.basic_static_descriptor_set],
-				&[]);
-			
-			logical_device.begin_command_buffer(normal_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(normal_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.normal_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				normal_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[self.normal_static_descriptor_set],
-				&[]);
-			
-			logical_device.begin_command_buffer(lambert_material_data.secondary_static_command_buffer, command_buffer_begin_info).unwrap();
-			logical_device.cmd_bind_pipeline(lambert_material_data.secondary_static_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.lambert_pipeline);
-			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				0,
-				&[in_flight_frame.frame_data_descriptor_set],
-				&[]);
-			logical_device.cmd_bind_descriptor_sets(
-				lambert_material_data.secondary_static_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.pipeline_layout,
-				1,
-				&[self.lambert_static_descriptor_set],
-				&[]);
-		}
-
-		let mut current_instance_indices = [0; 3];
-
-		for geometry_group in &self.static_geometry_groups {
-			for material_group in &geometry_group.material_groups {
-				let secondary_command_buffer = match material_group.material {
-					Material::Basic => basic_material_data.secondary_static_command_buffer,
-					Material::Normal => normal_material_data.secondary_static_command_buffer,
-					Material::Lambert => lambert_material_data.secondary_static_command_buffer,
-				};
-
-				let current_instance_index = current_instance_indices[material_group.material as usize];
-
-				unsafe {
-					logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.static_mesh_buffer.handle, geometry_group.index_array_offset as u64, vk::IndexType::UINT16);
-					logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.static_mesh_buffer.handle], &[geometry_group.attribute_array_offset as u64]);
-					logical_device.cmd_draw_indexed(secondary_command_buffer, geometry_group.indices_count as u32, material_group.instance_count as u32, 0, 0, current_instance_index as u32);
-				}
-
-				current_instance_indices[material_group.material as usize] += material_group.instance_count;
+		// Record primary command buffer
+		let color_attachment_clear_value = vk::ClearValue {
+			color: vk::ClearColorValue {
+				float32: [0.0, 0.0, 0.0, 1.0]
 			}
+		};
+		let depth_attachment_clear_value = vk::ClearValue {
+			depth_stencil: vk::ClearDepthStencilValue {
+				depth: 1.0,
+				stencil: 0,
+			}
+		};
+		let clear_colors = [color_attachment_clear_value, depth_attachment_clear_value];
+
+		let command_buffer_begin_info = vk::CommandBufferBeginInfo::builder()
+			.flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+
+		let render_pass_begin_info = vk::RenderPassBeginInfo::builder()
+			.render_pass(self.render_pass)
+			.framebuffer(self.swapchain.frames[image_index as usize].framebuffer)
+			.render_area(vk::Rect2D::builder()
+				.offset(vk::Offset2D::builder().x(0).y(0).build())
+				.extent(self.swapchain.extent)
+				.build())
+			.clear_values(&clear_colors);
+		
+		unsafe {
+			logical_device.begin_command_buffer(in_flight_frame.primary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_begin_render_pass(in_flight_frame.primary_command_buffer, &render_pass_begin_info, vk::SubpassContents::SECONDARY_COMMAND_BUFFERS);
+
+			if !secondary_command_buffers.is_empty() {
+				logical_device.cmd_execute_commands(in_flight_frame.primary_command_buffer, &secondary_command_buffers);
+			}
+			
+			logical_device.cmd_end_render_pass(in_flight_frame.primary_command_buffer);
+			logical_device.end_command_buffer(in_flight_frame.primary_command_buffer).unwrap();
 		}
 
+		// Wait for image to be available then submit primary command buffer
+		let image_available_semaphores = [in_flight_frame.image_available];
+		let wait_stages = [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+		let command_buffers = [in_flight_frame.primary_command_buffer];
+		let render_finished_semaphores = [in_flight_frame.render_finished];
+		let submit_info = vk::SubmitInfo::builder()
+			.wait_semaphores(&image_available_semaphores)
+			.wait_dst_stage_mask(&wait_stages)
+			.command_buffers(&command_buffers)
+			.signal_semaphores(&render_finished_semaphores);
+
 		unsafe {
-			logical_device.end_command_buffer(basic_material_data.secondary_static_command_buffer).unwrap();
-			logical_device.end_command_buffer(normal_material_data.secondary_static_command_buffer).unwrap();
-			logical_device.end_command_buffer(lambert_material_data.secondary_static_command_buffer).unwrap();
+			logical_device.reset_fences(&[in_flight_frame.fence]).unwrap();
+			logical_device.queue_submit(self.context.graphics_queue, &[submit_info.build()], in_flight_frame.fence).unwrap();
 		}
+
+		// Wait for render to finish then present swapchain image
+		let swapchains = [self.swapchain.handle];
+		let image_indices = [image_index];
+		let present_info = vk::PresentInfoKHR::builder()
+			.wait_semaphores(&render_finished_semaphores)
+			.swapchains(&swapchains)
+			.image_indices(&image_indices);
+		
+		let result = unsafe { self.swapchain.extension.queue_present(self.context.graphics_queue, &present_info) };
+
+		let surface_changed = match result {
+			Ok(true) | Err(vk::Result::ERROR_OUT_OF_DATE_KHR) => true,
+			Err(e) => panic!("Could not present swapchain image: {}", e),
+			_ => false
+		};
+
+		self.current_in_flight_frame_index = (self.current_in_flight_frame_index + 1) % IN_FLIGHT_FRAMES_COUNT;
+		self.current_group_index = (self.current_group_index + 1) % 2;
+
+		surface_changed
 	}
 }
 

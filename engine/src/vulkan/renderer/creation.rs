@@ -564,7 +564,7 @@ pub(super) fn create_in_flight_frames(
 	let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 		.command_pool(*command_pool)
 		.level(vk::CommandBufferLevel::SECONDARY)
-		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 6);
+		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 3);
 	
 	let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info) }.unwrap();
 
@@ -609,24 +609,21 @@ pub(super) fn create_in_flight_frames(
 
 		let basic_material_data = MaterialData {
 			descriptor_set: descriptor_sets[1],
-			secondary_command_buffer: secondary_command_buffers[6 * index],
-			secondary_static_command_buffer: secondary_command_buffers[6 * index + 1],
+			secondary_command_buffer: secondary_command_buffers[3 * index],
 			array_offset: 0,
 			array_size: 0
 		};
 
 		let normal_material_data = MaterialData {
 			descriptor_set: descriptor_sets[2],
-			secondary_command_buffer: secondary_command_buffers[6 * index + 2],
-			secondary_static_command_buffer: secondary_command_buffers[6 * index + 3],
+			secondary_command_buffer: secondary_command_buffers[3 * index + 1],
 			array_offset: 0,
 			array_size: 0
 		};
 
 		let lambert_material_data = MaterialData {
 			descriptor_set: descriptor_sets[3],
-			secondary_command_buffer: secondary_command_buffers[6 * index + 4],
-			secondary_static_command_buffer: secondary_command_buffers[6 * index + 5],
+			secondary_command_buffer: secondary_command_buffers[3 * index + 2],
 			array_offset: 0,
 			array_size: 0
 		};
