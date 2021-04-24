@@ -137,6 +137,10 @@ impl<T> Pool<T> {
 		self.records.len()
 	}
 
+	pub fn present_len(&self) -> usize {
+		self.records.len() - self.vacant_records.len()
+	}
+
 	pub fn iter(&self) -> Iter<T> {
 		Iter {
 			records: &self.records,

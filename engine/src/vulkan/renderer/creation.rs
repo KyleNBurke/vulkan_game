@@ -1,4 +1,4 @@
-use std::{ffi::CString, fs, mem::{MaybeUninit, transmute}};
+use std::{ffi::CString, mem::{MaybeUninit, transmute}};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::vulkan::{Context, Buffer};
 use super::*;
@@ -279,19 +279,6 @@ pub(super) fn create_command_pool(context: &Context) -> vk::CommandPool {
 	unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
 }
 
-fn create_shader_module(logical_device: &ash::Device, filename: &str) -> vk::ShaderModule {
-	let mut file_path = String::from("target/shaders/");
-	file_path.push_str(filename);
-
-	let mut file = fs::File::open(file_path).unwrap();
-	let file_contents = ash::util::read_spv(&mut file).unwrap();
-
-	let create_info = vk::ShaderModuleCreateInfo::builder()
-		.code(&file_contents);
-
-	unsafe { logical_device.create_shader_module(&create_info, None).unwrap() }
-}
-
 pub(super) fn create_frame_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
 	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
 		.binding(0)
@@ -564,11 +551,18 @@ pub(super) fn create_in_flight_frames(
 	let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 		.command_pool(*command_pool)
 		.level(vk::CommandBufferLevel::SECONDARY)
-		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 3);
+		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 4);
 	
 	let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info) }.unwrap();
 
-	let descriptor_set_layouts = [*frame_data_descriptor_set_layout, *instance_data_descriptor_set_layout, *instance_data_descriptor_set_layout, *instance_data_descriptor_set_layout];
+	let descriptor_set_layouts = [
+		*frame_data_descriptor_set_layout,
+		*instance_data_descriptor_set_layout,
+		*instance_data_descriptor_set_layout,
+		*instance_data_descriptor_set_layout,
+		*instance_data_descriptor_set_layout
+	];
+
 	let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 		.descriptor_pool(*descriptor_pool)
 		.set_layouts(&descriptor_set_layouts);
@@ -609,21 +603,28 @@ pub(super) fn create_in_flight_frames(
 
 		let basic_material_data = MaterialData {
 			descriptor_set: descriptor_sets[1],
-			secondary_command_buffer: secondary_command_buffers[3 * index],
+			secondary_command_buffer: secondary_command_buffers[4 * index],
 			array_offset: 0,
 			array_size: 0
 		};
 
 		let normal_material_data = MaterialData {
 			descriptor_set: descriptor_sets[2],
-			secondary_command_buffer: secondary_command_buffers[3 * index + 1],
+			secondary_command_buffer: secondary_command_buffers[4 * index + 1],
 			array_offset: 0,
 			array_size: 0
 		};
 
 		let lambert_material_data = MaterialData {
 			descriptor_set: descriptor_sets[3],
-			secondary_command_buffer: secondary_command_buffers[3 * index + 2],
+			secondary_command_buffer: secondary_command_buffers[4 * index + 2],
+			array_offset: 0,
+			array_size: 0
+		};
+
+		let text_material_data = MaterialData {
+			descriptor_set: descriptor_sets[4],
+			secondary_command_buffer: secondary_command_buffers[4 * index + 3],
 			array_offset: 0,
 			array_size: 0
 		};
@@ -639,6 +640,7 @@ pub(super) fn create_in_flight_frames(
 			basic_material_data,
 			normal_material_data,
 			lambert_material_data,
+			text_material_data,
 			index_arrays_offset: 0
 		});
 	}

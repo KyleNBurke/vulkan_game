@@ -21,6 +21,9 @@ pub use camera::Camera;
 
 pub mod lights;
 
+pub mod font;
+pub use font::Font;
+
 pub mod text;
 pub use text::Text;
 

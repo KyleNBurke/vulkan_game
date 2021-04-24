@@ -5,9 +5,7 @@ use engine::{
 	Geometry3D,
 	Mesh,
 	Material,
-	lights::PointLight,
-	Text,
-	vulkan::Font
+	lights::PointLight
 };
 
 use crate::{CameraController, State, StateAction, EngineResources};
@@ -15,8 +13,7 @@ use crate::{CameraController, State, StateAction, EngineResources};
 pub struct GameplayState {
 	camera_controller: CameraController,
 	camera_controller_enabled: bool,
-	box_handle: Handle<Mesh>,
-	font_handle: Handle<Font>
+	box_handle: Handle<Mesh>
 }
 
 impl GameplayState {
@@ -24,8 +21,7 @@ impl GameplayState {
 		Self {
 			camera_controller: CameraController::new(),
 			camera_controller_enabled: true,
-			box_handle: Handle::null(),
-			font_handle: Handle::null()
+			box_handle: Handle::null()
 		}
 	}
 }
@@ -102,15 +98,6 @@ impl State for GameplayState {
 				else {
 					resources.window.set_cursor_mode(glfw::CursorMode::Normal);
 				}
-			},
-			glfw::WindowEvent::Key(glfw::Key::G, _, glfw::Action::Press, _) => {
-				self.font_handle = resources.renderer.add_font("game/res/roboto.ttf", 64);
-				let mut text = Text::new(self.font_handle, String::from("Hello from a 64 pixel size font"));
-				text.transform.position.set(10.0, 150.0);
-				resources.scene.text.add(text);
-			},
-			glfw::WindowEvent::Key(glfw::Key::H, _, glfw::Action::Press, _) => {
-				resources.renderer.remove_font(&self.font_handle);
 			},
 			_ => ()
 		}

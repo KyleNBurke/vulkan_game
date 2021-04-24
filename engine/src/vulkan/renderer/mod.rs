@@ -1,17 +1,22 @@
-use std::{cmp::max, mem::size_of_val, ptr::copy_nonoverlapping};
+use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
 use crate::{
 	Geometry3D,
 	math::{Matrix3, Vector3},
 	Mesh,
 	Material,
-	pool::{Pool, Handle},
+	pool::Pool,
 	scene::Scene,
-	vulkan::{Context, Buffer, Font}
+	Font,
+	Text,
+	vulkan::{Context, Buffer}
 };
 
 mod creation;
 use creation::*;
+
+mod text_renderer;
+use text_renderer::*;
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * 4;
@@ -40,8 +45,8 @@ pub struct Renderer {
 	basic_static_instance_infos: Vec<StaticInstanceInfo>,
 	normal_static_instance_infos: Vec<StaticInstanceInfo>,
 	lambert_static_instance_infos: Vec<StaticInstanceInfo>,
-	submit_fonts: bool,
-	ui_projection_matrix: Matrix3
+	ui_projection_matrix: Matrix3,
+	text_renderer: TextRenderer
 }
 
 struct Swapchain {
@@ -75,6 +80,7 @@ struct InFlightFrame {
 	basic_material_data: MaterialData,
 	normal_material_data: MaterialData,
 	lambert_material_data: MaterialData,
+	text_material_data: MaterialData,
 	index_arrays_offset: usize,
 }
 
@@ -96,6 +102,19 @@ struct StaticInstanceInfo {
 	instance_count: usize
 }
 
+fn create_shader_module(logical_device: &ash::Device, filename: &str) -> vk::ShaderModule {
+	let mut file_path = String::from("target/shaders/");
+	file_path.push_str(filename);
+
+	let mut file = File::open(file_path).unwrap();
+	let file_contents = ash::util::read_spv(&mut file).unwrap();
+
+	let create_info = vk::ShaderModuleCreateInfo::builder()
+		.code(&file_contents);
+
+	unsafe { logical_device.create_shader_module(&create_info, None) }.unwrap()
+}
+
 impl InFlightFrame {
 	fn update_descriptor_sets(
 		&mut self,
@@ -106,6 +125,8 @@ impl InFlightFrame {
 		normal_instance_data_array_size: usize,
 		lambert_instance_data_array_offset: usize,
 		lambert_instance_data_array_size: usize,
+		text_instance_data_array_offset: usize,
+		text_instance_data_array_size: usize,
 		index_arrays_offset: usize)
 	{
 		// Basic
@@ -150,11 +171,26 @@ impl InFlightFrame {
 			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
 			.buffer_info(&lambert_descriptor_buffer_infos);
 		
+		// Text
+		let text_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.mesh_buffer.handle)
+			.offset(text_instance_data_array_offset as u64)
+			.range(max(1, text_instance_data_array_size) as u64);
+		let text_descriptor_buffer_infos = [text_descriptor_buffer_info.build()];
+
+		let text_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.text_material_data.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+			.buffer_info(&text_descriptor_buffer_infos);
+		
 		// Update descriptor sets
 		let write_descriptor_sets = [
 			basic_write_descriptor_set.build(),
 			normal_write_descriptor_set.build(),
-			lambert_write_descriptor_set.build()
+			lambert_write_descriptor_set.build(),
+			text_write_descriptor_set.build()
 		];
 		
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
@@ -168,6 +204,9 @@ impl InFlightFrame {
 
 		self.lambert_material_data.array_offset = lambert_instance_data_array_offset;
 		self.lambert_material_data.array_size = lambert_instance_data_array_size;
+
+		self.text_material_data.array_offset = text_instance_data_array_offset;
+		self.text_material_data.array_size = text_instance_data_array_size;
 
 		self.index_arrays_offset = index_arrays_offset;
 	}
@@ -264,6 +303,8 @@ impl Renderer {
 			[0.0, 0.0, 1.0]
 		]);
 
+		let text_renderer = TextRenderer::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
+
 		Self {
 			context,
 			render_pass,
@@ -287,8 +328,8 @@ impl Renderer {
 			basic_static_instance_infos: vec![],
 			normal_static_instance_infos: vec![],
 			lambert_static_instance_infos: vec![],
-			submit_fonts: false,
-			ui_projection_matrix
+			ui_projection_matrix,
+			text_renderer
 		}
 	}
 
@@ -342,7 +383,8 @@ impl Renderer {
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
 		#[derive(Clone)]
-		struct TempGeometryInfo {
+		struct TempGeometryInfo<'a> {
+			geometry: &'a Geometry3D,
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize,
 			copied: bool,
@@ -382,14 +424,15 @@ impl Renderer {
 			let geometry_info = &mut geometry_infos[mesh.geometry_handle.index];
 
 			if geometry_info.is_none() {
+				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+
 				*geometry_info = Some(TempGeometryInfo {
+					geometry,
 					index_array_relative_offset: index_arrays_size,
 					attribute_array_relative_offset: attribute_arrays_size,
 					copied: false,
 					static_geometry_info_index: self.static_geometry_infos.len()
 				});
-
-				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 
 				self.static_geometry_infos.push(StaticGeometryInfo {
 					index_array_offset: 0,
@@ -635,24 +678,11 @@ impl Renderer {
 		self.current_group_index = (self.current_group_index + 1) % 2;
 	}
 
-	pub fn add_font(&mut self, file_path: &str, size: u32) -> Handle<Font> {
-		self.submit_fonts = true;
-		// self.text_manager.fonts.add(Font::new(file_path, size))
-		Handle::null()
+	pub fn submit_fonts(&mut self, fonts: &mut Pool<Font>) {
+		self.text_renderer.submit_fonts(&self.context, self.command_pool, fonts);
 	}
 
-	pub fn remove_font(&mut self, handle: &Handle<Font>) {
-		// self.text_manager.fonts.remove(handle);
-		self.submit_fonts = true;
-	}
-
-	pub fn render(&mut self, scene: &Scene) -> bool {
-		// If new fonts have been added or removed, submit them
-		/*if self.submit_fonts {
-			self.text_manager.submit_fonts(&self.context, self.command_pool);
-			self.submit_fonts = false;
-		}*/
-
+	pub fn render(&mut self, scene: &mut Scene) -> bool {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		
@@ -690,7 +720,8 @@ impl Renderer {
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
 		#[derive(Clone)]
-		struct TempGeometryInfo {
+		struct TempGeometryInfo<'a> {
+			geometry: &'a Geometry3D,
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize,
 			copied: bool
@@ -721,6 +752,14 @@ impl Renderer {
 			instance_groups: vec![],
 			instance_count: 0
 		};
+
+		struct TempTextInfo<'a> {
+			text: &'a Text,
+			index_array_relative_offset: usize,
+			attribute_array_relative_offset: usize
+		}
+
+		let mut text_infos: Vec<TempTextInfo> = Vec::with_capacity(scene.text.present_len());
 		
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
@@ -729,13 +768,15 @@ impl Renderer {
 			let geometry_info = &mut geometry_infos[mesh.geometry_handle.index];
 
 			if geometry_info.is_none() {
+				let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+
 				*geometry_info = Some(TempGeometryInfo {
+					geometry,
 					index_array_relative_offset: index_arrays_size,
 					attribute_array_relative_offset: attribute_arrays_size,
 					copied: false
 				});
 
-				let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
 				index_arrays_size += size_of_val(&geometry.indices[..]);
 				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
 			}
@@ -757,6 +798,29 @@ impl Renderer {
 			material_group.instance_count += 1;
 		}
 
+		for text in scene.text.iter_mut() {
+			if text.get_string().is_empty() {
+				continue;
+			}
+
+			if text.generate {
+				let font = scene.fonts.get(&text.font).unwrap();
+				text.generate(&font);
+			}
+
+			let vertex_indices_size = size_of_val(text.get_vertex_indices());
+			let vertex_attributes_size = size_of_val(text.get_vertex_attributes());
+
+			text_infos.push(TempTextInfo {
+				text,
+				index_array_relative_offset: index_arrays_size,
+				attribute_array_relative_offset: attribute_arrays_size
+			});
+
+			index_arrays_size += vertex_indices_size;
+			attribute_arrays_size += vertex_attributes_size;
+		}
+
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
@@ -772,7 +836,12 @@ impl Renderer {
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
 		let lambert_instance_data_array_size = 4 * 16 * lambert_material_group.instance_count;
 
-		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
+		let unaligned_text_instance_data_array_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
+		let text_instance_data_array_padding = (alignment - unaligned_text_instance_data_array_offset % alignment) % alignment;
+		let text_instance_data_array_offset = unaligned_text_instance_data_array_offset + text_instance_data_array_padding;
+		let text_instance_data_array_size = 4 * 16 * text_infos.len();
+
+		let index_arrays_offset = text_instance_data_array_offset + text_instance_data_array_size;
 		
 		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
 		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
@@ -792,6 +861,8 @@ impl Renderer {
 				normal_instance_data_array_size,
 				lambert_instance_data_array_offset,
 				lambert_instance_data_array_size,
+				text_instance_data_array_offset,
+				text_instance_data_array_size,
 				index_arrays_offset);
 			
 			println!("In flight frame {} mesh buffer reallocated", self.current_in_flight_frame_index);
@@ -799,7 +870,8 @@ impl Renderer {
 		else if
 			basic_instance_data_array_size > in_flight_frame.basic_material_data.array_size ||
 			normal_instance_data_array_size > in_flight_frame.normal_material_data.array_size ||
-			lambert_instance_data_array_size > in_flight_frame.lambert_material_data.array_size
+			lambert_instance_data_array_size > in_flight_frame.lambert_material_data.array_size ||
+			text_instance_data_array_size > in_flight_frame.text_material_data.array_size
 		{
 			in_flight_frame.update_descriptor_sets(
 				logical_device,
@@ -809,6 +881,8 @@ impl Renderer {
 				normal_instance_data_array_size,
 				lambert_instance_data_array_offset,
 				lambert_instance_data_array_size,
+				text_instance_data_array_offset,
+				text_instance_data_array_size,
 				index_arrays_offset);
 		}
 
@@ -816,6 +890,7 @@ impl Renderer {
 		let basic_material_data = &in_flight_frame.basic_material_data;
 		let normal_material_data = &in_flight_frame.normal_material_data;
 		let lambert_material_data = &in_flight_frame.lambert_material_data;
+		let text_material_data = &in_flight_frame.text_material_data;
 
 		// Copy mesh data into mesh data buffer and record draw commands
 		let mesh_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.mesh_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
@@ -841,7 +916,7 @@ impl Renderer {
 			for group in instance_groups {
 				let geometry_handle = &group[0].geometry_handle;
 				let geometry_info = geometry_infos[geometry_handle.index].as_mut().unwrap();
-				let geometry = scene.geometries.get(geometry_handle).unwrap();
+				let geometry = geometry_info.geometry;
 
 				let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
 				let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
@@ -1042,6 +1117,73 @@ impl Renderer {
 			secondary_command_buffers.push(lambert_material_data.secondary_command_buffer);
 		}
 
+		// Text
+		if !text_infos.is_empty() {
+			unsafe {
+				logical_device.begin_command_buffer(text_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(text_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_renderer.pipeline);
+				logical_device.cmd_bind_descriptor_sets(
+					text_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.text_renderer.pipeline_layout,
+					0,
+					&[text_material_data.descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					text_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.text_renderer.pipeline_layout,
+					1,
+					&[self.text_renderer.sampler_descriptor_set],
+					&[]);
+				logical_device.cmd_bind_descriptor_sets(
+					text_material_data.secondary_command_buffer,
+					vk::PipelineBindPoint::GRAPHICS,
+					self.text_renderer.pipeline_layout,
+					2,
+					&[self.text_renderer.atlases_descriptor_set],
+					&[]);
+			}
+
+			for (index, text_info) in text_infos.iter().enumerate() {
+				let text = text_info.text;
+				let font = scene.fonts.get(&text.font).unwrap();
+				let submission_info = font.submission_info.as_ref().unwrap();
+				assert!(submission_info.generation == self.text_renderer.submission_generation);
+
+				let instance_data_offset = text_material_data.array_offset + 4 * 16 * index;
+				let index_array_offset = index_arrays_offset + text_info.index_array_relative_offset;
+				let attribute_array_offset = attribute_arrays_offset + text_info.attribute_array_relative_offset;
+
+				let indices = text.get_vertex_indices();
+				let attributes = text.get_vertex_attributes();
+
+				let mut matrix = self.ui_projection_matrix.clone();
+				matrix *= &text.transform.matrix;
+
+				unsafe {
+					let matrix_dst_ptr = mesh_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+					copy_nonoverlapping(matrix.to_padded_array().as_ptr(), matrix_dst_ptr, 3);
+
+					let atlas_index_dst_ptr = mesh_buffer_ptr.add(instance_data_offset + 12 * 4) as *mut i32;
+					copy_nonoverlapping(&(submission_info.index as i32), atlas_index_dst_ptr, 1);
+
+					let index_array_dst_ptr = mesh_buffer_ptr.add(index_array_offset) as *mut u16;
+					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+
+					let attribute_array_dst_ptr = mesh_buffer_ptr.add(attribute_array_offset) as *mut f32;
+					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
+
+					logical_device.cmd_bind_index_buffer(text_material_data.secondary_command_buffer, in_flight_frame.mesh_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
+					logical_device.cmd_bind_vertex_buffers(text_material_data.secondary_command_buffer, 0, &[in_flight_frame.mesh_buffer.handle], &[attribute_array_offset as u64]);
+					logical_device.cmd_draw_indexed(text_material_data.secondary_command_buffer, indices.len() as u32, 1, 0, 0, index as u32);
+				}
+			}
+
+			unsafe { logical_device.end_command_buffer(text_material_data.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(text_material_data.secondary_command_buffer);
+		}
+
 		// Flush and unmap mesh buffer
 		let range = vk::MappedMemoryRange::builder()
 			.memory(in_flight_frame.mesh_buffer.memory)
@@ -1134,9 +1276,11 @@ impl Drop for Renderer {
 	fn drop(&mut self) {
 		let logical_device = &self.context.logical_device;
 
-		unsafe {
-			logical_device.device_wait_idle().unwrap();
+		unsafe { logical_device.device_wait_idle() }.unwrap();
 
+		self.text_renderer.drop(logical_device);
+
+		unsafe {
 			for frame in &mut self.in_flight_frames {
 				logical_device.destroy_semaphore(frame.image_available, None);
 				logical_device.destroy_semaphore(frame.render_finished, None);

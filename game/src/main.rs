@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-use engine::{Renderer, Camera, lights::AmbientLight, scene::Scene, math::Vector3, Text};
+use engine::{Renderer, Camera, lights::AmbientLight, scene::Scene, math::Vector3, Font, Text};
 
 mod state_manager;
 use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
@@ -22,11 +22,14 @@ fn main() {
 	window.set_key_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
-	let roboto_14 = renderer.add_font("game/res/roboto.ttf", 14);
 
 	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 50.0);
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
-	let scene = Scene::new(camera, ambient_light);
+	let mut scene = Scene::new(camera, ambient_light);
+
+	let font = Font::new("game/res/roboto.ttf", 14);
+	let roboto_14 = scene.fonts.add(font);
+	renderer.submit_fonts(&mut scene.fonts);
 
 	let mut resources = EngineResources {
 		window,
@@ -104,6 +107,6 @@ fn main() {
 			updates += 1;
 		}
 
-		surface_changed = resources.renderer.render(&resources.scene);
+		surface_changed = resources.renderer.render(&mut resources.scene);
 	}
 }

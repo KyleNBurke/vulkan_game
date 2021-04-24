@@ -1,8 +1,7 @@
-use crate::{Transform2D, vulkan::Font, pool::Handle};
+use crate::{Transform2D, Font, pool::Handle};
 
 pub struct Text {
 	pub transform: Transform2D,
-	pub auto_update_matrix: bool,
 	pub font: Handle<Font>,
 	string: String,
 	indices: Vec<u16>,
@@ -14,7 +13,6 @@ impl Text {
 	pub fn new(font: Handle<Font>, string: String) -> Self {
 		Self {
 			transform: Transform2D::new(),
-			auto_update_matrix: true,
 			font,
 			string,
 			indices: vec![],

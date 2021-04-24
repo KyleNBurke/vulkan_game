@@ -1,54 +1,55 @@
 use utilities::Window;
 
 use engine::{
-	vulkan::{Context, Renderer},
-	mesh::{Mesh, Material},
-	geometry3d,
-	geometry2d,
-	Object3D,
+	Renderer,
 	Camera,
 	lights::AmbientLight,
+	scene::Scene,
+	math::Vector3,
+	Geometry3D,
+	mesh::{Material, Mesh},
 	Font,
-	UIElement
+	Text
 };
-
-use std::boxed::Box;
 
 fn main() {
 	let mut window = Window::new("Text");
+	let mut renderer = Renderer::new(&window.glfw, &window.glfw_window);
 
-	let context = Context::new(&window.glfw, &window.glfw_window);
 	let (width, height) = window.glfw_window.get_framebuffer_size();
-	let mut renderer = Renderer::new(&context, width, height);
 
-	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
-	camera.position.set(0.0, 0.0, -2.0);
+	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 50.0);
+	camera.transform.position.set(0.0, 0.0, -2.0);
+	camera.transform.update_matrix();
 
-	let geometry = Box::new(geometry3d::Box::new());
-	let mesh = Mesh::new(geometry, Material::Basic);
-	let mut meshes = [mesh];
+	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
+	let mut scene = Scene::new(camera, ambient_light);
 
-	let ambient_light = AmbientLight::new();
+	let box_geo = scene.geometries.add(Geometry3D::create_box());
+	let mesh = Mesh::new(box_geo, Material::Normal);
+	let mesh_handle = scene.meshes.add(mesh);
 
-	let (_, scale_y) = window.glfw_window.get_content_scale();
-	let font = Font::new("engine/examples/res/roboto.ttf", (32.0 * scale_y) as u32);
-	renderer.submit_font(&font);
+	let font = Font::new("game/res/roboto.ttf", 32);
+	let font_handle = scene.fonts.add(font);
+	renderer.submit_fonts(&mut scene.fonts);
 
-	let text = Box::new(geometry2d::Text::new(&font, "Text rendering example!"));
-	let mut ui_element = UIElement::new(text);
-	ui_element.position.set(50.0, 50.0);
-	let mut ui_elements = [ui_element];
+	let mut text = Text::new(font_handle, String::from("This is some text!"));
+	text.transform.position.set(50.0, 80.0);
+	text.transform.update_matrix();
+	scene.text.add(text);
 
 	let mut surface_changed = false;
 
 	window.main_loop(|resized, width, height| {
 		if resized || surface_changed {
-			renderer.recreate_swapchain(width, height);
-			camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			renderer.handle_resize(width, height);
+			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 50.0);
 		}
 
-		meshes[0].rotate_y(0.0001);
+		let mesh = scene.meshes.get_mut(&mesh_handle).unwrap();
+		mesh.transform.rotate_y(0.005);
+		mesh.transform.update_matrix();
 
-		surface_changed = renderer.render(&mut camera, &mut meshes, &ambient_light, &[], &mut ui_elements);
+		surface_changed = renderer.render(&mut scene);
 	});
 }

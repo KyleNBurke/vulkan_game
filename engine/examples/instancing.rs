@@ -69,6 +69,6 @@ fn main() {
 			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 50.0);
 		}
 
-		surface_changed = renderer.render(&scene);
+		surface_changed = renderer.render(&mut scene);
 	});
 }

@@ -22,13 +22,18 @@ struct UnplacedGlyph {
 	advance: f32
 }
 
+pub(crate) struct SubmissionInfo {
+	pub generation: usize,
+	pub index: usize
+}
+
 pub struct Font {
 	pub fnt_path: String,
 	pub atlas_width: usize,
 	pub atlas_height: usize,
 	pub space_advance: f32,
 	pub glyphs: Vec<Glyph>,
-	pub submission_index: usize
+	pub(crate) submission_info: Option<SubmissionInfo>
 }
 
 impl Font {
@@ -67,7 +72,7 @@ impl Font {
 			atlas_height,
 			space_advance,
 			glyphs,
-			submission_index: 0
+			submission_info: None
 		}
 	}
 
