@@ -17,13 +17,13 @@ fn main() {
 	let mut glfw = glfw::init(glfw::FAIL_ON_ERRORS).unwrap();
 	glfw.window_hint(glfw::WindowHint::ClientApi(glfw::ClientApiHint::NoApi));
 	let (mut window, events) = glfw.create_window(1280, 720, "Vulkan", glfw::WindowMode::Windowed).unwrap();
-	let (width, height) = window.get_framebuffer_size();
 	window.set_framebuffer_size_polling(true);
 	window.set_key_polling(true);
 
 	let mut renderer = Renderer::new(&glfw, &window);
 
-	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 50.0);
+	let extent = renderer.get_swapchain_extent();
+	let camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
 	let mut scene = Scene::new(camera, ambient_light);
 
@@ -89,8 +89,9 @@ fn main() {
 		}
 
 		if resized || surface_changed {
-			resources.renderer.handle_resize(width, height);
-			resources.scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			resources.renderer.resize(width, height);
+			let extent = resources.renderer.get_swapchain_extent();
+			resources.scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
 		let frame_end = Instant::now();

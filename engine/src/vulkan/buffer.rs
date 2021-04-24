@@ -70,7 +70,7 @@ impl Buffer {
 		(handle, memory)
 	}
 
-	pub fn drop(&mut self, logical_device: &ash::Device) {
+	pub fn drop(&self, logical_device: &ash::Device) {
 		unsafe {
 			logical_device.free_memory(self.memory, None);
 			logical_device.destroy_buffer(self.handle, None);

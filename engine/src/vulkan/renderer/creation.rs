@@ -1,9 +1,9 @@
-use std::{ffi::CString, mem::{MaybeUninit, transmute}};
+use std::{mem::{MaybeUninit, transmute}, cmp::{min, max}};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::vulkan::{Context, Buffer};
-use super::*;
+use super::{Swapchain, DepthImageResources, SwapchainFrame, InFlightFrame, MaterialData, IN_FLIGHT_FRAMES_COUNT, FRAME_DATA_MEMORY_SIZE};
 
-pub(super) fn create_render_pass(context: &Context) -> vk::RenderPass {
+pub fn create_render_pass(context: &Context) -> vk::RenderPass {
 	let color_attachment_description = vk::AttachmentDescription::builder()
 		.format(context.surface.format.format)
 		.samples(vk::SampleCountFlags::TYPE_1)
@@ -66,10 +66,10 @@ pub(super) fn create_swapchain(context: &Context, framebuffer_width: u32, frameb
 
 	// Create extent
 	let capabilities = unsafe { context.surface.extension.get_physical_device_surface_capabilities(context.physical_device.handle, context.surface.handle).unwrap() };
-	let extent = if capabilities.current_extent.width == std::u32::MAX {
+	let extent = if capabilities.current_extent.width == u32::MAX {
 		vk::Extent2D::builder()
-			.width(std::cmp::max(capabilities.current_extent.width, std::cmp::min(capabilities.current_extent.width, framebuffer_width)))
-			.height(std::cmp::max(capabilities.current_extent.height, std::cmp::min(capabilities.current_extent.height, framebuffer_height)))
+			.width(max(capabilities.min_image_extent.width, min(capabilities.max_image_extent.width, framebuffer_width)))
+			.height(max(capabilities.min_image_extent.height, min(capabilities.max_image_extent.height, framebuffer_height)))
 			.build()
 	}
 	else {
@@ -226,7 +226,7 @@ pub(super) fn create_swapchain(context: &Context, framebuffer_width: u32, frameb
 	}
 }
 
-pub(super) fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
+pub fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
 	let max_frames = IN_FLIGHT_FRAMES_COUNT as u32;
 
 	// It's own set
@@ -271,7 +271,7 @@ pub(super) fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
 	unsafe { context.logical_device.create_descriptor_pool(&create_info, None).unwrap() }
 }
 
-pub(super) fn create_command_pool(context: &Context) -> vk::CommandPool {
+pub fn create_command_pool(context: &Context) -> vk::CommandPool {
 	let create_info = vk::CommandPoolCreateInfo::builder()
 		.queue_family_index(context.physical_device.graphics_queue_family)
 		.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
@@ -279,7 +279,7 @@ pub(super) fn create_command_pool(context: &Context) -> vk::CommandPool {
 	unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
 }
 
-pub(super) fn create_frame_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
+pub fn create_frame_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
 	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
 		.binding(0)
 		.descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -293,7 +293,7 @@ pub(super) fn create_frame_data_descriptor_set_layout(logical_device: &ash::Devi
 	unsafe { logical_device.create_descriptor_set_layout(&create_info, None) }.unwrap()
 }
 
-pub(super) fn create_instance_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
+pub fn create_instance_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
 	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
 		.binding(0)
 		.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -306,226 +306,6 @@ pub(super) fn create_instance_data_descriptor_set_layout(logical_device: &ash::D
 		.bindings(&layout_bindings);
 
 	unsafe { logical_device.create_descriptor_set_layout(&create_info, None) }.unwrap()
-}
-
-pub(super) fn create_pipeline_layout(
-	logical_device: &ash::Device,
-	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
-	instance_data_descriptor_set_layout: vk::DescriptorSetLayout)
-	-> vk::PipelineLayout
-{
-	let descriptor_set_layouts = [frame_data_descriptor_set_layout, instance_data_descriptor_set_layout];
-
-	let pipeline_layout_create_info = vk::PipelineLayoutCreateInfo::builder()
-		.set_layouts(&descriptor_set_layouts);
-
-	unsafe { logical_device.create_pipeline_layout(&pipeline_layout_create_info, None) }.unwrap()
-}
-
-pub(super) fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipeline_layout: vk::PipelineLayout, render_pass: vk::RenderPass) -> Vec<vk::Pipeline> {
-	// Shared
-	let entry_point = CString::new("main").unwrap();
-	let entry_point_cstr = entry_point.as_c_str();
-
-	let input_binding_description = vk::VertexInputBindingDescription::builder()
-		.binding(0)
-		.stride(24)
-		.input_rate(vk::VertexInputRate::VERTEX);
-	let input_binding_descriptions = [input_binding_description.build()];
-
-	let input_attribute_description_position = vk::VertexInputAttributeDescription::builder()	
-		.binding(0)
-		.location(0)
-		.format(vk::Format::R32G32B32_SFLOAT)
-		.offset(0)
-		.build();
-	
-	let input_attribute_description_normal = vk::VertexInputAttributeDescription::builder()	
-		.binding(0)
-		.location(1)
-		.format(vk::Format::R32G32B32_SFLOAT)
-		.offset(12)
-		.build();
-	
-	let input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
-		.topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-		.primitive_restart_enable(false);
-
-	let viewport = vk::Viewport::builder()
-		.x(0.0)
-		.y(0.0)
-		.width(extent.width as f32)
-		.height(extent.height as f32)
-		.min_depth(0.0)
-		.max_depth(1.0);
-	let viewports = [viewport.build()];
-
-	let scissor = vk::Rect2D::builder()
-		.offset(vk::Offset2D::builder().x(0).y(0).build())
-		.extent(extent);
-	let scissors = [scissor.build()];
-
-	let viewport_state_create_info = vk::PipelineViewportStateCreateInfo::builder()
-		.viewports(&viewports)
-		.scissors(&scissors);
-
-	let rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
-		.depth_clamp_enable(false)
-		.rasterizer_discard_enable(false)
-		.polygon_mode(vk::PolygonMode::FILL)
-		.line_width(1.0)
-		.cull_mode(vk::CullModeFlags::BACK)
-		.front_face(vk::FrontFace::CLOCKWISE)
-		.depth_bias_enable(false);
-
-	let multisample_state_create_info = vk::PipelineMultisampleStateCreateInfo::builder()
-		.sample_shading_enable(false)
-		.rasterization_samples(vk::SampleCountFlags::TYPE_1);
-
-	let depth_stencil_state_create_info = vk::PipelineDepthStencilStateCreateInfo::builder()
-		.depth_test_enable(true)
-		.depth_write_enable(true)
-		.depth_compare_op(vk::CompareOp::LESS)
-		.depth_bounds_test_enable(false)
-		.stencil_test_enable(false);
-
-	let color_blend_attachment_state = vk::PipelineColorBlendAttachmentState::builder()
-		.color_write_mask(vk::ColorComponentFlags::all())
-		.blend_enable(false);
-	let color_blend_attachment_states = [color_blend_attachment_state.build()];
-
-	let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
-		.logic_op_enable(false)
-		.attachments(&color_blend_attachment_states);
-
-	// Basic
-	let basic_vert_module = create_shader_module(logical_device, "basic.vert.spv");
-	let basic_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::VERTEX)
-		.module(basic_vert_module)
-		.name(entry_point_cstr);
-	
-	let basic_frag_module = create_shader_module(logical_device, "basic.frag.spv");
-	let basic_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::FRAGMENT)
-		.module(basic_frag_module)
-		.name(entry_point_cstr);
-	
-	let basic_stage_create_infos = [basic_vert_stage_create_info.build(), basic_frag_stage_create_info.build()];
-	let basic_input_attribute_descriptions = [input_attribute_description_position];
-
-	let basic_vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-		.vertex_binding_descriptions(&input_binding_descriptions)
-		.vertex_attribute_descriptions(&basic_input_attribute_descriptions);
-
-	let basic_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-		.stages(&basic_stage_create_infos)
-		.vertex_input_state(&basic_vertex_input_state_create_info)
-		.input_assembly_state(&input_assembly_state_create_info)
-		.viewport_state(&viewport_state_create_info)
-		.rasterization_state(&rasterization_state_create_info)
-		.multisample_state(&multisample_state_create_info)
-		.depth_stencil_state(&depth_stencil_state_create_info)
-		.color_blend_state(&color_blend_state_create_info)
-		.layout(pipeline_layout)
-		.render_pass(render_pass)
-		.subpass(0);
-	
-	// Normal
-	let normal_vert_module = create_shader_module(logical_device, "normal.vert.spv");
-	let normal_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::VERTEX)
-		.module(normal_vert_module)
-		.name(entry_point_cstr);
-
-	let normal_frag_module =  create_shader_module(logical_device, "normal.frag.spv");
-	let normal_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::FRAGMENT)
-		.module(normal_frag_module)
-		.name(entry_point_cstr);
-	
-	let normal_stage_create_infos = [normal_vert_stage_create_info.build(), normal_frag_stage_create_info.build()];
-	let normal_input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
-
-	let normal_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-		.vertex_binding_descriptions(&input_binding_descriptions)
-		.vertex_attribute_descriptions(&normal_input_attribute_descriptions);
-	
-	let normal_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-		.stages(&normal_stage_create_infos)
-		.vertex_input_state(&normal_vert_input_state_create_info)
-		.input_assembly_state(&input_assembly_state_create_info)
-		.viewport_state(&viewport_state_create_info)
-		.rasterization_state(&rasterization_state_create_info)
-		.multisample_state(&multisample_state_create_info)
-		.depth_stencil_state(&depth_stencil_state_create_info)
-		.color_blend_state(&color_blend_state_create_info)
-		.layout(pipeline_layout)
-		.render_pass(render_pass)
-		.subpass(0);
-	
-	// Lambert
-	let lambert_vert_module = create_shader_module(logical_device, "lambert.vert.spv");
-	let lambert_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::VERTEX)
-		.module(lambert_vert_module)
-		.name(entry_point_cstr);
-
-	let lambert_frag_module =  create_shader_module(logical_device, "lambert.frag.spv");
-	let lambert_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
-		.stage(vk::ShaderStageFlags::FRAGMENT)
-		.module(lambert_frag_module)
-		.name(entry_point_cstr);
-
-	let lambert_stage_create_infos = [lambert_vert_stage_create_info.build(), lambert_frag_stage_create_info.build()];
-	let lambert_input_attribute_descriptions = [input_attribute_description_position, input_attribute_description_normal];
-
-	let lambert_vert_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
-		.vertex_binding_descriptions(&input_binding_descriptions)
-		.vertex_attribute_descriptions(&lambert_input_attribute_descriptions);
-
-	let lambert_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
-		.stages(&lambert_stage_create_infos)
-		.vertex_input_state(&lambert_vert_input_state_create_info)
-		.input_assembly_state(&input_assembly_state_create_info)
-		.viewport_state(&viewport_state_create_info)
-		.rasterization_state(&rasterization_state_create_info)
-		.multisample_state(&multisample_state_create_info)
-		.depth_stencil_state(&depth_stencil_state_create_info)
-		.color_blend_state(&color_blend_state_create_info)
-		.layout(pipeline_layout)
-		.render_pass(render_pass)
-		.subpass(0);
-	
-	// Create pipelines
-	let pipeline_create_infos = [
-		basic_pipeline_create_info.build(),
-		normal_pipeline_create_info.build(),
-		lambert_pipeline_create_info.build()];
-	
-	let pipelines = unsafe { logical_device.create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None) }.unwrap();
-
-	unsafe {
-		logical_device.destroy_shader_module(basic_vert_module, None);
-		logical_device.destroy_shader_module(basic_frag_module, None);
-
-		logical_device.destroy_shader_module(normal_vert_module, None);
-		logical_device.destroy_shader_module(normal_frag_module, None);
-
-		logical_device.destroy_shader_module(lambert_vert_module, None);
-		logical_device.destroy_shader_module(lambert_frag_module, None);
-	}
-
-	pipelines
-}
-
-pub(super) fn create_static_descriptor_sets(logical_device: &ash::Device, descriptor_pool: vk::DescriptorPool, instance_data_descriptor_set_layout: vk::DescriptorSetLayout) -> Vec<vk::DescriptorSet> {
-	let descriptor_set_layouts = [instance_data_descriptor_set_layout, instance_data_descriptor_set_layout, instance_data_descriptor_set_layout];
-	let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
-		.descriptor_pool(descriptor_pool)
-		.set_layouts(&descriptor_set_layouts);
-	
-	unsafe { logical_device.allocate_descriptor_sets(&descriptor_set_allocate_info) }.unwrap()
 }
 
 pub(super) fn create_in_flight_frames(
@@ -577,16 +357,14 @@ pub(super) fn create_in_flight_frames(
 		let frame_data_descriptor_set = descriptor_sets[0];
 		let primary_command_buffer = primary_command_buffers[index];
 
-		let frame_buffer = Buffer::new(context, FRAME_DATA_MEMORY_SIZE as u64, vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE);
+		let frame_data_buffer = Buffer::new(context, FRAME_DATA_MEMORY_SIZE as u64, vk::BufferUsageFlags::UNIFORM_BUFFER, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
-		let mesh_buffer = Buffer::new(
-			context,
-			1,
+		let instance_data_buffer = Buffer::null(
 			vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
 			vk::MemoryPropertyFlags::HOST_VISIBLE);
 		
 		let frame_data_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-			.buffer(frame_buffer.handle)
+			.buffer(frame_data_buffer.handle)
 			.offset(0)
 			.range(vk::WHOLE_SIZE);
 		let frame_data_descriptor_buffer_infos = [frame_data_descriptor_buffer_info.build()];
@@ -635,8 +413,8 @@ pub(super) fn create_in_flight_frames(
 			fence,
 			frame_data_descriptor_set,
 			primary_command_buffer,
-			frame_buffer,
-			mesh_buffer,
+			frame_data_buffer,
+			instance_data_buffer,
 			basic_material_data,
 			normal_material_data,
 			lambert_material_data,

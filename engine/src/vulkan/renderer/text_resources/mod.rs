@@ -1,13 +1,13 @@
 use std::{fs::File, io::{Read, Seek, SeekFrom}, ptr::copy_nonoverlapping, mem::size_of};
 use ash::{vk, version::DeviceV1_0};
-use crate::{pool::Pool, font::{Font, SubmissionInfo}, vulkan::{Context, Buffer}};
+use crate::{pool::Pool, font::{Font, SubmissionInfo}, vulkan::{Context, Buffer}, math::Matrix3};
 
 mod creation;
 use creation::*;
 
 const MAX_FONTS: usize = 10;
 
-pub struct TextRenderer {
+pub struct TextResources {
 	sampler_descriptor_set_layout: vk::DescriptorSetLayout,
 	atlases_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub pipeline_layout: vk::PipelineLayout,
@@ -19,7 +19,8 @@ pub struct TextRenderer {
 	atlases: Vec<Atlas>,
 	empty_image: vk::Image,
 	empty_image_view: vk::ImageView,
-	pub submission_generation: usize
+	pub submission_generation: usize,
+	pub projection_matrix: Matrix3
 }
 
 struct Atlas {
@@ -27,7 +28,7 @@ struct Atlas {
 	image_view: vk::ImageView
 }
 
-impl TextRenderer {
+impl TextResources {
 	pub fn new(logical_device: &ash::Device, instance_data_descriptor_set_layout: vk::DescriptorSetLayout, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool) -> Self {
 		let sampler_descriptor_set_layout = create_sampler_descriptor_set_layout(logical_device);
 		let atlases_descriptor_set_layout = create_atlases_descriptor_set_layout(logical_device);
@@ -36,6 +37,12 @@ impl TextRenderer {
 		let descriptor_sets = create_descriptor_sets(logical_device, sampler_descriptor_set_layout, atlases_descriptor_set_layout, descriptor_pool);
 		let sampler = create_sampler(logical_device);
 		update_sampler(logical_device, sampler, descriptor_sets[0]);
+
+		let projection_matrix = Matrix3::from([
+			[2.0 / extent.width as f32, 0.0, -1.0],
+			[0.0, 2.0 / extent.height as f32, -1.0],
+			[0.0, 0.0, 1.0]
+		]);
 
 		Self {
 			sampler_descriptor_set_layout,
@@ -49,8 +56,20 @@ impl TextRenderer {
 			atlases: vec![],
 			empty_image: vk::Image::null(),
 			empty_image_view: vk::ImageView::null(),
-			submission_generation: 0
+			submission_generation: 0,
+			projection_matrix
 		}
+	}
+
+	pub fn resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
+		unsafe {
+			logical_device.destroy_pipeline(self.pipeline, None);
+		}
+
+		self.pipeline = create_pipeline(logical_device, extent, self.pipeline_layout, render_pass);
+		
+		self.projection_matrix.elements[0][0] = 2.0 / extent.width as f32;
+		self.projection_matrix.elements[1][1] = 2.0 / extent.height as f32;
 	}
 
 	pub fn submit_fonts(&mut self, context: &Context, command_pool: vk::CommandPool, fonts: &mut Pool<Font>) {
@@ -136,7 +155,7 @@ impl TextRenderer {
 		self.empty_image = unsafe { logical_device.create_image(&empty_image_create_info, None) }.unwrap();
 
 		// Create staging buffer
-		let mut staging_buffer = Buffer::new(context, offset, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
+		let staging_buffer = Buffer::new(context, offset, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
 		// Copy atlases into staging buffer
 		let staging_buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();

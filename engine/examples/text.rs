@@ -16,9 +16,8 @@ fn main() {
 	let mut window = Window::new("Text");
 	let mut renderer = Renderer::new(&window.glfw, &window.glfw_window);
 
-	let (width, height) = window.glfw_window.get_framebuffer_size();
-
-	let mut camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 50.0);
+	let extent = renderer.get_swapchain_extent();
+	let mut camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 	camera.transform.position.set(0.0, 0.0, -2.0);
 	camera.transform.update_matrix();
 
@@ -42,8 +41,9 @@ fn main() {
 
 	window.main_loop(|resized, width, height| {
 		if resized || surface_changed {
-			renderer.handle_resize(width, height);
-			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 50.0);
+			renderer.resize(width, height);
+			let extent = renderer.get_swapchain_extent();
+			scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
 		let mesh = scene.meshes.get_mut(&mesh_handle).unwrap();

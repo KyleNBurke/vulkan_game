@@ -1,7 +1,6 @@
 use std::ffi::CString;
 use ash::{vk, version::DeviceV1_0};
-use crate::vulkan::renderer::create_shader_module;
-use super::MAX_FONTS;
+use super::{super::create_shader_module, MAX_FONTS};
 
 pub fn create_sampler_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
 	let layout_binding = vk::DescriptorSetLayoutBinding::builder()
