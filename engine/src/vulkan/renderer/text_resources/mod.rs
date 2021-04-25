@@ -1,11 +1,10 @@
 use std::{fs::File, io::{Read, Seek, SeekFrom}, ptr::copy_nonoverlapping, mem::size_of};
 use ash::{vk, version::DeviceV1_0};
 use crate::{pool::Pool, font::{Font, SubmissionInfo}, vulkan::{Context, Buffer}, math::Matrix3};
+use super::MAX_FONTS;
 
 mod creation;
 use creation::*;
-
-const MAX_FONTS: usize = 10;
 
 pub struct TextResources {
 	sampler_descriptor_set_layout: vk::DescriptorSetLayout,

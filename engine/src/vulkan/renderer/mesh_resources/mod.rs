@@ -5,8 +5,6 @@ use crate::{vulkan::{Buffer, Context}, pool::Pool, Geometry3D, Mesh, Material};
 mod creation;
 use creation::*;
 
-pub const MAX_POINT_LIGHTS: usize = 5;
-
 pub struct MeshResources {
 	pub pipeline_layout: vk::PipelineLayout,
 	pub basic_pipeline: vk::Pipeline,

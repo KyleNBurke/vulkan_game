@@ -23,6 +23,8 @@ use text_resources::*;
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * 4;
+const MAX_POINT_LIGHTS: usize = 5;
+const MAX_FONTS: usize = 10;
 
 pub struct Renderer {
 	context: Context,
@@ -66,14 +68,14 @@ struct InFlightFrame {
 	primary_command_buffer: vk::CommandBuffer,
 	frame_data_buffer: Buffer,
 	instance_data_buffer: Buffer,
-	basic_material_data: MaterialData,
-	normal_material_data: MaterialData,
-	lambert_material_data: MaterialData,
-	text_material_data: MaterialData,
+	basic_instance_data_resources: InstanceDataResources,
+	normal_instance_data_resources: InstanceDataResources,
+	lambert_instance_data_resources: InstanceDataResources,
+	text_instance_data_resources: InstanceDataResources,
 	index_arrays_offset: usize,
 }
 
-struct MaterialData {
+struct InstanceDataResources {
 	descriptor_set: vk::DescriptorSet,
 	secondary_command_buffer: vk::CommandBuffer,
 	array_offset: usize,
@@ -115,7 +117,7 @@ impl InFlightFrame {
 		let basic_descriptor_buffer_infos = [basic_descriptor_buffer_info.build()];
 
 		let basic_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.basic_material_data.descriptor_set)
+			.dst_set(self.basic_instance_data_resources.descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -129,7 +131,7 @@ impl InFlightFrame {
 		let normal_descriptor_buffer_infos = [normal_descriptor_buffer_info.build()];
 
 		let normal_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.normal_material_data.descriptor_set)
+			.dst_set(self.normal_instance_data_resources.descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -143,7 +145,7 @@ impl InFlightFrame {
 		let lambert_descriptor_buffer_infos = [lambert_descriptor_buffer_info.build()];
 
 		let lambert_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.lambert_material_data.descriptor_set)
+			.dst_set(self.lambert_instance_data_resources.descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -157,7 +159,7 @@ impl InFlightFrame {
 		let text_descriptor_buffer_infos = [text_descriptor_buffer_info.build()];
 
 		let text_write_descriptor_set = vk::WriteDescriptorSet::builder()
-			.dst_set(self.text_material_data.descriptor_set)
+			.dst_set(self.text_instance_data_resources.descriptor_set)
 			.dst_binding(0)
 			.dst_array_element(0)
 			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -174,17 +176,17 @@ impl InFlightFrame {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 
 		// Set offsets and sizes
-		self.basic_material_data.array_offset = basic_instance_data_array_offset;
-		self.basic_material_data.array_size = basic_instance_data_array_size;
+		self.basic_instance_data_resources.array_offset = basic_instance_data_array_offset;
+		self.basic_instance_data_resources.array_size = basic_instance_data_array_size;
 
-		self.normal_material_data.array_offset = normal_instance_data_array_offset;
-		self.normal_material_data.array_size = normal_instance_data_array_size;
+		self.normal_instance_data_resources.array_offset = normal_instance_data_array_offset;
+		self.normal_instance_data_resources.array_size = normal_instance_data_array_size;
 
-		self.lambert_material_data.array_offset = lambert_instance_data_array_offset;
-		self.lambert_material_data.array_size = lambert_instance_data_array_size;
+		self.lambert_instance_data_resources.array_offset = lambert_instance_data_array_offset;
+		self.lambert_instance_data_resources.array_size = lambert_instance_data_array_size;
 
-		self.text_material_data.array_offset = text_instance_data_array_offset;
-		self.text_material_data.array_size = text_instance_data_array_size;
+		self.text_instance_data_resources.array_offset = text_instance_data_array_offset;
+		self.text_instance_data_resources.array_size = text_instance_data_array_size;
 
 		self.index_arrays_offset = index_arrays_offset;
 	}
@@ -260,14 +262,7 @@ impl Renderer {
 		let command_pool = create_command_pool(&context);
 		let frame_data_descriptor_set_layout = create_frame_data_descriptor_set_layout(&context.logical_device);
 		let instance_data_descriptor_set_layout = create_instance_data_descriptor_set_layout(&context.logical_device);
-
-		let in_flight_frames = create_in_flight_frames(
-			&context,
-			&descriptor_pool,
-			&command_pool,
-			&frame_data_descriptor_set_layout,
-			&instance_data_descriptor_set_layout);
-
+		let in_flight_frames = create_in_flight_frames(&context, descriptor_pool, command_pool, frame_data_descriptor_set_layout, instance_data_descriptor_set_layout);
 		let mesh_resources = MeshResources::new(&context.logical_device, frame_data_descriptor_set_layout, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
 		let text_renderer = TextResources::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
 
@@ -510,10 +505,10 @@ impl Renderer {
 			println!("In flight frame {} mesh buffer reallocated", self.current_in_flight_frame_index);
 		}
 		else if
-			basic_instance_data_array_size > in_flight_frame.basic_material_data.array_size ||
-			normal_instance_data_array_size > in_flight_frame.normal_material_data.array_size ||
-			lambert_instance_data_array_size > in_flight_frame.lambert_material_data.array_size ||
-			text_instance_data_array_size > in_flight_frame.text_material_data.array_size
+			basic_instance_data_array_size > in_flight_frame.basic_instance_data_resources.array_size ||
+			normal_instance_data_array_size > in_flight_frame.normal_instance_data_resources.array_size ||
+			lambert_instance_data_array_size > in_flight_frame.lambert_instance_data_resources.array_size ||
+			text_instance_data_array_size > in_flight_frame.text_instance_data_resources.array_size
 		{
 			in_flight_frame.update_descriptor_sets(
 				logical_device,
@@ -529,10 +524,10 @@ impl Renderer {
 		}
 
 		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
-		let basic_material_data = &in_flight_frame.basic_material_data;
-		let normal_material_data = &in_flight_frame.normal_material_data;
-		let lambert_material_data = &in_flight_frame.lambert_material_data;
-		let text_material_data = &in_flight_frame.text_material_data;
+		let basic_instance_data_resources = &in_flight_frame.basic_instance_data_resources;
+		let normal_instance_data_resources = &in_flight_frame.normal_instance_data_resources;
+		let lambert_instance_data_resources = &in_flight_frame.lambert_instance_data_resources;
+		let text_instance_data_resources = &in_flight_frame.text_instance_data_resources;
 
 		// Copy mesh data into mesh data buffer and record draw commands
 		let instance_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.instance_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
@@ -583,7 +578,7 @@ impl Renderer {
 				match group[0].material {
 					Material::Basic => {
 						for (instance_index, instance) in group.iter().enumerate() {
-							let instance_data_offset = basic_material_data.array_offset + 4 * 16 * (group_index + instance_index);
+							let instance_data_offset = basic_instance_data_resources.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
@@ -593,7 +588,7 @@ impl Renderer {
 					},
 					Material::Normal => {
 						for (instance_index, instance) in group.iter().enumerate() {
-							let instance_data_offset = normal_material_data.array_offset + 4 * 16 * (group_index + instance_index);
+							let instance_data_offset = normal_instance_data_resources.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
@@ -603,7 +598,7 @@ impl Renderer {
 					},
 					Material::Lambert => {
 						for (instance_index, instance) in group.iter().enumerate() {
-							let instance_data_offset = lambert_material_data.array_offset + 4 * 16 * (group_index + instance_index);
+							let instance_data_offset = lambert_instance_data_resources.array_offset + 4 * 16 * (group_index + instance_index);
 
 							unsafe {
 								let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
@@ -645,29 +640,29 @@ impl Renderer {
 		// Basic
 		if !basic_material_group.instance_groups.is_empty() || !self.mesh_resources.basic_static_instance_infos.is_empty() {
 			unsafe {
-				logical_device.begin_command_buffer(basic_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
-				logical_device.cmd_bind_pipeline(basic_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.basic_pipeline);
+				logical_device.begin_command_buffer(basic_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(basic_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.basic_pipeline);
 				logical_device.cmd_bind_descriptor_sets(
-					basic_material_data.secondary_command_buffer,
+					basic_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					0,
 					&[in_flight_frame.frame_data_descriptor_set],
 					&[]);
 				logical_device.cmd_bind_descriptor_sets(
-					basic_material_data.secondary_command_buffer,
+					basic_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
-					&[basic_material_data.descriptor_set],
+					&[basic_instance_data_resources.descriptor_set],
 					&[]);
 			}
 
-			render_instance_groups(&basic_material_group.instance_groups, basic_material_data.secondary_command_buffer);
+			render_instance_groups(&basic_material_group.instance_groups, basic_instance_data_resources.secondary_command_buffer);
 
 			unsafe {
 				logical_device.cmd_bind_descriptor_sets(
-					basic_material_data.secondary_command_buffer,
+					basic_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
@@ -675,38 +670,38 @@ impl Renderer {
 					&[]);
 			}
 
-			render_static_instance_groups(&self.mesh_resources.basic_static_instance_infos, basic_material_data.secondary_command_buffer);
+			render_static_instance_groups(&self.mesh_resources.basic_static_instance_infos, basic_instance_data_resources.secondary_command_buffer);
 
-			unsafe { logical_device.end_command_buffer(basic_material_data.secondary_command_buffer) }.unwrap();
-			secondary_command_buffers.push(basic_material_data.secondary_command_buffer);
+			unsafe { logical_device.end_command_buffer(basic_instance_data_resources.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(basic_instance_data_resources.secondary_command_buffer);
 		}
 
 		// Normal
 		if !normal_material_group.instance_groups.is_empty() || !self.mesh_resources.normal_static_instance_infos.is_empty() {
 			unsafe {
-				logical_device.begin_command_buffer(normal_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
-				logical_device.cmd_bind_pipeline(normal_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.normal_pipeline);
+				logical_device.begin_command_buffer(normal_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(normal_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.normal_pipeline);
 				logical_device.cmd_bind_descriptor_sets(
-					normal_material_data.secondary_command_buffer,
+					normal_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					0,
 					&[in_flight_frame.frame_data_descriptor_set],
 					&[]);
 				logical_device.cmd_bind_descriptor_sets(
-					normal_material_data.secondary_command_buffer,
+					normal_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
-					&[normal_material_data.descriptor_set],
+					&[normal_instance_data_resources.descriptor_set],
 					&[]);
 			}
 
-			render_instance_groups(&normal_material_group.instance_groups, normal_material_data.secondary_command_buffer);
+			render_instance_groups(&normal_material_group.instance_groups, normal_instance_data_resources.secondary_command_buffer);
 
 			unsafe {
 				logical_device.cmd_bind_descriptor_sets(
-					normal_material_data.secondary_command_buffer,
+					normal_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
@@ -714,38 +709,38 @@ impl Renderer {
 					&[]);
 			}
 
-			render_static_instance_groups(&self.mesh_resources.normal_static_instance_infos, normal_material_data.secondary_command_buffer);
+			render_static_instance_groups(&self.mesh_resources.normal_static_instance_infos, normal_instance_data_resources.secondary_command_buffer);
 
-			unsafe { logical_device.end_command_buffer(normal_material_data.secondary_command_buffer) }.unwrap();
-			secondary_command_buffers.push(normal_material_data.secondary_command_buffer);
+			unsafe { logical_device.end_command_buffer(normal_instance_data_resources.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(normal_instance_data_resources.secondary_command_buffer);
 		}
 
 		// Lambert
 		if !lambert_material_group.instance_groups.is_empty() || !self.mesh_resources.lambert_static_instance_infos.is_empty() {
 			unsafe {
-				logical_device.begin_command_buffer(lambert_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
-				logical_device.cmd_bind_pipeline(lambert_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.lambert_pipeline);
+				logical_device.begin_command_buffer(lambert_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(lambert_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.lambert_pipeline);
 				logical_device.cmd_bind_descriptor_sets(
-					lambert_material_data.secondary_command_buffer,
+					lambert_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					0,
 					&[in_flight_frame.frame_data_descriptor_set],
 					&[]);
 				logical_device.cmd_bind_descriptor_sets(
-					lambert_material_data.secondary_command_buffer,
+					lambert_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
-					&[lambert_material_data.descriptor_set],
+					&[lambert_instance_data_resources.descriptor_set],
 					&[]);
 			}
 
-			render_instance_groups(&lambert_material_group.instance_groups, lambert_material_data.secondary_command_buffer);
+			render_instance_groups(&lambert_material_group.instance_groups, lambert_instance_data_resources.secondary_command_buffer);
 
 			unsafe {
 				logical_device.cmd_bind_descriptor_sets(
-					lambert_material_data.secondary_command_buffer,
+					lambert_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.mesh_resources.pipeline_layout,
 					1,
@@ -753,33 +748,33 @@ impl Renderer {
 					&[]);
 			}
 
-			render_static_instance_groups(&self.mesh_resources.lambert_static_instance_infos, lambert_material_data.secondary_command_buffer);
+			render_static_instance_groups(&self.mesh_resources.lambert_static_instance_infos, lambert_instance_data_resources.secondary_command_buffer);
 
-			unsafe { logical_device.end_command_buffer(lambert_material_data.secondary_command_buffer) }.unwrap();
-			secondary_command_buffers.push(lambert_material_data.secondary_command_buffer);
+			unsafe { logical_device.end_command_buffer(lambert_instance_data_resources.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(lambert_instance_data_resources.secondary_command_buffer);
 		}
 
 		// Text
 		if !text_infos.is_empty() {
 			unsafe {
-				logical_device.begin_command_buffer(text_material_data.secondary_command_buffer, &command_buffer_begin_info).unwrap();
-				logical_device.cmd_bind_pipeline(text_material_data.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_resources.pipeline);
+				logical_device.begin_command_buffer(text_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+				logical_device.cmd_bind_pipeline(text_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.text_resources.pipeline);
 				logical_device.cmd_bind_descriptor_sets(
-					text_material_data.secondary_command_buffer,
+					text_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.text_resources.pipeline_layout,
 					0,
-					&[text_material_data.descriptor_set],
+					&[text_instance_data_resources.descriptor_set],
 					&[]);
 				logical_device.cmd_bind_descriptor_sets(
-					text_material_data.secondary_command_buffer,
+					text_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.text_resources.pipeline_layout,
 					1,
 					&[self.text_resources.sampler_descriptor_set],
 					&[]);
 				logical_device.cmd_bind_descriptor_sets(
-					text_material_data.secondary_command_buffer,
+					text_instance_data_resources.secondary_command_buffer,
 					vk::PipelineBindPoint::GRAPHICS,
 					self.text_resources.pipeline_layout,
 					2,
@@ -793,7 +788,7 @@ impl Renderer {
 				let submission_info = font.submission_info.as_ref().unwrap();
 				assert!(submission_info.generation == self.text_resources.submission_generation);
 
-				let instance_data_offset = text_material_data.array_offset + 4 * 16 * index;
+				let instance_data_offset = text_instance_data_resources.array_offset + 4 * 16 * index;
 				let index_array_offset = index_arrays_offset + text_info.index_array_relative_offset;
 				let attribute_array_offset = attribute_arrays_offset + text_info.attribute_array_relative_offset;
 
@@ -816,14 +811,14 @@ impl Renderer {
 					let attribute_array_dst_ptr = instance_data_buffer_ptr.add(attribute_array_offset) as *mut f32;
 					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
 
-					logical_device.cmd_bind_index_buffer(text_material_data.secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
-					logical_device.cmd_bind_vertex_buffers(text_material_data.secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
-					logical_device.cmd_draw_indexed(text_material_data.secondary_command_buffer, indices.len() as u32, 1, 0, 0, index as u32);
+					logical_device.cmd_bind_index_buffer(text_instance_data_resources.secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
+					logical_device.cmd_bind_vertex_buffers(text_instance_data_resources.secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
+					logical_device.cmd_draw_indexed(text_instance_data_resources.secondary_command_buffer, indices.len() as u32, 1, 0, 0, index as u32);
 				}
 			}
 
-			unsafe { logical_device.end_command_buffer(text_material_data.secondary_command_buffer) }.unwrap();
-			secondary_command_buffers.push(text_material_data.secondary_command_buffer);
+			unsafe { logical_device.end_command_buffer(text_instance_data_resources.secondary_command_buffer) }.unwrap();
+			secondary_command_buffers.push(text_instance_data_resources.secondary_command_buffer);
 		}
 
 		// Flush and unmap mesh buffer

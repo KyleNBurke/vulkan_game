@@ -1,7 +1,7 @@
 use std::{mem::{MaybeUninit, transmute}, cmp::{min, max}};
 use ash::{vk, version::DeviceV1_0, version::InstanceV1_0, extensions::khr};
 use crate::vulkan::{Context, Buffer};
-use super::{Swapchain, DepthImageResources, SwapchainFrame, InFlightFrame, MaterialData, IN_FLIGHT_FRAMES_COUNT, FRAME_DATA_MEMORY_SIZE};
+use super::{Swapchain, DepthImageResources, SwapchainFrame, InFlightFrame, InstanceDataResources, IN_FLIGHT_FRAMES_COUNT, FRAME_DATA_MEMORY_SIZE, MAX_FONTS};
 
 pub fn create_render_pass(context: &Context) -> vk::RenderPass {
 	let color_attachment_description = vk::AttachmentDescription::builder()
@@ -227,48 +227,36 @@ pub(super) fn create_swapchain(context: &Context, framebuffer_width: u32, frameb
 }
 
 pub fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
-	let max_frames = IN_FLIGHT_FRAMES_COUNT as u32;
+	let frames_count = IN_FLIGHT_FRAMES_COUNT as u32;
 
-	// It's own set
-	// Frame data, offsets are not dynamic, one for each in flight frame
+	let storage_buffer_pool_size = vk::DescriptorPoolSize::builder()
+		.ty(vk::DescriptorType::STORAGE_BUFFER)
+		.descriptor_count(frames_count * 4 + 3);
+	
 	let uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
 		.ty(vk::DescriptorType::UNIFORM_BUFFER)
-		.descriptor_count(max_frames);
-
-	// It's own set
-	// Mesh data and text data from the dynamic buffer, offsets are dynamic, a pair for each in flight frame
-	// Single descriptor for the mesh data from the static buffer, offsets are dynamic
-	let uniform_buffer_dynamic_pool_size = vk::DescriptorPoolSize::builder()
-		.ty(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-		.descriptor_count(max_frames * 2 + 1);
+		.descriptor_count(frames_count);
 	
-	// Set of two descriptors
-	// Single sampler used to sample from the font atlas
-	/*let sampler_pool_size = vk::DescriptorPoolSize::builder()
+	let sampler_pool_size = vk::DescriptorPoolSize::builder()
 		.ty(vk::DescriptorType::SAMPLER)
 		.descriptor_count(1);
 	
-	// The array of font atlases
 	let sampled_image_pool_size = vk::DescriptorPoolSize::builder()
 		.ty(vk::DescriptorType::SAMPLED_IMAGE)
-		.descriptor_count(MAX_FONTS as u32);*/
+		.descriptor_count(MAX_FONTS as u32);
 	
 	let pool_sizes = [
+		storage_buffer_pool_size.build(),
 		uniform_buffer_pool_size.build(),
-		uniform_buffer_dynamic_pool_size.build(),
-		// sampler_pool_size.build(),
-		// sampled_image_pool_size.build()
+		sampler_pool_size.build(),
+		sampled_image_pool_size.build()
 	];
 	
 	let create_info = vk::DescriptorPoolCreateInfo::builder()
 		.pool_sizes(&pool_sizes)
-
-		// 3 times each in flight frame for the frame data, mesh data & text data
-		// One for the static mesh data
-		// One for the text sampler and atlas textures
-		.max_sets(20);
+		.max_sets(frames_count * 5 + 5);
 	
-	unsafe { context.logical_device.create_descriptor_pool(&create_info, None).unwrap() }
+	unsafe { context.logical_device.create_descriptor_pool(&create_info, None) }.unwrap()
 }
 
 pub fn create_command_pool(context: &Context) -> vk::CommandPool {
@@ -276,7 +264,7 @@ pub fn create_command_pool(context: &Context) -> vk::CommandPool {
 		.queue_family_index(context.physical_device.graphics_queue_family)
 		.flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER);
 
-	unsafe { context.logical_device.create_command_pool(&create_info, None).unwrap() }
+	unsafe { context.logical_device.create_command_pool(&create_info, None) }.unwrap()
 }
 
 pub fn create_frame_data_descriptor_set_layout(logical_device: &ash::Device) -> vk::DescriptorSetLayout {
@@ -310,10 +298,10 @@ pub fn create_instance_data_descriptor_set_layout(logical_device: &ash::Device) 
 
 pub(super) fn create_in_flight_frames(
 	context: &Context,
-	descriptor_pool: &vk::DescriptorPool,
-	command_pool: &vk::CommandPool,
-	frame_data_descriptor_set_layout: &vk::DescriptorSetLayout,
-	instance_data_descriptor_set_layout: &vk::DescriptorSetLayout)
+	descriptor_pool: vk::DescriptorPool,
+	command_pool: vk::CommandPool,
+	frame_data_descriptor_set_layout: vk::DescriptorSetLayout,
+	instance_data_descriptor_set_layout: vk::DescriptorSetLayout)
 	-> [InFlightFrame; IN_FLIGHT_FRAMES_COUNT]
 {
 	let semaphore_create_info = vk::SemaphoreCreateInfo::builder();
@@ -322,29 +310,29 @@ pub(super) fn create_in_flight_frames(
 		.flags(vk::FenceCreateFlags::SIGNALED);
 
 	let primary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-		.command_pool(*command_pool)
+		.command_pool(command_pool)
 		.level(vk::CommandBufferLevel::PRIMARY)
 		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32);
 	
 	let primary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&primary_command_buffer_allocate_info) }.unwrap();
 
 	let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
-		.command_pool(*command_pool)
+		.command_pool(command_pool)
 		.level(vk::CommandBufferLevel::SECONDARY)
 		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 4);
 	
 	let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info) }.unwrap();
 
 	let descriptor_set_layouts = [
-		*frame_data_descriptor_set_layout,
-		*instance_data_descriptor_set_layout,
-		*instance_data_descriptor_set_layout,
-		*instance_data_descriptor_set_layout,
-		*instance_data_descriptor_set_layout
+		frame_data_descriptor_set_layout,
+		instance_data_descriptor_set_layout,
+		instance_data_descriptor_set_layout,
+		instance_data_descriptor_set_layout,
+		instance_data_descriptor_set_layout
 	];
 
 	let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
-		.descriptor_pool(*descriptor_pool)
+		.descriptor_pool(descriptor_pool)
 		.set_layouts(&descriptor_set_layouts);
 
 	let mut frames: [MaybeUninit<InFlightFrame>; IN_FLIGHT_FRAMES_COUNT] = unsafe { MaybeUninit::uninit().assume_init() };
@@ -379,28 +367,28 @@ pub(super) fn create_in_flight_frames(
 		let write_descriptor_sets = [frame_data_write_descriptor_set.build()];
 		unsafe { context.logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 
-		let basic_material_data = MaterialData {
+		let basic_material_data = InstanceDataResources {
 			descriptor_set: descriptor_sets[1],
 			secondary_command_buffer: secondary_command_buffers[4 * index],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let normal_material_data = MaterialData {
+		let normal_material_data = InstanceDataResources {
 			descriptor_set: descriptor_sets[2],
 			secondary_command_buffer: secondary_command_buffers[4 * index + 1],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let lambert_material_data = MaterialData {
+		let lambert_material_data = InstanceDataResources {
 			descriptor_set: descriptor_sets[3],
 			secondary_command_buffer: secondary_command_buffers[4 * index + 2],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let text_material_data = MaterialData {
+		let text_material_data = InstanceDataResources {
 			descriptor_set: descriptor_sets[4],
 			secondary_command_buffer: secondary_command_buffers[4 * index + 3],
 			array_offset: 0,
@@ -415,10 +403,10 @@ pub(super) fn create_in_flight_frames(
 			primary_command_buffer,
 			frame_data_buffer,
 			instance_data_buffer,
-			basic_material_data,
-			normal_material_data,
-			lambert_material_data,
-			text_material_data,
+			basic_instance_data_resources: basic_material_data,
+			normal_instance_data_resources: normal_material_data,
+			lambert_instance_data_resources: lambert_material_data,
+			text_instance_data_resources: text_material_data,
 			index_arrays_offset: 0
 		});
 	}
