@@ -5,8 +5,8 @@ authors = ["Kyle Burke <kyle.n.burke@gmail.com>"]
 edition = '2018'
 
 [dependencies]
-glfw = { version = "0.40.0", features = ["vulkan"] }
-ash = "0.31.0"
+glfw = { version = "0.41.0", features = ["vulkan"] }
+ash = "0.32.1"
 freetype = "0.7.0"
 
 [dev-dependencies]

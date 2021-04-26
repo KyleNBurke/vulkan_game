@@ -104,7 +104,7 @@ impl TextResources {
 			image: vk::Image,
 			image_view: vk::ImageView,
 			offset: u64
-		};
+		}
 
 		let mut font_infos: Vec<TempFontInfo> = vec![];
 		let mut offset = 0;

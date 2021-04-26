@@ -1,13 +1,12 @@
 use std::time::Duration;
-use glfw::Window;
-use engine::{pool::Handle, Renderer, scene::Scene, Font};
+use engine::{glfw, pool::Handle, Renderer, scene::Scene, Font};
 
 pub struct GameResources {
 	pub roboto_14: Handle<Font>
 }
 
 pub struct EngineResources {
-	pub window: Window,
+	pub window: glfw::Window,
 	pub renderer: Renderer,
 	pub game_resources: GameResources,
 	pub scene: Scene

@@ -26,7 +26,7 @@ pub struct Surface {
 impl Context {
 	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
 		// Create entry
-		let entry = ash::Entry::new().unwrap();
+		let entry = unsafe { ash::Entry::new() }.unwrap();
 
 		// Create layer and extension lists
 		let validation_layer = CString::new("VK_LAYER_KHRONOS_validation").unwrap();
