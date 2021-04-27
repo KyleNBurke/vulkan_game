@@ -32,3 +32,4 @@ pub use text::Text;
 pub mod pool;
 
 pub mod scene;
+pub use scene::Scene;

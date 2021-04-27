@@ -4,7 +4,7 @@ use engine::{
 	Renderer,
 	Camera,
 	lights::{AmbientLight, PointLight},
-	scene::Scene,
+	Scene,
 	pool::Pool,
 	math::Vector3,
 	Geometry3D,

@@ -91,7 +91,7 @@ impl TextResources {
 		self.submission_generation += 1;
 
 		// Don't do anything if there are no fonts
-		if fonts.present_len() == 0 {
+		if fonts.len() == 0 {
 			return;
 		}
 

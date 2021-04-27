@@ -1,5 +1,5 @@
 use std::time::Duration;
-use engine::{glfw, pool::Handle, Renderer, scene::Scene, Font};
+use engine::{glfw, pool::Handle, Renderer, Scene, Font};
 
 pub struct GameResources {
 	pub roboto_14: Handle<Font>
@@ -35,12 +35,12 @@ impl StateManager {
 		Self { states: vec![] }
 	}
 
-	pub fn push_state(&mut self, resources: &mut EngineResources, mut state: Box<dyn State>) {
+	pub fn push(&mut self, resources: &mut EngineResources, mut state: Box<dyn State>) {
 		state.enter(resources);
 		self.states.push(state);
 	}
 
-	pub fn pop_state(&mut self, resources: &mut EngineResources) {
+	pub fn pop(&mut self, resources: &mut EngineResources) {
 		self.states.last_mut().unwrap().leave(resources);
 		self.states.pop();
 	}
@@ -61,10 +61,10 @@ impl StateManager {
 		for action in actions {
 			match action {
 				StateAction::Push(state) => {
-					self.push_state(resources, state);
+					self.push(resources, state);
 				},
 				StateAction::Pop => {
-					self.pop_state(resources);
+					self.pop(resources);
 				},
 				_ => ()
 			}

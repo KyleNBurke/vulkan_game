@@ -6,7 +6,7 @@ use crate::{
 	Mesh,
 	Material,
 	pool::Pool,
-	scene::Scene,
+	Scene,
 	Font,
 	Text,
 	vulkan::{Context, Buffer}
@@ -364,7 +364,7 @@ impl Renderer {
 			copied: bool
 		}
 
-		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; scene.geometries.len()];
+		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; scene.geometries.total_len()];
 
 		struct TempMaterialGroup<'a> {
 			map: Vec<Option<usize>>,
@@ -373,19 +373,19 @@ impl Renderer {
 		}
 
 		let mut basic_material_group = TempMaterialGroup {
-			map: vec![None; scene.geometries.len()],
+			map: vec![None; scene.geometries.total_len()],
 			instance_groups: vec![],
 			instance_count: 0
 		};
 
 		let mut normal_material_group = TempMaterialGroup {
-			map: vec![None; scene.geometries.len()],
+			map: vec![None; scene.geometries.total_len()],
 			instance_groups: vec![],
 			instance_count: 0
 		};
 
 		let mut lambert_material_group = TempMaterialGroup {
-			map: vec![None; scene.geometries.len()],
+			map: vec![None; scene.geometries.total_len()],
 			instance_groups: vec![],
 			instance_count: 0
 		};
@@ -396,7 +396,7 @@ impl Renderer {
 			attribute_array_relative_offset: usize
 		}
 
-		let mut text_infos: Vec<TempTextInfo> = Vec::with_capacity(scene.text.present_len());
+		let mut text_infos: Vec<TempTextInfo> = Vec::with_capacity(scene.text.len());
 		
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;

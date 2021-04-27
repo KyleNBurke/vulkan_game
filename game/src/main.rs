@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-use engine::{glfw, Renderer, Camera, lights::AmbientLight, scene::Scene, math::Vector3, Font, Text};
+use engine::{glfw, Renderer, Camera, lights::AmbientLight, Scene, math::Vector3, Font, Text};
 
 mod state_manager;
 use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
@@ -43,8 +43,8 @@ fn main() {
 	let mut state_manager = StateManager::new();
 	let frame_metrics_state = Box::new(FrameMetricsState::new(&mut resources));
 	let gameplay_state = Box::new(GameplayState::new());
-	state_manager.push_state(&mut resources, frame_metrics_state);
-	state_manager.push_state(&mut resources, gameplay_state);
+	state_manager.push(&mut resources, frame_metrics_state);
+	state_manager.push(&mut resources, gameplay_state);
 
 	let duration_zero = Duration::new(0, 0);
 	let max_duration = Duration::from_secs_f64(MAX_FRAME_TIME);

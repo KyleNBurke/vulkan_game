@@ -4,7 +4,7 @@ use engine::{
 	Renderer,
 	Camera,
 	lights::AmbientLight,
-	scene::Scene,
+	Scene,
 	math::Vector3,
 	Geometry3D,
 	mesh::{Material, Mesh},

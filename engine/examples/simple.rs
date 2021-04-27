@@ -2,7 +2,7 @@ use engine::{
 	Renderer,
 	Camera,
 	lights::AmbientLight,
-	scene::{Scene, Entity},
+	Scene,
 	math::Vector3,
 	Geometry3D,
 	mesh::{Mesh, Material}
@@ -15,18 +15,19 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 	window.set_key_polling(true);
 
-	let (width, height) = window.get_framebuffer_size();
 	let mut renderer = Renderer::new(&glfw, &window);
 
-	let camera = Camera::new(width as f32 / height as f32, 75.0, 0.1, 10.0);
+	let extent = renderer.get_swapchain_extent();
+	let mut camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+	camera.transform.position.z = -2.0;
+	camera.transform.update_matrix();
+
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
 	let mut scene = Scene::new(camera, ambient_light);
 
-	scene.camera.transform.position.z = -2.0;
-
-	let box_geometry_handle = scene.geometries.add(Geometry3D::create_box());
-	let box_handle = scene.entities.add(Entity::Mesh(Mesh::new(box_geometry_handle, Material::Basic)));
-	let node_handle = scene.graph.add_node(Some(box_handle));
+	let geometry_handle = scene.geometries.add(Geometry3D::create_box());
+	let mesh = Mesh::new(geometry_handle, Material::Normal);
+	let mesh_handle = scene.meshes.add(mesh);
 
 	let mut minimized = false;
 	let mut resized;
@@ -67,11 +68,14 @@ fn main() {
 		}
 
 		if resized || surface_changed {
-			renderer.handle_resize(width, height);
-			scene.camera.projection_matrix.make_perspective(width as f32 / height as f32, 75.0, 0.1, 10.0);
+			renderer.resize(width, height);
+			let extent = renderer.get_swapchain_extent();
+			scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 		
-		scene.graph.get_node_mut(&node_handle).unwrap().transform.rotate_y(0.005);
+		let mesh = scene.meshes.get_mut(&mesh_handle).unwrap();
+		mesh.transform.rotate_y(0.005);
+		mesh.transform.update_matrix();
 
 		surface_changed = renderer.render(&mut scene);
 	}

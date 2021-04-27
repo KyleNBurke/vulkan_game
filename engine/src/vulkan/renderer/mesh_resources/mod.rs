@@ -103,7 +103,7 @@ impl MeshResources {
 			static_geometry_info_index: usize
 		}
 
-		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; geometries.len()];
+		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; geometries.total_len()];
 
 		struct TempMaterialGroup<'a> {
 			map: Vec<Option<usize>>,
@@ -113,17 +113,17 @@ impl MeshResources {
 
 		let mut material_groups: [TempMaterialGroup; 3] = [
 			TempMaterialGroup {
-				map: vec![None; geometries.len()],
+				map: vec![None; geometries.total_len()],
 				instance_groups: vec![],
 				instance_count: 0
 			},
 			TempMaterialGroup {
-				map: vec![None; geometries.len()],
+				map: vec![None; geometries.total_len()],
 				instance_groups: vec![],
 				instance_count: 0
 			},
 			TempMaterialGroup {
-				map: vec![None; geometries.len()],
+				map: vec![None; geometries.total_len()],
 				instance_groups: vec![],
 				instance_count: 0
 			}
