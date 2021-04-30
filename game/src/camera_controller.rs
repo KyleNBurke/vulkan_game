@@ -43,19 +43,19 @@ impl CameraController {
 		}
 
 		if window.get_key(glfw::Key::A) == glfw::Action::Press {
-			translation_direction.x = -1.0;
-		}
-
-		if window.get_key(glfw::Key::D) == glfw::Action::Press {
 			translation_direction.x = 1.0;
 		}
 
+		if window.get_key(glfw::Key::D) == glfw::Action::Press {
+			translation_direction.x = -1.0;
+		}
+
 		if window.get_key(glfw::Key::E) == glfw::Action::Press {
-			translation_direction.y = -1.0;
+			translation_direction.y = 1.0;
 		}
 
 		if window.get_key(glfw::Key::Q) == glfw::Action::Press {
-			translation_direction.y = 1.0;
+			translation_direction.y = -1.0;
 		}
 
 		translation_direction.normalize();
@@ -67,8 +67,8 @@ impl CameraController {
 		let mouse_pos_diff_y = mouse_pos_y - self.prev_mouse_pos_y;
 
 		self.euler.set_from_quaternion(&camera.transform.rotation);
-		self.euler.y += mouse_pos_diff_x * ROTATION_SPEED;
-		self.euler.x -= mouse_pos_diff_y * ROTATION_SPEED;
+		self.euler.y -= mouse_pos_diff_x * ROTATION_SPEED;
+		self.euler.x += mouse_pos_diff_y * ROTATION_SPEED;
 		self.euler.x = self.euler.x.max(-MAX_VERTICAL_ROTATION_ANGLE).min(MAX_VERTICAL_ROTATION_ANGLE);
 		camera.transform.rotation.set_from_euler(&self.euler);
 

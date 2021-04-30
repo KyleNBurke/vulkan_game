@@ -1,4 +1,4 @@
-use std::{time::Duration, vec};
+use std::{time::Duration, vec, f32::consts::PI};
 
 use engine::{
 	glfw,
@@ -38,24 +38,26 @@ impl State for GameplayState {
 		let box_geo = geometries.add(Geometry3D::create_box());
 
 		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
-		static_triangle.transform.position.set(0.0, 1.0, 1.7);
+		static_triangle.transform.position.set(0.0, -1.0, 1.7);
+		static_triangle.transform.rotate_y(PI);
 		static_triangle.transform.update_matrix();
 
 		let mut static_plane = Mesh::new(plane_geo, Material::Lambert);
-		static_plane.transform.position.set(0.0, 1.0, 2.0);
+		static_plane.transform.position.set(0.0, -1.0, 2.0);
+		static_plane.transform.rotate_y(PI);
 		static_plane.transform.update_matrix();
 
 		let mut static_box = Mesh::new(box_geo, Material::Normal);
-		static_box.transform.position.set(-2.0, 0.0, 0.0);
+		static_box.transform.position.set(2.0, 0.0, 0.0);
 		static_box.transform.update_matrix();
 
 		let mut point_light_box1 = Mesh::new(box_geo, Material::Basic);
-		point_light_box1.transform.position.set(0.0, -1.0, 0.0);
+		point_light_box1.transform.position.set(0.0, 1.0, 0.0);
 		point_light_box1.transform.scale.set_from_scalar(0.2);
 		point_light_box1.transform.update_matrix();
 
 		let mut point_light_box2 = Mesh::new(box_geo, Material::Basic);
-		point_light_box2.transform.position.set(-1.0, -1.0, 0.0);
+		point_light_box2.transform.position.set(1.0, 1.0, 0.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 		point_light_box2.transform.update_matrix();
 
@@ -66,21 +68,22 @@ impl State for GameplayState {
 		let box_geo = scene.geometries.add(Geometry3D::create_box());
 
 		let mut triangle_lambert_mesh = Mesh::new(triangle_geo, Material::Basic);
-		triangle_lambert_mesh.transform.position.set(-0.5, -0.6, 2.0);
+		triangle_lambert_mesh.transform.position.set(0.5, 0.6, 2.0);
+		triangle_lambert_mesh.transform.rotate_y(PI);
 		triangle_lambert_mesh.transform.update_matrix();
 		scene.meshes.add(triangle_lambert_mesh);
 
 		let mut box_lambert_mesh = Mesh::new(box_geo, Material::Lambert);
-		box_lambert_mesh.transform.position.set(2.0, 0.0, 0.0);
+		box_lambert_mesh.transform.position.set(-2.0, 0.0, 0.0);
 		box_lambert_mesh.transform.update_matrix();
 		self.box_handle = scene.meshes.add(box_lambert_mesh);
 
 		let mut point_light_1 = PointLight::new();
-		point_light_1.position.set(0.0, -1.0, 0.0);
+		point_light_1.position.set(0.0, 1.0, 0.0);
 		resources.scene.point_lights.add(point_light_1);
 
 		let mut point_light_2 = PointLight::new();
-		point_light_2.position.set(-1.0, -1.0, 0.0);
+		point_light_2.position.set(1.0, 1.0, 0.0);
 		resources.scene.point_lights.add(point_light_2);
 
 		resources.window.set_cursor_mode(glfw::CursorMode::Disabled);

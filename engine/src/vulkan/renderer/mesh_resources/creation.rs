@@ -69,7 +69,7 @@ pub fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipe
 		.polygon_mode(vk::PolygonMode::FILL)
 		.line_width(1.0)
 		.cull_mode(vk::CullModeFlags::BACK)
-		.front_face(vk::FrontFace::CLOCKWISE)
+		.front_face(vk::FrontFace::COUNTER_CLOCKWISE)
 		.depth_bias_enable(false);
 
 	let multisample_state_create_info = vk::PipelineMultisampleStateCreateInfo::builder()

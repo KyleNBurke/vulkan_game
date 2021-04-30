@@ -18,7 +18,7 @@ fn main() {
 
 	let extent = renderer.get_swapchain_extent();
 	let mut camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
-	camera.transform.position.set(0.0, 0.0, -2.0);
+	camera.transform.position.z = -2.0;
 	camera.transform.update_matrix();
 
 	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
