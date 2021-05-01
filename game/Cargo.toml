@@ -6,3 +6,4 @@ edition = '2018'
 
 [dependencies]
 engine = { path = "../engine" }
+gltf = "0.15.2"

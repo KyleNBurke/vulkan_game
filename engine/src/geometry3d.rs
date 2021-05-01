@@ -4,6 +4,13 @@ pub struct Geometry3D {
 }
 
 impl Geometry3D {
+	pub fn new(indices: Vec<u16>, attributes: Vec<f32>) -> Self {
+		Self {
+			indices,
+			attributes
+		}
+	}
+	
 	pub fn create_triangle() -> Self {
 		let indices = vec![
 			0, 1, 2

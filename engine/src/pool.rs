@@ -27,6 +27,14 @@ impl<T> Handle<T> {
 			generation: 0
 		}
 	}
+
+	pub fn new_first_gen(index: usize) -> Self {
+		Self {
+			type_marker: PhantomData,
+			index,
+			generation: 1
+		}
+	}
 }
 
 struct Record<T> {
