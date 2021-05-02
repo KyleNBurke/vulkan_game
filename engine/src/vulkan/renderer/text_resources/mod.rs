@@ -61,9 +61,7 @@ impl TextResources {
 	}
 
 	pub fn resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
-		unsafe {
-			logical_device.destroy_pipeline(self.pipeline, None);
-		}
+		unsafe { logical_device.destroy_pipeline(self.pipeline, None) };
 
 		self.pipeline = create_pipeline(logical_device, extent, self.pipeline_layout, render_pass);
 		

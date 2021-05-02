@@ -61,7 +61,7 @@ impl Font {
 					(atlas[0].len(), atlas.len(), space_advance, placed_glyphs)
 				}
 				else {
-					panic!("{}", e);
+					panic!("Cannot load or generate font\n{}", e);
 				}
 			}
 		};
@@ -79,18 +79,18 @@ impl Font {
 	fn load_ttf(ttf_path: CString, size: u32) -> (f32, Vec<UnplacedGlyph>) {
 		let mut library: FT_Library = ptr::null_mut();
 		let error = unsafe { FT_Init_FreeType(&mut library) };
-		assert_eq!(error, 0, "Error code {} while initializing library", error);
+		assert_eq!(error, 0, "Cannot initialize Freetype, error code {}", error);
 
 		let mut face: FT_Face = ptr::null_mut();
 		let error = unsafe { FT_New_Face(library, ttf_path.as_ptr(), 0, &mut face) };
-		assert_eq!(error, 0, "Error code {} while loading font face", error);
+		assert_eq!(error, 0, "Cannot load font face, font face {}", error);
 
 		let error = unsafe { FT_Set_Pixel_Sizes(face, 0, size) };
-		assert_eq!(error, 0, "Error code {} while setting the font size", error);
+		assert_eq!(error, 0, "Cannot set the font size, error code {}", error);
 
 		let space_glyph_index = unsafe { FT_Get_Char_Index(face, 32) };
 		let error = unsafe { FT_Load_Glyph(face, space_glyph_index, 0) };
-		assert_eq!(error, 0, "Error code {} while loading the space glyph", error);
+		assert_eq!(error, 0, "Cannot load the space glyph, error code {}", error);
 		let space_advance = unsafe { (*(*face).glyph).advance.x / 64 } as f32;
 
 		let char_codes = 33..127;
@@ -99,10 +99,10 @@ impl Font {
 		for char_code in char_codes {
 			let glyph_index = unsafe { FT_Get_Char_Index(face, char_code) };
 			let error = unsafe { FT_Load_Glyph(face, glyph_index, 0) };
-			assert_eq!(error, 0, "Error code {} while loading a glyph", error);
+			assert_eq!(error, 0, "Cannot load glyph, error code {}", error);
 
 			let error = unsafe { FT_Render_Glyph((*face).glyph, FT_Render_Mode::FT_RENDER_MODE_NORMAL) };
-			assert_eq!(error, 0, "Error code {} while rendering glyph", error);
+			assert_eq!(error, 0, "Cannot render glyph, error code {}", error);
 
 			let ft_glyph = unsafe { *(*face).glyph };
 			let ft_bitmap = ft_glyph.bitmap;

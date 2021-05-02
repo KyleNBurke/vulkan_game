@@ -502,7 +502,7 @@ impl Renderer {
 				text_instance_data_array_size,
 				index_arrays_offset);
 			
-			println!("In flight frame {} mesh buffer reallocated", self.current_in_flight_frame_index);
+			println!("In flight frame {} instance data buffer reallocated", self.current_in_flight_frame_index);
 		}
 		else if
 			basic_instance_data_array_size > in_flight_frame.basic_instance_data_resources.array_size ||

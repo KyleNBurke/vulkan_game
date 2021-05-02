@@ -25,14 +25,14 @@ impl GameplayState {
 	pub fn new() -> Self {
 		Self {
 			camera_controller: CameraController::new(),
-			camera_controller_enabled: true,
+			camera_controller_enabled: false,
 			box_handle: Handle::null()
 		}
 	}
 
 	fn load(&mut self, scene: &mut Scene) {
 		let (document, buffers, _) = gltf::import("game/res/monkey.gltf").unwrap();
-		let mut geometry_map: Vec<usize> = vec![];
+		let mut geometry_map: Vec<Handle<Geometry3D>> = vec![];
 
 		for mesh in document.meshes() {
 			let name = if let Some(name) = mesh.name() { name } else { "unamed" };
@@ -92,7 +92,7 @@ impl GameplayState {
 
 			let geometry = Geometry3D::new(indices, attributes);
 			let handle = scene.geometries.add(geometry);
-			geometry_map.push(handle.index);
+			geometry_map.push(handle);
 		}
 
 		for gltf_scene in document.scenes() {
@@ -103,7 +103,7 @@ impl GameplayState {
 				matrix.transpose();
 				
 				if let Some(gltf_mesh) = node.mesh() {
-					let geometry_handle = Handle::<Geometry3D>::new_first_gen(geometry_map[gltf_mesh.index()]);
+					let geometry_handle = geometry_map[gltf_mesh.index()];
 					let mut mesh = Mesh::new(geometry_handle, Material::Lambert);
 					mesh.transform.matrix = matrix;
 					
@@ -120,7 +120,7 @@ impl GameplayState {
 					child_matrix = parent_matrix * child_matrix;
 
 					if let Some(gltf_mesh) = child_node.mesh() {
-						let geometry_handle = Handle::<Geometry3D>::new_first_gen(geometry_map[gltf_mesh.index()]);
+						let geometry_handle = geometry_map[gltf_mesh.index()];
 						let mut mesh = Mesh::new(geometry_handle, Material::Lambert);
 						mesh.transform.matrix = child_matrix;
 						
@@ -195,9 +195,6 @@ impl State for GameplayState {
 
 		// Load gltf
 		self.load(&mut resources.scene);
-
-		resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
-		self.camera_controller.poll_mouse_pos(&resources.window);
 	}
 
 	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources) {
