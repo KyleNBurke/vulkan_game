@@ -96,6 +96,7 @@ fn create_shader_module(logical_device: &ash::Device, filename: &str) -> vk::Sha
 }
 
 impl InFlightFrame {
+	#[allow(clippy::clippy::too_many_arguments)]
 	fn update_descriptor_sets(
 		&mut self,
 		logical_device: &ash::Device,
@@ -396,7 +397,7 @@ impl Renderer {
 			attribute_array_relative_offset: usize
 		}
 
-		let mut text_infos: Vec<TempTextInfo> = Vec::with_capacity(scene.text.len());
+		let mut text_infos: Vec<TempTextInfo> = Vec::with_capacity(scene.text.available_len());
 		
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
@@ -795,7 +796,7 @@ impl Renderer {
 				let indices = text.get_vertex_indices();
 				let attributes = text.get_vertex_attributes();
 
-				let mut matrix = self.text_resources.projection_matrix.clone();
+				let mut matrix = self.text_resources.projection_matrix;
 				matrix *= &text.transform.matrix;
 
 				unsafe {

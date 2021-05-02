@@ -11,8 +11,6 @@ use engine::{
 	math::Matrix4
 };
 
-use gltf;
-
 use crate::{CameraController, State, StateAction, EngineResources};
 
 pub struct GameplayState {
@@ -39,7 +37,8 @@ impl GameplayState {
 			let primitive = mesh.primitives().last().unwrap();
 			assert_eq!(primitive.mode(), gltf::mesh::Mode::Triangles);
 
-			let indices_accessor = primitive.indices().expect(&format!("Cannot load mesh {}, no indices found", name));
+			let indices_accessor = primitive.indices()
+				.unwrap_or_else(|| panic!("Cannot load mesh {}, no indices found", name));
 			assert_eq!(indices_accessor.data_type(), gltf::accessor::DataType::U16);
 			assert_eq!(indices_accessor.dimensions(), gltf::accessor::Dimensions::Scalar);
 
@@ -56,11 +55,13 @@ impl GameplayState {
 				indices.push(index);
 			}
 
-			let positions_accessor = primitive.get(&gltf::Semantic::Positions).expect(&format!("Cannot load mesh {}, no positions attribute found", name));
+			let positions_accessor = primitive.get(&gltf::Semantic::Positions)
+				.unwrap_or_else(|| panic!("Cannot load mesh {}, no positions attribute found", name));
 			assert_eq!(positions_accessor.data_type(), gltf::accessor::DataType::F32);
 			assert_eq!(positions_accessor.dimensions(), gltf::accessor::Dimensions::Vec3);
 
-			let normals_accessor = primitive.get(&gltf::Semantic::Normals).expect(&format!("Cannot load mesh {}, no normals attribute found", name));
+			let normals_accessor = primitive.get(&gltf::Semantic::Normals)
+				.unwrap_or_else(|| panic!("Cannot load mesh {}, no normals attribute found", name));
 			assert_eq!(normals_accessor.data_type(), gltf::accessor::DataType::F32);
 			assert_eq!(normals_accessor.dimensions(), gltf::accessor::Dimensions::Vec3);
 
@@ -198,19 +199,16 @@ impl State for GameplayState {
 	}
 
 	fn handle_event(&mut self, event: &glfw::WindowEvent, resources: &mut EngineResources) {
-		match event {
-			glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) => {
-				self.camera_controller_enabled = !self.camera_controller_enabled;
+		if let glfw::WindowEvent::Key(glfw::Key::Tab, _, glfw::Action::Press, _) = event {
+			self.camera_controller_enabled = !self.camera_controller_enabled;
 
-				if self.camera_controller_enabled {
-					self.camera_controller.poll_mouse_pos(&resources.window);
-					resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
-				}
-				else {
-					resources.window.set_cursor_mode(glfw::CursorMode::Normal);
-				}
-			},
-			_ => ()
+			if self.camera_controller_enabled {
+				self.camera_controller.poll_mouse_pos(&resources.window);
+				resources.window.set_cursor_mode(glfw::CursorMode::Disabled);
+			}
+			else {
+				resources.window.set_cursor_mode(glfw::CursorMode::Normal);
+			}
 		}
 	}
 

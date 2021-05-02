@@ -127,7 +127,7 @@ impl Matrix4 {
 		let (sx, sy, sz) = (e.x.sin(), e.y.sin(), e.z.sin());
 
 		match e.order {
-			Order::XYZ => {
+			Order::Xyz => {
 				self.elements = [
 					[cy * cz, -cy * sz, sy, 0.0],
 					[cz * sx * sy + cx * sz, cx * cz - sx * sy * sz, -cy * sx, 0.0],
@@ -135,7 +135,7 @@ impl Matrix4 {
 					[0.0, 0.0, 0.0, 1.0]
 				];
 			},
-			Order::XZY => {
+			Order::Xzy => {
 				self.elements = [
 					[cy * cz, -sz, cz * sy, 0.0],
 					[sx * sy + cx * cy * sz, cx * cz, cx * sy * sz - cy * sx, 0.0],
@@ -143,7 +143,7 @@ impl Matrix4 {
 					[0.0, 0.0, 0.0, 1.0]
 				];
 			},
-			Order::YXZ => {
+			Order::Yxz => {
 				self.elements = [
 					[cy * cz + sx * sy * sz, cz * sx * sy - cy * sz, cx * sy, 0.0],
 					[cx * sz, cx * cz, -sx, 0.0],
@@ -151,7 +151,7 @@ impl Matrix4 {
 					[0.0, 0.0, 0.0, 1.0]
 				];
 			},
-			Order::YZX => {
+			Order::Yzx => {
 				self.elements = [
 					[cy * cz, sx * sy - cx * cy * sz, cx * sy + cy * sx * sz, 0.0],
 					[sz, cx * cz, -cz * sx, 0.0],
@@ -159,7 +159,7 @@ impl Matrix4 {
 					[0.0, 0.0, 0.0, 1.0]
 				];
 			},
-			Order::ZXY => {
+			Order::Zxy => {
 				self.elements = [
 					[cy * cz - sx * sy * sz, -cx * sz, cz * sy + cy * sx * sz, 0.0],
 					[cz * sx * sz + cy * sz, cx * cz, sy * sz - cy * cz * sx, 0.0],
@@ -167,7 +167,7 @@ impl Matrix4 {
 					[0.0, 0.0, 0.0, 1.0]
 				];
 			},
-			Order::ZYX => {
+			Order::Zyx => {
 				self.elements = [
 					[cy * cz, cz * sx * sy - cx * sz, cx * cz * sy + sx * sz, 0.0],
 					[cy * sz, cx * cz + sx * sy * sz, cx * sy * sz - cz * sx, 0.0],
@@ -383,7 +383,7 @@ mod tests {
 		let mut m = Matrix4::new();
 
 		// XYZ
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xyz));
 		let expected = Matrix4::from([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, -1.0, 0.0, 0.0],
@@ -393,7 +393,7 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// XZY
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xzy));
 		let expected = Matrix4::from([
 			[0.0, -1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
@@ -403,7 +403,7 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YXZ
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yxz));
 		let expected = Matrix4::from([
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, -1.0, 0.0],
@@ -413,7 +413,7 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YZX
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yzx));
 		let expected = Matrix4::from([
 			[0.0, 1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
@@ -423,7 +423,7 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZXY
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zxy));
 		let expected = Matrix4::from([
 			[-1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
@@ -433,7 +433,7 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZYX
-		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
+		m.make_rotation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zyx));
 		let expected = Matrix4::from([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],

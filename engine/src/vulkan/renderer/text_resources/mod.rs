@@ -89,12 +89,12 @@ impl TextResources {
 		self.submission_generation += 1;
 
 		// Don't do anything if there are no fonts
-		if fonts.len() == 0 {
+		if fonts.available_len() == 0 {
 			return;
 		}
 
 		// Ensure there are not more fonts than what's allowed
-		assert!(fonts.len() <= MAX_FONTS, "Cannot submit fonts, {} is more than the allowed {}", fonts.len(), MAX_FONTS);
+		assert!(fonts.available_len() <= MAX_FONTS, "Cannot submit fonts, {} is more than the allowed {}", fonts.available_len(), MAX_FONTS);
 
 		// Create images and calculate buffer size
 		struct TempFontInfo<'a> {

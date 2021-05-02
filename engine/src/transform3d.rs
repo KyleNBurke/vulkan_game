@@ -56,3 +56,9 @@ impl Transform3D {
 		self.rotate_on_axis(&vector3::UNIT_Z, angle);
 	}
 }
+
+impl Default for Transform3D {
+	fn default() -> Self {
+		Self::new()
+	}
+}

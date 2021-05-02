@@ -142,7 +142,7 @@ impl<T> Pool<T> {
 		self.records.len()
 	}
 
-	pub fn len(&self) -> usize {
+	pub fn available_len(&self) -> usize {
 		self.records.len() - self.vacant_records.len()
 	}
 
@@ -161,26 +161,20 @@ impl<T> Pool<T> {
 	}
 }
 
+impl<T> Default for Pool<T> {
+	fn default() -> Self {
+		Self::new()
+	}
+}
+
 impl<T> Iterator for Pool<T> {
 	type Item = T;
 
 	fn next(&mut self) -> Option<Self::Item> {
-		let mut current_record_option = self.records.pop();
-
-		if current_record_option.is_none() {
-			return None;
-		}
-
-		let mut current_record = current_record_option.unwrap();
+		let mut current_record = self.records.pop()?;
 
 		while current_record.payload.is_none() {
-			current_record_option = self.records.pop();
-
-			if current_record_option.is_none() {
-				return None;
-			}
-
-			current_record = current_record_option.unwrap();
+			current_record = self.records.pop()?;
 		}
 
 		current_record.payload
@@ -388,13 +382,13 @@ mod pool_tests {
 	}
 
 	#[test]
-	fn len() {
+	fn available_len() {
 		let mut pool = Pool::<u32>::new();
 		let handle = pool.add(4);
 		pool.add(6);
 		pool.remove(&handle);
 
-		assert_eq!(pool.len(), 1);
+		assert_eq!(pool.available_len(), 1);
 	}
 
 	#[test]

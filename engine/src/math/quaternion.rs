@@ -43,37 +43,37 @@ impl Quaternion {
 		let (sx, sy, sz) = ((e.x / 2.0).sin(), (e.y / 2.0).sin(), (e.z / 2.0).sin());
 
 		match e.order {
-			Order::XYZ => {
+			Order::Xyz => {
 				self.x = sx * cy * cz + cx * sy * sz;
 				self.y = cx * sy * cz - sx * cy * sz;
 				self.z = cx * cy * sz + sx * sy * cz;
 				self.w = cx * cy * cz - sx * sy * sz;
 			},
-			Order::XZY => {
+			Order::Xzy => {
 				self.x = sx * cy * cz - cx * sy * sz;
 				self.y = cx * sy * cz - sx * cy * sz;
 				self.z = cx * cy * sz + sx * sy * cz;
 				self.w = cx * cy * cz + sx * sy * sz;
 			},
-			Order::YXZ => {
+			Order::Yxz => {
 				self.x = sx * cy * cz + cx * sy * sz;
 				self.y = cx * sy * cz - sx * cy * sz;
 				self.z = cx * cy * sz - sx * sy * cz;
 				self.w = cx * cy * cz + sx * sy * sz;
 			},
-			Order::YZX => {
+			Order::Yzx => {
 				self.x = sx * cy * cz + cx * sy * sz;
 				self.y = cx * sy * cz + sx * cy * sz;
 				self.z = cx * cy * sz - sx * sy * cz;
 				self.w = cx * cy * cz - sx * sy * sz;
 			},
-			Order::ZXY => {
+			Order::Zxy => {
 				self.x = sx * cy * cz - cx * sy * sz;
 				self.y = cx * sy * cz + sx * cy * sz;
 				self.z = cx * cy * sz + sx * sy * cz;
 				self.w = cx * cy * cz - sx * sy * sz;
 			},
-			Order::ZYX => {
+			Order::Zyx => {
 				self.x = sx * cy * cz - cx * sy * sz;
 				self.y = cx * sy * cz + sx * cy * sz;
 				self.z = cx * cy * sz - sx * sy * cz;
@@ -195,27 +195,27 @@ mod tests {
 		let mut q = Quaternion::new();
 
 		// XYZ
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XYZ));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xyz));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
 
 		// XZY
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::XZY));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xzy));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: 0.0, z: FRAC_1_SQRT_2, w: FRAC_1_SQRT_2 }, 1e-6);
 
 		// YZX
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YZX));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yzx));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: FRAC_1_SQRT_2, z: 0.0, w: 0.0 }, 1e-6);
 
 		// YXZ
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::YXZ));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yxz));
 		assert_approx_eq(&q, &Quaternion{ x: FRAC_1_SQRT_2, y: 0.0, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
 
 		// ZXY
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZXY));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zxy));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: FRAC_1_SQRT_2, w: 0.0 }, 1e-6);
 
 		// ZYX
-		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::ZYX));
+		q.set_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zyx));
 		assert_approx_eq(&q, &Quaternion{ x: 0.0, y: FRAC_1_SQRT_2, z: 0.0, w: FRAC_1_SQRT_2 }, 1e-6);
 	}
 

@@ -5,12 +5,12 @@ const SINGULARITY_THRESHOLD: f32 = 0.999999;
 
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Order {
-	XYZ,
-	XZY,
-	YXZ,
-	YZX,
-	ZXY,
-	ZYX
+	Xyz,
+	Xzy,
+	Yxz,
+	Yzx,
+	Zxy,
+	Zyx
 }
 
 impl Display for Order {
@@ -29,7 +29,7 @@ pub struct Euler {
 
 impl Euler {
 	pub fn new() -> Self {
-		Self { x: 0.0, y: 0.0, z: 0.0, order: Order::XYZ }
+		Self { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz }
 	}
 
 	pub fn from(x: f32, y: f32, z: f32, order: Order) -> Self {
@@ -47,7 +47,7 @@ impl Euler {
 		let e = &m.elements;
 
 		match self.order {
-			Order::XYZ => {
+			Order::Xyz => {
 				self.y = e[0][2].asin();
 
 				if e[0][2] > SINGULARITY_THRESHOLD {
@@ -63,7 +63,7 @@ impl Euler {
 					self.z = (-e[0][1]).atan2(e[0][0]);
 				}
 			},
-			Order::XZY => {
+			Order::Xzy => {
 				self.z = (-e[0][1]).asin();
 
 				if e[0][1] > SINGULARITY_THRESHOLD {
@@ -79,7 +79,7 @@ impl Euler {
 					self.y = e[0][2].atan2(e[0][0]);
 				}
 			},
-			Order::YXZ => {
+			Order::Yxz => {
 				self.x = -e[1][2].asin();
 
 				if e[1][2] > SINGULARITY_THRESHOLD {
@@ -95,7 +95,7 @@ impl Euler {
 					self.z = e[1][0].atan2(e[1][1]);
 				}
 			},
-			Order::YZX => {
+			Order::Yzx => {
 				self.z = e[1][0].asin();
 
 				if e[1][0] > SINGULARITY_THRESHOLD {
@@ -111,7 +111,7 @@ impl Euler {
 					self.y = (-e[2][0]).atan2(e[0][0]);
 				}
 			},
-			Order::ZXY => {
+			Order::Zxy => {
 				self.x = e[2][1].asin();
 
 				if e[2][1] > SINGULARITY_THRESHOLD {
@@ -127,7 +127,7 @@ impl Euler {
 					self.z = (-e[0][1]).atan2(e[1][1]);
 				}
 			},
-			Order::ZYX => {
+			Order::Zyx => {
 				self.y = -e[2][0].asin();
 
 				if e[2][0] > SINGULARITY_THRESHOLD {
@@ -183,25 +183,25 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::XYZ });
+		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn default() {
-		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::XYZ });
+		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn from() {
-		let e = Euler::from(1.0, 2.0, 3.0, Order::XYZ);
-		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::XYZ });
+		let e = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
+		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn set() {
 		let mut e = Euler::new();
-		e.set(1.0, 2.0, 3.0, Order::XYZ);
-		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::XYZ });
+		e.set(1.0, 2.0, 3.0, Order::Xyz);
+		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::Xyz });
 	}
 
 	#[test]
@@ -209,7 +209,7 @@ mod tests {
 		let mut m = Matrix4::new();
 
 		{ // XYZ
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::XYZ);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Xyz);
 
 			// No gimbal lock
 			m.set([
@@ -219,7 +219,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::XYZ });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::Xyz });
 
 			// PI / 2
 			m.set([
@@ -229,7 +229,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: PI, y: FRAC_PI_2, z: 0.0, order: Order::XYZ });
+			assert_eq!(e, Euler { x: PI, y: FRAC_PI_2, z: 0.0, order: Order::Xyz });
 
 			// -PI / 2
 			m.set([
@@ -239,11 +239,11 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: 0.0, order: Order::XYZ });
+			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: 0.0, order: Order::Xyz });
 		}
 
 		{ // XZY
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::XZY);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Xzy);
 
 			// No gimbal lock
 			m.set([
@@ -253,7 +253,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::XZY });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Xzy });
 
 			// PI / 2
 			m.set([
@@ -263,7 +263,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: FRAC_PI_2, order: Order::XZY });
+			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: FRAC_PI_2, order: Order::Xzy });
 
 			// -PI / 2
 			m.set([
@@ -273,11 +273,11 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: -PI, y: 0.0, z: -FRAC_PI_2, order: Order::XZY });
+			assert_eq!(e, Euler { x: -PI, y: 0.0, z: -FRAC_PI_2, order: Order::Xzy });
 		}
 
 		{ // YXZ
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::YXZ);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Yxz);
 
 			// No gimbal lock
 			m.set([
@@ -287,7 +287,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::YXZ });
+			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::Yxz });
 
 			// PI / 2
 			m.set([
@@ -297,7 +297,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: 0.0, order: Order::YXZ });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: 0.0, order: Order::Yxz });
 
 			// -PI / 2
 			m.set([
@@ -307,11 +307,11 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: -FRAC_PI_2, y: -PI, z: 0.0, order: Order::YXZ });
+			assert_eq!(e, Euler { x: -FRAC_PI_2, y: -PI, z: 0.0, order: Order::Yxz });
 		}
 
 		{ // YZX
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::YZX);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Yzx);
 
 			// No gimbal lock
 			m.set([
@@ -321,7 +321,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::YZX });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Yzx });
 
 			// PI / 2
 			m.set([
@@ -331,7 +331,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: PI, z: FRAC_PI_2, order: Order::YZX });
+			assert_eq!(e, Euler { x: 0.0, y: PI, z: FRAC_PI_2, order: Order::Yzx });
 
 			// -PI / 2
 			m.set([
@@ -341,11 +341,11 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: -FRAC_PI_2, order: Order::YZX });
+			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: -FRAC_PI_2, order: Order::Yzx });
 		}
 
 		{ // ZXY
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::ZXY);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Zxy);
 
 			// No gimbal lock
 			m.set([
@@ -355,7 +355,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::ZXY });
+			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::Zxy });
 
 			// PI / 2
 			m.set([
@@ -365,7 +365,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: PI, order: Order::ZXY });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: PI, order: Order::Zxy });
 
 			// -PI / 2
 			m.set([
@@ -375,11 +375,11 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: -FRAC_PI_2, y: 0.0, z: 0.0, order: Order::ZXY });
+			assert_eq!(e, Euler { x: -FRAC_PI_2, y: 0.0, z: 0.0, order: Order::Zxy });
 		}
 
 		{ // ZYX
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::ZYX);
+			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Zyx);
 
 			// No gimbal lock
 			m.set([
@@ -389,7 +389,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::ZYX });
+			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::Zyx });
 
 			// PI / 2
 			m.set([
@@ -399,7 +399,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: 0.0, order: Order::ZYX });
+			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: 0.0, order: Order::Zyx });
 
 			// -PI / 2
 			m.set([
@@ -409,7 +409,7 @@ mod tests {
 				[0.0, 0.0, 0.0, 1.0]
 			]);
 			e.set_from_rotation_matrix(&m);
-			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: -PI, order: Order::ZYX });
+			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: -PI, order: Order::Zyx });
 		}
 	}
 
@@ -418,13 +418,13 @@ mod tests {
 		let mut e = Euler::new();
 		e.set_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
 
-		assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::XYZ });
+		assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn approx_eq() {
-		let a = Euler::from(1.0, 2.0, 3.0, Order::XYZ);
-		let b = Euler::from(1.0, 2.0, 3.0, Order::XYZ);
+		let a = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
+		let b = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
 		assert_approx_eq(&a, &b, 0.0);
 	}
 }
