@@ -216,8 +216,7 @@ mod tests {
 				[0.0, -1.0, 0.0, 0.0],
 				[0.0, 0.0, -1.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::Xyz });
 
@@ -226,8 +225,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, -1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: PI, y: FRAC_PI_2, z: 0.0, order: Order::Xyz });
 
@@ -236,8 +234,7 @@ mod tests {
 				[0.0, 0.0, -1.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: 0.0, order: Order::Xyz });
 		}
@@ -250,8 +247,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Xzy });
 
@@ -260,8 +256,7 @@ mod tests {
 				[0.0, -1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: FRAC_PI_2, order: Order::Xzy });
 
@@ -270,8 +265,7 @@ mod tests {
 				[0.0, 1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, -1.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: -PI, y: 0.0, z: -FRAC_PI_2, order: Order::Xzy });
 		}
@@ -284,8 +278,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::Yxz });
 
@@ -294,8 +287,7 @@ mod tests {
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, -1.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: 0.0, order: Order::Yxz });
 
@@ -304,8 +296,7 @@ mod tests {
 				[-1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: -FRAC_PI_2, y: -PI, z: 0.0, order: Order::Yxz });
 		}
@@ -318,8 +309,7 @@ mod tests {
 				[0.0, 1.0, 0.0, 0.0],
 				[0.0, 0.0, -1.0, 0.0],
 				[-1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Yzx });
 
@@ -328,8 +318,7 @@ mod tests {
 				[0.0, 1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, -1.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: PI, z: FRAC_PI_2, order: Order::Yzx });
 
@@ -338,8 +327,7 @@ mod tests {
 				[0.0, 1.0, 0.0, 0.0],
 				[-1.0, 0.0, 1.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: 0.0, z: -FRAC_PI_2, order: Order::Yzx });
 		}
@@ -352,8 +340,7 @@ mod tests {
 				[0.0, -1.0, 0.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
 				[-1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: FRAC_PI_2, order: Order::Zxy });
 
@@ -362,8 +349,7 @@ mod tests {
 				[-1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: PI, order: Order::Zxy });
 
@@ -372,8 +358,7 @@ mod tests {
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, -1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: -FRAC_PI_2, y: 0.0, z: 0.0, order: Order::Zxy });
 		}
@@ -386,8 +371,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: FRAC_PI_2, y: 0.0, z: FRAC_PI_2, order: Order::Zyx });
 
@@ -396,8 +380,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, 1.0, 0.0, 0.0],
 				[-1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: FRAC_PI_2, z: 0.0, order: Order::Zyx });
 
@@ -406,8 +389,7 @@ mod tests {
 				[0.0, 0.0, 1.0, 0.0],
 				[0.0, -1.0, 0.0, 0.0],
 				[1.0, 0.0, 0.0, 0.0],
-				[0.0, 0.0, 0.0, 1.0]
-			]);
+				[0.0, 0.0, 0.0, 1.0]]);
 			e.set_from_rotation_matrix(&m);
 			assert_eq!(e, Euler { x: 0.0, y: -FRAC_PI_2, z: -PI, order: Order::Zyx });
 		}

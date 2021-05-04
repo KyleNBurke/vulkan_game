@@ -40,8 +40,7 @@ impl TextResources {
 		let projection_matrix = Matrix3::from([
 			[2.0 / extent.width as f32, 0.0, -1.0],
 			[0.0, 2.0 / extent.height as f32, -1.0],
-			[0.0, 0.0, 1.0]
-		]);
+			[0.0, 0.0, 1.0]]);
 
 		Self {
 			sampler_descriptor_set_layout,

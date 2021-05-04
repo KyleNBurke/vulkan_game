@@ -1,11 +1,13 @@
 use super::{Vector2, ApproxEq};
 use auto_ops::impl_op_ex;
 
-const IDENTITY: [[f32; 3]; 3] = [
-	[1.0, 0.0, 0.0],
-	[0.0, 1.0, 0.0],
-	[0.0, 0.0, 1.0]
-];
+const IDENTITY: Matrix3 = Matrix3 {
+	elements: [
+		[1.0, 0.0, 0.0],
+		[0.0, 1.0, 0.0],
+		[0.0, 0.0, 1.0]
+	]
+};
 
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Matrix3 {
@@ -14,7 +16,7 @@ pub struct Matrix3 {
 
 impl Matrix3 {
 	pub fn new() -> Self {
-		Self { elements: IDENTITY }
+		IDENTITY
 	}
 
 	pub fn from(elements: [[f32; 3]; 3]) -> Self {
@@ -31,16 +33,24 @@ impl Matrix3 {
 		[
 			[e[0][0], e[0][1], e[0][2], 0.0],
 			[e[1][0], e[1][1], e[1][2], 0.0],
-			[e[2][0], e[2][1], e[2][2], 0.0],
+			[e[2][0], e[2][1], e[2][2], 0.0]
 		]
 	}
 
 	pub fn compose(&mut self, position: &Vector2, rotation: f32, scale: &Vector2) {
-		self.elements = [
-			[rotation.cos() * scale.x, -rotation.sin(), position.x],
-			[rotation.sin(), rotation.cos() * scale.y, position.y],
-			[0.0, 0.0, 1.0]
-		];
+		let se = &mut self.elements;
+
+		se[0][0] = rotation.cos() * scale.x;
+		se[0][1] = -rotation.sin();
+		se[0][2] = position.x;
+
+		se[1][0] = rotation.sin();
+		se[1][1] = rotation.cos() * scale.y;
+		se[1][2] = position.y;
+
+		se[2][0] = 0.0;
+		se[2][1] = 0.0;
+		se[2][2] = 1.0;
 	}
 }
 
@@ -97,26 +107,28 @@ impl_op_ex!(-= |a: &mut Matrix3, b: &Matrix3| {
 });
 
 impl_op_ex!(*= |a: &mut Matrix3, b: &Matrix3| {
-	let ae = &a.elements;
+	let ae = &mut a.elements;
 	let be = &b.elements;
 
-	let c00 = ae[0][0] * be[0][0] + ae[0][1] * be[1][0] + ae[0][2] * be[2][0];
-	let c01 = ae[0][0] * be[0][1] + ae[0][1] * be[1][1] + ae[0][2] * be[2][1];
-	let c02 = ae[0][0] * be[0][2] + ae[0][1] * be[1][2] + ae[0][2] * be[2][2];
+	let (a00, a01, a02) = (ae[0][0], ae[0][1], ae[0][2]);
+	let (a10, a11, a12) = (ae[1][0], ae[1][1], ae[1][2]);
+	let (a20, a21, a22) = (ae[2][0], ae[2][1], ae[2][2]);
 
-	let c10 = ae[1][0] * be[0][0] + ae[1][1] * be[1][0] + ae[1][2] * be[2][0];
-	let c11 = ae[1][0] * be[0][1] + ae[1][1] * be[1][1] + ae[1][2] * be[2][1];
-	let c12 = ae[1][0] * be[0][2] + ae[1][1] * be[1][2] + ae[1][2] * be[2][2];
+	let (b00, b01, b02) = (be[0][0], be[0][1], be[0][2]);
+	let (b10, b11, b12) = (be[1][0], be[1][1], be[1][2]);
+	let (b20, b21, b22) = (be[2][0], be[2][1], be[2][2]);
 
-	let c20 = ae[2][0] * be[0][0] + ae[2][1] * be[1][0] + ae[2][2] * be[2][0];
-	let c21 = ae[2][0] * be[0][1] + ae[2][1] * be[1][1] + ae[2][2] * be[2][1];
-	let c22 = ae[2][0] * be[0][2] + ae[2][1] * be[1][2] + ae[2][2] * be[2][2];
+	ae[0][0] = a00 * b00 + a01 * b10 + a02 * b20;
+	ae[0][1] = a00 * b01 + a01 * b11 + a02 * b21;
+	ae[0][2] = a00 * b02 + a01 * b12 + a02 * b22;
 
-	a.elements = [
-		[c00, c01, c02],
-		[c10, c11, c12],
-		[c20, c21, c22]
-	];
+	ae[1][0] = a10 * b00 + a11 * b10 + a12 * b20;
+	ae[1][1] = a10 * b01 + a11 * b11 + a12 * b21;
+	ae[1][2] = a10 * b02 + a11 * b12 + a12 * b22;
+
+	ae[2][0] = a20 * b00 + a21 * b10 + a22 * b20;
+	ae[2][1] = a20 * b01 + a21 * b11 + a22 * b21;
+	ae[2][2] = a20 * b02 + a21 * b12 + a22 * b22;
 });
 
 impl ApproxEq for Matrix3 {
@@ -140,16 +152,15 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Matrix3::new().elements, IDENTITY);
+		assert_eq!(Matrix3::new(), IDENTITY);
 	}
 
 	#[test]
 	fn from() {
 		let elements = [
-			[0.0, 0.1, 0.2],
-			[1.0, 1.1, 1.2],
-			[2.0, 2.1, 2.2]
-		];
+			[1.0, 2.0, 3.0],
+			[4.0, 5.0, 6.0],
+			[7.0, 8.0, 9.0]];
 
 		let m = Matrix3::from(elements);
 		assert_eq!(m.elements, elements);
@@ -160,12 +171,10 @@ mod tests {
 		let elements = [
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		];
+			[7.0, 8.0, 9.0]];
 
 		let mut m = Matrix3::new();
 		m.set(elements);
-
 		assert_eq!(m.elements, elements);
 	}
 
@@ -174,8 +183,7 @@ mod tests {
 		let m = Matrix3::from([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		]);
+			[7.0, 8.0, 9.0]]);
 
 		let expected = [
 			[1.0, 2.0, 3.0, 0.0],
@@ -197,8 +205,7 @@ mod tests {
 		let expected = Matrix3::from([
 			[-3.0, 0.0, 100.0],
 			[0.0, -4.0, 200.0],
-			[0.0, 0.0, 1.0]
-		]);
+			[0.0, 0.0, 1.0]]);
 
 		assert_approx_eq(&m, &expected, 1e-6);
 	}
@@ -208,20 +215,17 @@ mod tests {
 		let a = Matrix3::from([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
-			[0.0, 2.0, 6.0]
-		]);
+			[0.0, 2.0, 6.0]]);
 
 		let b = Matrix3::from([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
-			[0.0, 9.0, 1.0]
-		]);
+			[0.0, 9.0, 1.0]]);
 
 		let expected = Matrix3::from([
 			[13.0, 2.0, 12.0],
 			[14.0, 7.0, 18.0],
-			[0.0, 11.0, 7.0]
-		]);
+			[0.0, 11.0, 7.0]]);
 
 		assert_eq!(a + b, expected);
 	}
@@ -231,20 +235,17 @@ mod tests {
 		let a = Matrix3::from([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
-			[0.0, 2.0, 6.0]
-		]);
+			[0.0, 2.0, 6.0]]);
 
 		let b = Matrix3::from([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
-			[0.0, 9.0, 1.0]
-		]);
+			[0.0, 9.0, 1.0]]);
 
 		let expected = Matrix3::from([
 			[-5.0, 2.0, 4.0],
 			[0.0, -5.0, 0.0],
-			[0.0, -7.0, 5.0]
-		]);
+			[0.0, -7.0, 5.0]]);
 
 		assert_eq!(a - b, expected);
 	}
@@ -254,20 +255,17 @@ mod tests {
 		let a = Matrix3::from([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		]);
+			[7.0, 8.0, 9.0]]);
 
 		let b = Matrix3::from([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		]);
+			[7.0, 8.0, 9.0]]);
 
 		let expected = Matrix3::from([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
-			[102.0, 126.0, 150.0]
-		]);
+			[102.0, 126.0, 150.0]]);
 
 		assert_eq!(a * b, expected);
 	}
@@ -277,20 +275,17 @@ mod tests {
 		let mut a = Matrix3::from([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
-			[0.0, 2.0, 6.0]
-		]);
+			[0.0, 2.0, 6.0]]);
 
 		let b = Matrix3::from([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
-			[0.0, 9.0, 1.0]
-		]);
+			[0.0, 9.0, 1.0]]);
 
 		let expected = Matrix3::from([
 			[13.0, 2.0, 12.0],
 			[14.0, 7.0, 18.0],
-			[0.0, 11.0, 7.0]
-		]);
+			[0.0, 11.0, 7.0]]);
 
 		a += b;
 		assert_eq!(a, expected);
@@ -301,20 +296,17 @@ mod tests {
 		let mut a = Matrix3::from([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
-			[0.0, 2.0, 6.0]
-		]);
+			[0.0, 2.0, 6.0]]);
 
 		let b = Matrix3::from([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
-			[0.0, 9.0, 1.0]
-		]);
+			[0.0, 9.0, 1.0]]);
 
 		let expected = Matrix3::from([
 			[-5.0, 2.0, 4.0],
 			[0.0, -5.0, 0.0],
-			[0.0, -7.0, 5.0]
-		]);
+			[0.0, -7.0, 5.0]]);
 
 		a -= b;
 		assert_eq!(a, expected);
@@ -325,20 +317,17 @@ mod tests {
 		let mut a = Matrix3::from([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		]);
+			[7.0, 8.0, 9.0]]);
 
 		let b = Matrix3::from([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
-		]);
+			[7.0, 8.0, 9.0]]);
 
 		let expected = Matrix3::from([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
-			[102.0, 126.0, 150.0]
-		]);
+			[102.0, 126.0, 150.0]]);
 
 		a *= b;
 		assert_eq!(a, expected);
@@ -346,15 +335,16 @@ mod tests {
 
 	#[test]
 	fn approx_eq() {
-		let elements = [
-			[0.0, 0.1, 0.2],
-			[1.0, 1.1, 1.2],
-			[2.0, 2.1, 2.2]
-		];
+		let a = Matrix3::from([
+			[1.0, 2.0, 3.0],
+			[4.0, 5.0, 6.0],
+			[7.0, 8.0, 9.0]]);
 
-		let a = Matrix3::from(elements);
-		let b = Matrix3::from(elements);
+		let b = Matrix3::from([
+			[0.0, 3.0, 4.0],
+			[5.0, 4.0, 7.0],
+			[6.0, 7.0, 10.0]]);
 
-		assert_approx_eq(&a, &b, 0.0);
+		assert_approx_eq(&a, &b, 1.0);
 	}
 }
