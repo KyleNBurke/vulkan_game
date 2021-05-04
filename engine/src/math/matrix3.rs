@@ -1,5 +1,5 @@
 use super::{Vector2, ApproxEq};
-use std::ops::{Mul, MulAssign};
+use auto_ops::impl_op_ex;
 
 const IDENTITY: [[f32; 3]; 3] = [
 	[1.0, 0.0, 0.0],
@@ -42,45 +42,82 @@ impl Matrix3 {
 			[0.0, 0.0, 1.0]
 		];
 	}
-
-	fn base_mul(&mut self, other: &Self) {
-		let a = &mut self.elements;
-		let b = &other.elements;
-		
-		let c00 = a[0][0] * b[0][0] + a[0][1] * b[1][0] + a[0][2] * b[2][0];
-		let c01 = a[0][0] * b[0][1] + a[0][1] * b[1][1] + a[0][2] * b[2][1];
-		let c02 = a[0][0] * b[0][2] + a[0][1] * b[1][2] + a[0][2] * b[2][2];
-
-		let c10 = a[1][0] * b[0][0] + a[1][1] * b[1][0] + a[1][2] * b[2][0];
-		let c11 = a[1][0] * b[0][1] + a[1][1] * b[1][1] + a[1][2] * b[2][1];
-		let c12 = a[1][0] * b[0][2] + a[1][1] * b[1][2] + a[1][2] * b[2][2];
-
-		let c20 = a[2][0] * b[0][0] + a[2][1] * b[1][0] + a[2][2] * b[2][0];
-		let c21 = a[2][0] * b[0][1] + a[2][1] * b[1][1] + a[2][2] * b[2][1];
-		let c22 = a[2][0] * b[0][2] + a[2][1] * b[1][2] + a[2][2] * b[2][2];
-
-		a[0][0] = c00; a[0][1] = c01; a[0][2] = c02;
-		a[1][0] = c10; a[1][1] = c11; a[1][2] = c12;
-		a[2][0] = c20; a[2][1] = c21; a[2][2] = c22;
-	}
 }
 
-impl Mul for &Matrix3 {
-	type Output = Matrix3;
+impl_op_ex!(+ |a: &Matrix3, b: &Matrix3| -> Matrix3 {
+	let mut r = *a;
+	r += b;
+	r
+});
 
-	fn mul(self, other: Self) -> Matrix3 {
-		let mut result = Matrix3::from(self.elements);
-		result.base_mul(other);
+impl_op_ex!(- |a: &Matrix3, b: &Matrix3| -> Matrix3 {
+	let mut r = *a;
+	r -= b;
+	r
+});
 
-		result
-	}
-}
+impl_op_ex!(* |a: &Matrix3, b: &Matrix3| -> Matrix3 {
+	let mut r = *a;
+	r *= b;
+	r
+});
 
-impl MulAssign<&Matrix3> for Matrix3 {
-	fn mul_assign(&mut self, other: &Matrix3) {
-		self.base_mul(other);
-	}
-}
+impl_op_ex!(+= |a: &mut Matrix3, b: &Matrix3| {
+	let ae = &mut a.elements;
+	let be = &b.elements;
+
+	ae[0][0] += be[0][0];
+	ae[0][1] += be[0][1];
+	ae[0][2] += be[0][2];
+
+	ae[1][0] += be[1][0];
+	ae[1][1] += be[1][1];
+	ae[1][2] += be[1][2];
+
+	ae[2][0] += be[2][0];
+	ae[2][1] += be[2][1];
+	ae[2][2] += be[2][2];
+});
+
+impl_op_ex!(-= |a: &mut Matrix3, b: &Matrix3| {
+	let ae = &mut a.elements;
+	let be = &b.elements;
+
+	ae[0][0] -= be[0][0];
+	ae[0][1] -= be[0][1];
+	ae[0][2] -= be[0][2];
+
+	ae[1][0] -= be[1][0];
+	ae[1][1] -= be[1][1];
+	ae[1][2] -= be[1][2];
+
+	ae[2][0] -= be[2][0];
+	ae[2][1] -= be[2][1];
+	ae[2][2] -= be[2][2];
+});
+
+impl_op_ex!(*= |a: &mut Matrix3, b: &Matrix3| {
+	let ae = &a.elements;
+	let be = &b.elements;
+
+	let c00 = ae[0][0] * be[0][0] + ae[0][1] * be[1][0] + ae[0][2] * be[2][0];
+	let c01 = ae[0][0] * be[0][1] + ae[0][1] * be[1][1] + ae[0][2] * be[2][1];
+	let c02 = ae[0][0] * be[0][2] + ae[0][1] * be[1][2] + ae[0][2] * be[2][2];
+
+	let c10 = ae[1][0] * be[0][0] + ae[1][1] * be[1][0] + ae[1][2] * be[2][0];
+	let c11 = ae[1][0] * be[0][1] + ae[1][1] * be[1][1] + ae[1][2] * be[2][1];
+	let c12 = ae[1][0] * be[0][2] + ae[1][1] * be[1][2] + ae[1][2] * be[2][2];
+
+	let c20 = ae[2][0] * be[0][0] + ae[2][1] * be[1][0] + ae[2][2] * be[2][0];
+	let c21 = ae[2][0] * be[0][1] + ae[2][1] * be[1][1] + ae[2][2] * be[2][1];
+	let c22 = ae[2][0] * be[0][2] + ae[2][1] * be[1][2] + ae[2][2] * be[2][2];
+
+	a.elements = [
+		[c00, c01, c02],
+		[c10, c11, c12],
+		[c20, c21, c22]
+	];
+});
 
 impl ApproxEq for Matrix3 {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
@@ -167,27 +204,49 @@ mod tests {
 	}
 
 	#[test]
-	fn base_mul() {
-		let mut a = Matrix3::from([
-			[1.0, 2.0, 3.0],
-			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
+	fn add() {
+		let a = Matrix3::from([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]
 		]);
 
 		let b = Matrix3::from([
-			[1.0, 2.0, 3.0],
-			[4.0, 5.0, 6.0],
-			[7.0, 8.0, 9.0]
+			[9.0, 0.0, 4.0],
+			[7.0, 6.0, 9.0],
+			[0.0, 9.0, 1.0]
 		]);
 
-		let expected = [
-			[30.0, 36.0, 42.0],
-			[66.0, 81.0, 96.0],
-			[102.0, 126.0, 150.0]
-		];
+		let expected = Matrix3::from([
+			[13.0, 2.0, 12.0],
+			[14.0, 7.0, 18.0],
+			[0.0, 11.0, 7.0]
+		]);
 
-		a.base_mul(&b);
-		assert_eq!(a.elements, expected);
+		assert_eq!(a + b, expected);
+	}
+
+	#[test]
+	fn sub() {
+		let a = Matrix3::from([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]
+		]);
+
+		let b = Matrix3::from([
+			[9.0, 0.0, 4.0],
+			[7.0, 6.0, 9.0],
+			[0.0, 9.0, 1.0]
+		]);
+
+		let expected = Matrix3::from([
+			[-5.0, 2.0, 4.0],
+			[0.0, -5.0, 0.0],
+			[0.0, -7.0, 5.0]
+		]);
+
+		assert_eq!(a - b, expected);
 	}
 
 	#[test]
@@ -204,13 +263,61 @@ mod tests {
 			[7.0, 8.0, 9.0]
 		]);
 
-		let expected = [
+		let expected = Matrix3::from([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
 			[102.0, 126.0, 150.0]
-		];
+		]);
 
-		assert_eq!((&a * &b).elements, expected);
+		assert_eq!(a * b, expected);
+	}
+
+	#[test]
+	fn add_assign() {
+		let mut a = Matrix3::from([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]
+		]);
+
+		let b = Matrix3::from([
+			[9.0, 0.0, 4.0],
+			[7.0, 6.0, 9.0],
+			[0.0, 9.0, 1.0]
+		]);
+
+		let expected = Matrix3::from([
+			[13.0, 2.0, 12.0],
+			[14.0, 7.0, 18.0],
+			[0.0, 11.0, 7.0]
+		]);
+
+		a += b;
+		assert_eq!(a, expected);
+	}
+
+	#[test]
+	fn sub_assign() {
+		let mut a = Matrix3::from([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]
+		]);
+
+		let b = Matrix3::from([
+			[9.0, 0.0, 4.0],
+			[7.0, 6.0, 9.0],
+			[0.0, 9.0, 1.0]
+		]);
+
+		let expected = Matrix3::from([
+			[-5.0, 2.0, 4.0],
+			[0.0, -5.0, 0.0],
+			[0.0, -7.0, 5.0]
+		]);
+
+		a -= b;
+		assert_eq!(a, expected);
 	}
 
 	#[test]
@@ -227,14 +334,14 @@ mod tests {
 			[7.0, 8.0, 9.0]
 		]);
 
-		let expected = [
+		let expected = Matrix3::from([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
 			[102.0, 126.0, 150.0]
-		];
+		]);
 
-		a *= &b;
-		assert_eq!(a.elements, expected);
+		a *= b;
+		assert_eq!(a, expected);
 	}
 
 	#[test]

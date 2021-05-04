@@ -1,13 +1,15 @@
-use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
 use std::fmt::Display;
-use std::ops::Mul;
+use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
+use auto_ops::impl_op_ex;
 
-const IDENTITY: [[f32; 4]; 4] = [
-	[1.0, 0.0, 0.0, 0.0],
-	[0.0, 1.0, 0.0, 0.0],
-	[0.0, 0.0, 1.0, 0.0],
-	[0.0, 0.0, 0.0, 1.0]
-];
+const IDENTITY: Matrix4 = Matrix4 {
+	elements: [
+		[1.0, 0.0, 0.0, 0.0],
+		[0.0, 1.0, 0.0, 0.0],
+		[0.0, 0.0, 1.0, 0.0],
+		[0.0, 0.0, 0.0, 1.0]
+	]
+};
 
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Matrix4 {
@@ -16,7 +18,7 @@ pub struct Matrix4 {
 
 impl Matrix4 {
 	pub fn new() -> Self {
-		Self { elements: IDENTITY }
+		IDENTITY
 	}
 
 	pub fn from(elements: [[f32; 4]; 4]) -> Self {
@@ -28,7 +30,7 @@ impl Matrix4 {
 	}
 
 	pub fn identity(&mut self) {
-		self.elements = IDENTITY;
+		self.elements = IDENTITY.elements;
 	}
 
 	pub fn transpose(&mut self) {
@@ -179,43 +181,105 @@ impl Matrix4 {
 	}
 }
 
-impl Mul for Matrix4 {
-	type Output = Matrix4;
+impl_op_ex!(+ |a: &Matrix4, b: &Matrix4| -> Matrix4 {
+	let mut r = *a;
+	r += b;
+	r
+});
 
-	fn mul(self, rhs: Self) -> Self {
-		let a = &self.elements;
-		let b = &rhs.elements;
-		
-		let c00 = a[0][0] * b[0][0] + a[0][1] * b[1][0] + a[0][2] * b[2][0] + a[0][3] * b[3][0];
-		let c01 = a[0][0] * b[0][1] + a[0][1] * b[1][1] + a[0][2] * b[2][1] + a[0][3] * b[3][1];
-		let c02 = a[0][0] * b[0][2] + a[0][1] * b[1][2] + a[0][2] * b[2][2] + a[0][3] * b[3][2];
-		let c03 = a[0][0] * b[0][3] + a[0][1] * b[1][3] + a[0][2] * b[2][3] + a[0][3] * b[3][3];
+impl_op_ex!(- |a: &Matrix4, b: &Matrix4| -> Matrix4 {
+	let mut r = *a;
+	r -= b;
+	r
+});
 
-		let c10 = a[1][0] * b[0][0] + a[1][1] * b[1][0] + a[1][2] * b[2][0] + a[1][3] * b[3][0];
-		let c11 = a[1][0] * b[0][1] + a[1][1] * b[1][1] + a[1][2] * b[2][1] + a[1][3] * b[3][1];
-		let c12 = a[1][0] * b[0][2] + a[1][1] * b[1][2] + a[1][2] * b[2][2] + a[1][3] * b[3][2];
-		let c13 = a[1][0] * b[0][3] + a[1][1] * b[1][3] + a[1][2] * b[2][3] + a[1][3] * b[3][3];
+impl_op_ex!(* |a: &Matrix4, b: &Matrix4| -> Matrix4 {
+	let mut r = *a;
+	r *= b;
+	r
+});
 
-		let c20 = a[2][0] * b[0][0] + a[2][1] * b[1][0] + a[2][2] * b[2][0] + a[2][3] * b[3][0];
-		let c21 = a[2][0] * b[0][1] + a[2][1] * b[1][1] + a[2][2] * b[2][1] + a[2][3] * b[3][1];
-		let c22 = a[2][0] * b[0][2] + a[2][1] * b[1][2] + a[2][2] * b[2][2] + a[2][3] * b[3][2];
-		let c23 = a[2][0] * b[0][3] + a[2][1] * b[1][3] + a[2][2] * b[2][3] + a[2][3] * b[3][3];
+impl_op_ex!(+= |a: &mut Matrix4, b: &Matrix4| {
+	let ae = &mut a.elements;
+	let be = &b.elements;
 
-		let c30 = a[3][0] * b[0][0] + a[3][1] * b[1][0] + a[3][2] * b[2][0] + a[3][3] * b[3][0];
-		let c31 = a[3][0] * b[0][1] + a[3][1] * b[1][1] + a[3][2] * b[2][1] + a[3][3] * b[3][1];
-		let c32 = a[3][0] * b[0][2] + a[3][1] * b[1][2] + a[3][2] * b[2][2] + a[3][3] * b[3][2];
-		let c33 = a[3][0] * b[0][3] + a[3][1] * b[1][3] + a[3][2] * b[2][3] + a[3][3] * b[3][3];
+	ae[0][0] += be[0][0];
+	ae[0][1] += be[0][1];
+	ae[0][2] += be[0][2];
+	ae[0][3] += be[0][3];
 
-		Self {
-			elements: [
-				[c00, c01, c02, c03],
-				[c10, c11, c12, c13],
-				[c20, c21, c22, c23],
-				[c30, c31, c32, c33]
-			]
-		}
-	}
-}
+	ae[1][0] += be[1][0];
+	ae[1][1] += be[1][1];
+	ae[1][2] += be[1][2];
+	ae[1][3] += be[1][3];
+
+	ae[2][0] += be[2][0];
+	ae[2][1] += be[2][1];
+	ae[2][2] += be[2][2];
+	ae[2][3] += be[2][3];
+
+	ae[3][0] += be[3][0];
+	ae[3][1] += be[3][1];
+	ae[3][2] += be[3][2];
+	ae[3][3] += be[3][3];
+});
+
+impl_op_ex!(-= |a: &mut Matrix4, b: &Matrix4| {
+	let ae = &mut a.elements;
+	let be = &b.elements;
+
+	ae[0][0] -= be[0][0];
+	ae[0][1] -= be[0][1];
+	ae[0][2] -= be[0][2];
+	ae[0][3] -= be[0][3];
+
+	ae[1][0] -= be[1][0];
+	ae[1][1] -= be[1][1];
+	ae[1][2] -= be[1][2];
+	ae[1][3] -= be[1][3];
+
+	ae[2][0] -= be[2][0];
+	ae[2][1] -= be[2][1];
+	ae[2][2] -= be[2][2];
+	ae[2][3] -= be[2][3];
+
+	ae[3][0] -= be[3][0];
+	ae[3][1] -= be[3][1];
+	ae[3][2] -= be[3][2];
+	ae[3][3] -= be[3][3];
+});
+
+impl_op_ex!(*= |a: &mut Matrix4, b: &Matrix4| {
+	let ae = &a.elements;
+	let be = &b.elements;
+
+	let c00 = ae[0][0] * be[0][0] + ae[0][1] * be[1][0] + ae[0][2] * be[2][0] + ae[0][3] * be[3][0];
+	let c01 = ae[0][0] * be[0][1] + ae[0][1] * be[1][1] + ae[0][2] * be[2][1] + ae[0][3] * be[3][1];
+	let c02 = ae[0][0] * be[0][2] + ae[0][1] * be[1][2] + ae[0][2] * be[2][2] + ae[0][3] * be[3][2];
+	let c03 = ae[0][0] * be[0][3] + ae[0][1] * be[1][3] + ae[0][2] * be[2][3] + ae[0][3] * be[3][3];
+
+	let c10 = ae[1][0] * be[0][0] + ae[1][1] * be[1][0] + ae[1][2] * be[2][0] + ae[1][3] * be[3][0];
+	let c11 = ae[1][0] * be[0][1] + ae[1][1] * be[1][1] + ae[1][2] * be[2][1] + ae[1][3] * be[3][1];
+	let c12 = ae[1][0] * be[0][2] + ae[1][1] * be[1][2] + ae[1][2] * be[2][2] + ae[1][3] * be[3][2];
+	let c13 = ae[1][0] * be[0][3] + ae[1][1] * be[1][3] + ae[1][2] * be[2][3] + ae[1][3] * be[3][3];
+
+	let c20 = ae[2][0] * be[0][0] + ae[2][1] * be[1][0] + ae[2][2] * be[2][0] + ae[2][3] * be[3][0];
+	let c21 = ae[2][0] * be[0][1] + ae[2][1] * be[1][1] + ae[2][2] * be[2][1] + ae[2][3] * be[3][1];
+	let c22 = ae[2][0] * be[0][2] + ae[2][1] * be[1][2] + ae[2][2] * be[2][2] + ae[2][3] * be[3][2];
+	let c23 = ae[2][0] * be[0][3] + ae[2][1] * be[1][3] + ae[2][2] * be[2][3] + ae[2][3] * be[3][3];
+
+	let c30 = ae[3][0] * be[0][0] + ae[3][1] * be[1][0] + ae[3][2] * be[2][0] + ae[3][3] * be[3][0];
+	let c31 = ae[3][0] * be[0][1] + ae[3][1] * be[1][1] + ae[3][2] * be[2][1] + ae[3][3] * be[3][1];
+	let c32 = ae[3][0] * be[0][2] + ae[3][1] * be[1][2] + ae[3][2] * be[2][2] + ae[3][3] * be[3][2];
+	let c33 = ae[3][0] * be[0][3] + ae[3][1] * be[1][3] + ae[3][2] * be[2][3] + ae[3][3] * be[3][3];
+
+	a.elements = [
+		[c00, c01, c02, c03],
+		[c10, c11, c12, c13],
+		[c20, c21, c22, c23],
+		[c30, c31, c32, c33]
+	];
+});
 
 impl ApproxEq for Matrix4 {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
@@ -245,7 +309,7 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Matrix4::new().elements, IDENTITY);
+		assert_eq!(Matrix4::new(), IDENTITY);
 	}
 
 	#[test]
@@ -287,7 +351,7 @@ mod tests {
 		]);
 		m.identity();
 
-		assert_eq!(m.elements, IDENTITY);
+		assert_eq!(m, IDENTITY);
 	}
 
 	#[test]
@@ -300,34 +364,34 @@ mod tests {
 		]);
 		m.transpose();
 
-		let expected = [
+		let expected = Matrix4::from([
 			[0.0, 1.0, 2.0, 3.0],
 			[0.1, 1.1, 2.1, 3.1],
 			[0.2, 1.2, 2.2, 3.2],
 			[0.3, 1.3, 2.3, 3.3]
-		];
+		]);
 
-		assert_eq!(m.elements, expected);
+		assert_eq!(m, expected);
 	}
 
 	#[test]
 	fn invert() {
 		let mut m = Matrix4::from([
-			[2.0, 4.0, 3.0, 7.0],
-			[5.0, 2.0, 8.0, 3.0],
-			[7.0, 6.0, 1.0, 0.0],
-			[4.0, 9.0, 5.0, 7.0]
+			[1.0, 0.0, 0.0, 1.0],
+			[0.0, 2.0, 1.0, 2.0],
+			[2.0, 1.0, 0.0, 1.0],
+			[2.0, 0.0, 1.0, 4.0]
 		]);
 		m.invert();
 
 		let expected = Matrix4::from([
-			[0.205, 0.038, 0.183, -0.222],
-			[-0.209, -0.066, -0.028, 0.238],
-			[-0.181, 0.127, -0.111, 0.126],
-			[0.281, -0.027, 0.011, -0.126]
+			[-2.0, -0.5, 1.0, 0.5],
+			[1.0, 0.5, 0.0, -0.5],
+			[-8.0, -1.0, 2.0, 2.0],
+			[3.0, 0.5, -1.0, -0.5]
 		]);
 
-		assert_approx_eq(&m, &expected, 0.001);
+		assert_eq!(m, expected);
 	}
 
 	#[test]
@@ -338,14 +402,14 @@ mod tests {
 		let mut m = Matrix4::new();
 		m.compose(&pos, &rot, &scale);
 
-		let expected = [
+		let expected = Matrix4::from([
 			[-75.0, -80.0, 110.0, 1.0],
 			[84.0, -76.0, 20.0, 2.0],
 			[-30.0, 80.0, -45.0, 3.0],
 			[0.0, 0.0, 0.0, 1.0]
-		];
+		]);
 
-		assert_eq!(m.elements, expected);
+		assert_eq!(m, expected);
 	}
 
 	#[test]
@@ -353,14 +417,14 @@ mod tests {
 		let mut m = Matrix4::new();
 		m.make_perspective(0.5, 90.0, 1.0, 5.0);
 
-		let expected = [
+		let expected = Matrix4::from([
 			[-2.0, 0.0, 0.0, 0.0],
 			[0.0, -1.0, 0.0, 0.0],
 			[0.0, 0.0, 1.25, -1.25],
 			[0.0, 0.0, 1.0, 0.0]
-		];
+		]);
 
-		assert_eq!(m.elements, expected);
+		assert_eq!(m, expected);
 	}
 
 	#[test]
@@ -368,14 +432,14 @@ mod tests {
 		let mut m = Matrix4::new();
 		m.make_rotation_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
 
-		let expected = [
+		let expected = Matrix4::from([
 			[0.0, 0.0, 1.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
 			[0.0, 0.0, 0.0, 1.0]
-		];
+		]);
 
-		assert_eq!(m.elements, expected);
+		assert_eq!(m, expected);
 	}
 
 	#[test]
@@ -444,6 +508,58 @@ mod tests {
 	}
 
 	#[test]
+	fn add() {
+		let a = Matrix4::from([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]
+		]);
+
+		let b = Matrix4::from([
+			[9.0, 0.0, 4.0, 5.0],
+			[7.0, 6.0, 9.0, 2.0],
+			[0.0, 9.0, 1.0, 7.0],
+			[3.0, 4.0, 5.0, 2.0]
+		]);
+
+		let expected = Matrix4::from([
+			[13.0, 2.0, 12.0, 10.0],
+			[14.0, 7.0, 18.0, 6.0],
+			[0.0, 11.0, 7.0, 10.0],
+			[10.0, 12.0, 10.0, 5.0]
+		]);
+
+		assert_eq!(a + b, expected);
+	}
+
+	#[test]
+	fn sub() {
+		let a = Matrix4::from([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]
+		]);
+
+		let b = Matrix4::from([
+			[9.0, 0.0, 4.0, 5.0],
+			[7.0, 6.0, 9.0, 2.0],
+			[0.0, 9.0, 1.0, 7.0],
+			[3.0, 4.0, 5.0, 2.0]
+		]);
+
+		let expected = Matrix4::from([
+			[-5.0, 2.0, 4.0, 0.0],
+			[0.0, -5.0, 0.0, 2.0],
+			[0.0, -7.0, 5.0, -4.0],
+			[4.0, 4.0, 0.0, 1.0]
+		]);
+
+		assert_eq!(a - b, expected);
+	}
+
+	#[test]
 	fn mul() {
 		let a = Matrix4::from([
 			[4.0, 2.0, 8.0, 5.0],
@@ -459,14 +575,95 @@ mod tests {
 			[3.0, 4.0, 5.0, 2.0]
 		]);
 
-		let expected = [
+		let expected = Matrix4::from([
 			[65.0, 104.0, 67.0, 90.0],
 			[82.0, 103.0, 66.0, 108.0],
 			[23.0, 78.0, 39.0, 52.0],
 			[128.0, 105.0, 120.0, 92.0]
-		];
+		]);
 
-		assert_eq!((a * b).elements, expected);
+		assert_eq!(a * b, expected);
+	}
+
+	#[test]
+	fn add_assign() {
+		let mut a = Matrix4::from([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]
+		]);
+
+		let b = Matrix4::from([
+			[9.0, 0.0, 4.0, 5.0],
+			[7.0, 6.0, 9.0, 2.0],
+			[0.0, 9.0, 1.0, 7.0],
+			[3.0, 4.0, 5.0, 2.0]
+		]);
+
+		let expected = Matrix4::from([
+			[13.0, 2.0, 12.0, 10.0],
+			[14.0, 7.0, 18.0, 6.0],
+			[0.0, 11.0, 7.0, 10.0],
+			[10.0, 12.0, 10.0, 5.0]
+		]);
+
+		a += b;
+		assert_eq!(a, expected);
+	}
+
+	#[test]
+	fn sub_assign() {
+		let mut a = Matrix4::from([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]
+		]);
+
+		let b = Matrix4::from([
+			[9.0, 0.0, 4.0, 5.0],
+			[7.0, 6.0, 9.0, 2.0],
+			[0.0, 9.0, 1.0, 7.0],
+			[3.0, 4.0, 5.0, 2.0]
+		]);
+
+		let expected = Matrix4::from([
+			[-5.0, 2.0, 4.0, 0.0],
+			[0.0, -5.0, 0.0, 2.0],
+			[0.0, -7.0, 5.0, -4.0],
+			[4.0, 4.0, 0.0, 1.0]
+		]);
+
+		a -= b;
+		assert_eq!(a, expected);
+	}
+
+	#[test]
+	fn mul_assign() {
+		let mut a = Matrix4::from([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]
+		]);
+
+		let b = Matrix4::from([
+			[9.0, 0.0, 4.0, 5.0],
+			[7.0, 6.0, 9.0, 2.0],
+			[0.0, 9.0, 1.0, 7.0],
+			[3.0, 4.0, 5.0, 2.0]
+		]);
+
+		let expected = Matrix4::from([
+			[65.0, 104.0, 67.0, 90.0],
+			[82.0, 103.0, 66.0, 108.0],
+			[23.0, 78.0, 39.0, 52.0],
+			[128.0, 105.0, 120.0, 92.0]
+		]);
+
+		a *= b;
+		assert_eq!(a, expected);
 	}
 
 	#[test]

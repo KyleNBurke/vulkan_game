@@ -1,6 +1,6 @@
 use super::{Quaternion, ApproxEq};
-use std::ops::{Add, AddAssign, Sub, SubAssign, Mul, MulAssign, Div, DivAssign, Neg};
 use std::fmt::Display;
+use auto_ops::impl_op_ex;
 
 pub const ZERO: Vector3 = Vector3 { x: 0.0, y: 0.0, z: 0.0 };
 pub const ONE: Vector3 = Vector3 { x: 1.0, y: 1.0, z: 1.0 };
@@ -70,11 +70,8 @@ impl Vector3 {
 	pub fn normalize(&mut self) {
 		let length = self.length();
 
-		if length == 0.0 {
-			*self /= 1.0;
-		}
-		else {
-			*self /= self.length();
+		if length != 0.0 {
+			*self /= length;
 		}
 	}
 
@@ -104,177 +101,109 @@ impl Vector3 {
 	}
 }
 
-impl Add<Vector3> for Vector3 {
-	type Output = Self;
+impl_op_ex!(+ |a: &Vector3, b: &Vector3| -> Vector3 {
+	let mut r = *a;
+	r += b;
+	r
+});
 
-	fn add(self, other: Self) -> Self {
-		Self {
-			x: self.x + other.x,
-			y: self.y + other.y,
-			z: self.z + other.z
-		}
+impl_op_ex!(- |a: &Vector3, b: &Vector3| -> Vector3 {
+	let mut r = *a;
+	r -= b;
+	r
+});
+
+impl_op_ex!(* |a: &Vector3, b: &Vector3| -> Vector3 {
+	let mut r = *a;
+	r *= b;
+	r
+});
+
+impl_op_ex!(/ |a: &Vector3, b: &Vector3| -> Vector3 {
+	let mut r = *a;
+	r /= b;
+	r
+});
+
+impl_op_ex!(+= |a: &mut Vector3, b: &Vector3| {
+	a.x += b.x;
+	a.y += b.y;
+	a.z += b.z;
+});
+
+impl_op_ex!(-= |a: &mut Vector3, b: &Vector3| {
+	a.x -= b.x;
+	a.y -= b.y;
+	a.z -= b.z;
+});
+
+impl_op_ex!(*= |a: &mut Vector3, b: &Vector3| {
+	a.x *= b.x;
+	a.y *= b.y;
+	a.z *= b.z;
+});
+
+impl_op_ex!(/= |a: &mut Vector3, b: &Vector3| {
+	a.x /= b.x;
+	a.y /= b.y;
+	a.z /= b.z;
+});
+
+impl_op_ex!(+ |a: &Vector3, b: f32| -> Vector3 {
+	let mut r = *a;
+	r += b;
+	r
+});
+
+impl_op_ex!(- |a: &Vector3, b: f32| -> Vector3 {
+	let mut r = *a;
+	r -= b;
+	r
+});
+
+impl_op_ex!(* |a: &Vector3, b: f32| -> Vector3 {
+	let mut r = *a;
+	r *= b;
+	r
+});
+
+impl_op_ex!(/ |a: &Vector3, b: f32| -> Vector3 {
+	let mut r = *a;
+	r /= b;
+	r
+});
+
+impl_op_ex!(+= |a: &mut Vector3, b: f32| {
+	a.x += b;
+	a.y += b;
+	a.z += b;
+});
+
+impl_op_ex!(-= |a: &mut Vector3, b: f32| {
+	a.x -= b;
+	a.y -= b;
+	a.z -= b;
+});
+
+impl_op_ex!(*= |a: &mut Vector3, b: f32| {
+	a.x *= b;
+	a.y *= b;
+	a.z *= b;
+});
+
+impl_op_ex!(/= |a: &mut Vector3, b: f32| {
+	a.x /= b;
+	a.y /= b;
+	a.z /= b;
+});
+
+impl_op_ex!(- |a: &Vector3| -> Vector3 {
+	Vector3 {
+		x: -a.x,
+		y: -a.y,
+		z: -a.z
 	}
-}
-
-impl AddAssign<Vector3> for Vector3 {
-	fn add_assign(&mut self, other: Self) {
-		self.x += other.x;
-		self.y += other.y;
-		self.z += other.z;
-	}
-}
-
-impl Add<f32> for Vector3 {
-	type Output = Self;
-
-	fn add(self, other: f32) -> Self {
-		Self {
-			x: self.x + other,
-			y: self.y + other,
-			z: self.z + other
-		}
-	}
-}
-
-impl AddAssign<f32> for Vector3 {
-	fn add_assign(&mut self, other: f32) {
-		self.x += other;
-		self.y += other;
-		self.z += other;
-	}
-}
-
-impl Sub<Vector3> for Vector3 {
-	type Output = Self;
-
-	fn sub(self, other: Self) -> Self {
-		Self {
-			x: self.x - other.x,
-			y: self.y - other.y,
-			z: self.z - other.z
-		}
-	}
-}
-
-impl SubAssign<Vector3> for Vector3 {
-	fn sub_assign(&mut self, other: Self) {
-		self.x -= other.x;
-		self.y -= other.y;
-		self.z -= other.z;
-	}
-}
-
-impl Sub<f32> for Vector3 {
-	type Output = Self;
-
-	fn sub(self, other: f32) -> Self {
-		Self {
-			x: self.x - other,
-			y: self.y - other,
-			z: self.z - other
-		}
-	}
-}
-
-impl SubAssign<f32> for Vector3 {
-	fn sub_assign(&mut self, other: f32) {
-		self.x -= other;
-		self.y -= other;
-		self.z -= other;
-	}
-}
-
-impl Mul<Vector3> for Vector3 {
-	type Output = Self;
-
-	fn mul(self, other: Self) -> Self {
-		Self {
-			x: self.x * other.x,
-			y: self.y * other.y,
-			z: self.z * other.z
-		}
-	}
-}
-
-impl MulAssign<Vector3> for Vector3 {
-	fn mul_assign(&mut self, other: Self) {
-		self.x *= other.x;
-		self.y *= other.y;
-		self.z *= other.z;
-	}
-}
-
-impl Mul<f32> for Vector3 {
-	type Output = Self;
-
-	fn mul(self, other: f32) -> Self {
-		Self {
-			x: self.x * other,
-			y: self.y * other,
-			z: self.z * other
-		}
-	}
-}
-
-impl MulAssign<f32> for Vector3 {
-	fn mul_assign(&mut self, other: f32) {
-		self.x *= other;
-		self.y *= other;
-		self.z *= other;
-	}
-}
-
-impl Div<Vector3> for Vector3 {
-	type Output = Self;
-
-	fn div(self, other: Self) -> Self {
-		Self {
-			x: self.x / other.x,
-			y: self.y / other.y,
-			z: self.z / other.z
-		}
-	}
-}
-
-impl DivAssign<Vector3> for Vector3 {
-	fn div_assign(&mut self, other: Self) {
-		self.x /= other.x;
-		self.y /= other.y;
-		self.z /= other.z;
-	}
-}
-
-impl Div<f32> for Vector3 {
-	type Output = Self;
-
-	fn div(self, other: f32) -> Self {
-		Self {
-			x: self.x / other,
-			y: self.y / other,
-			z: self.z / other
-		}
-	}
-}
-
-impl DivAssign<f32> for Vector3 {
-	fn div_assign(&mut self, other: f32) {
-		self.x /= other;
-		self.y /= other;
-		self.z /= other;
-	}
-}
-
-impl Neg for Vector3 {
-	type Output = Self;
-
-	fn neg(self) -> Self {
-		Self {
-			x: -self.x,
-			y: -self.y,
-			z: -self.z
-		}
-	}
-}
+});
 
 impl ApproxEq for Vector3 {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {
@@ -408,52 +337,10 @@ mod tests {
 	}
 
 	#[test]
-	fn add_assign_vector() {
-		let mut a = Vector3::from(1.0, -2.0, 3.0);
-		let b = Vector3::from(-3.0, 1.0, 2.0);
-		a += b;
-		assert_eq!(a, Vector3{ x: -2.0, y: -1.0, z: 5.0 });
-	}
-
-	#[test]
-	fn add_scalar() {
-		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v + 3.0, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
-	}
-
-	#[test]
-	fn add_assign_scalar() {
-		let mut v = Vector3::from(1.0, -2.0, 3.0);
-		v += 3.0;
-		assert_eq!(v, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
-	}
-
-	#[test]
 	fn sub_vector() {
 		let a = Vector3::from(1.0, -2.0, 3.0);
 		let b = Vector3::from(-3.0, 1.0, 2.0);
 		assert_eq!(a - b, Vector3{ x: 4.0, y: -3.0, z: 1.0 });
-	}
-
-	#[test]
-	fn sub_assign_vector() {
-		let mut a = Vector3::from(1.0, -2.0, 3.0);
-		let b = Vector3::from(-3.0, 1.0, 2.0);
-		a -= b;
-		assert_eq!(a, Vector3{ x: 4.0, y: -3.0, z: 1.0 });
-	}
-
-	#[test]
-	fn sub_scalar() {
-		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v - 3.0, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
-	}
-
-	#[test]
-	fn sub_assign_scalar() {
-		let mut v = Vector3::from(1.0, -2.0, 3.0);
-		v -= 3.0;
-		assert_eq!(v, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
 	}
 
 	#[test]
@@ -464,31 +351,31 @@ mod tests {
 	}
 
 	#[test]
-	fn mul_assign_vector() {
-		let mut a = Vector3::from(1.0, -2.0, 3.0);
-		let b = Vector3::from(-3.0, 1.0, 2.0);
-		a *= b;
-		assert_eq!(a, Vector3{ x: -3.0, y: -2.0, z: 6.0 });
-	}
-
-	#[test]
-	fn mul_scalar() {
-		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v * 3.0, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
-	}
-
-	#[test]
-	fn mul_assign_scalar() {
-		let mut v = Vector3::from(1.0, -2.0, 3.0);
-		v *= 3.0;
-		assert_eq!(v, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
-	}
-
-	#[test]
 	fn div_vector() {
 		let a = Vector3::from(-3.0, 4.0, 9.0);
 		let b = Vector3::from(1.0, -2.0, 3.0);
 		assert_eq!(a / b, Vector3{ x: -3.0, y: -2.0, z: 3.0 });
+	}
+
+	#[test]
+	fn add_assign_vector() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v += Vector3::from(-3.0, 1.0, 2.0);
+		assert_eq!(v, Vector3{ x: -2.0, y: -1.0, z: 5.0 });
+	}
+
+	#[test]
+	fn sub_assign_vector() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v -= Vector3::from(-3.0, 1.0, 2.0);
+		assert_eq!(v, Vector3{ x: 4.0, y: -3.0, z: 1.0 });
+	}
+
+	#[test]
+	fn mul_assign_vector() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v *= Vector3::from(-3.0, 1.0, 2.0);
+		assert_eq!(v, Vector3{ x: -3.0, y: -2.0, z: 6.0 });
 	}
 
 	#[test]
@@ -499,9 +386,48 @@ mod tests {
 	}
 
 	#[test]
+	fn add_scalar() {
+		let v = Vector3::from(1.0, -2.0, 3.0);
+		assert_eq!(v + 3.0, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
+	}
+
+	#[test]
+	fn sub_scalar() {
+		let v = Vector3::from(1.0, -2.0, 3.0);
+		assert_eq!(v - 3.0, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
+	}
+
+	#[test]
+	fn mul_scalar() {
+		let v = Vector3::from(1.0, -2.0, 3.0);
+		assert_eq!(v * 3.0, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
+	}
+
+	#[test]
 	fn div_scalar() {
 		let v = Vector3::from(-2.0, 4.0, 6.0);
 		assert_eq!(v / 2.0, Vector3{ x: -1.0, y: 2.0, z: 3.0 });
+	}
+
+	#[test]
+	fn add_assign_scalar() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v += 3.0;
+		assert_eq!(v, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
+	}
+
+	#[test]
+	fn sub_assign_scalar() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v -= 3.0;
+		assert_eq!(v, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
+	}
+
+	#[test]
+	fn mul_assign_scalar() {
+		let mut v = Vector3::from(1.0, -2.0, 3.0);
+		v *= 3.0;
+		assert_eq!(v, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
 	}
 
 	#[test]

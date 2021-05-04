@@ -1,6 +1,6 @@
-use super::{Vector3, Euler, Order, ApproxEq};
-use std::ops::{Mul, MulAssign};
 use std::fmt::Display;
+use super::{Vector3, Euler, Order, ApproxEq};
+use auto_ops::impl_op_ex;
 
 pub const ZERO: Quaternion = Quaternion { x: 0.0, y: 0.0, z: 0.0, w: 1.0 };
 
@@ -115,33 +115,21 @@ impl Quaternion {
 	}
 }
 
-impl Mul for Quaternion {
-	type Output = Self;
+impl_op_ex!(* |a: &Quaternion, b: &Quaternion| -> Quaternion {
+	let mut r = *a;
+	r *= b;
+	r
+});
 
-	fn mul(self, other: Self) -> Self {
-		let a = self;
-		let b = other;
+impl_op_ex!(*= |a: &mut Quaternion, b: &Quaternion| {
+	let (ax, ay, az, aw) = (a.x, a.y, a.z, a.w);
+	let (bx, by, bz, bw) = (b.x, b.y, b.z, b.w);
 
-		Self {
-			x:  a.x * b.w + a.y * b.z - a.z * b.y + a.w * b.x,
-			y: -a.x * b.z + a.y * b.w + a.z * b.x + a.w * b.y,
-			z:  a.x * b.y - a.y * b.x + a.z * b.w + a.w * b.z,
-			w: -a.x * b.x - a.y * b.y - a.z * b.z + a.w * b.w
-		}
-	}
-}
-
-impl MulAssign for Quaternion {
-	fn mul_assign(&mut self, other: Self) {
-		let (ax, ay, az, aw) = (self.x, self.y, self.z, self.w);
-		let (bx, by, bz, bw) = (other.x, other.y, other.z, other.w);
-
-		self.x =  ax * bw + ay * bz - az * by + aw * bx;
-		self.y = -ax * bz + ay * bw + az * bx + aw * by;
-		self.z =  ax * by - ay * bx + az * bw + aw * bz;
-		self.w = -ax * bx - ay * by - az * bz + aw * bw;
-	}
-}
+	a.x =  ax * bw + ay * bz - az * by + aw * bx;
+	a.y = -ax * bz + ay * bw + az * bx + aw * by;
+	a.z =  ax * by - ay * bx + az * bw + aw * bz;
+	a.w = -ax * bx - ay * by - az * bz + aw * bw;
+});
 
 impl ApproxEq for Quaternion {
 	fn approx_eq(&self, other: &Self, tol: f32) -> bool {

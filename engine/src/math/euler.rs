@@ -417,7 +417,6 @@ mod tests {
 	fn set_from_quaternion() {
 		let mut e = Euler::new();
 		e.set_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
-
 		assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Xyz });
 	}
 
