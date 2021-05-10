@@ -1,6 +1,7 @@
 use std::{mem::size_of_val, ptr::copy_nonoverlapping, cmp::max};
 use ash::{vk, version::DeviceV1_0};
 use crate::{vulkan::{Buffer, Context}, pool::Pool, Geometry3D, Mesh, Material};
+use super::MATERIALS_COUNT;
 
 mod creation;
 use creation::*;
@@ -15,20 +16,22 @@ pub struct MeshResources {
 	pub lambert_static_descriptor_set: vk::DescriptorSet,
 	pub static_mesh_buffer: Buffer,
 	pub static_geometry_infos: Vec<StaticGeometryInfo>,
-	pub basic_static_instance_infos: Vec<StaticInstanceInfo>,
-	pub normal_static_instance_infos: Vec<StaticInstanceInfo>,
-	pub lambert_static_instance_infos: Vec<StaticInstanceInfo>
+	pub static_instance_groups: Vec<StaticInstanceGroup>,
+	pub static_material_counts: [usize; 3]
 }
 
+#[derive(Clone)]
 pub struct StaticGeometryInfo {
 	pub index_array_offset: usize,
 	pub attribute_array_offset: usize,
 	pub indices_count: usize
 }
 
-pub struct StaticInstanceInfo {
+pub struct StaticInstanceGroup {
 	pub geometry_info_index: usize,
-	pub instance_count: usize
+	pub material: Material,
+	pub instance_count: usize,
+	pub first_instance: usize
 }
 
 impl MeshResources {
@@ -59,9 +62,8 @@ impl MeshResources {
 			lambert_static_descriptor_set: static_descriptor_sets[2],
 			static_mesh_buffer,
 			static_geometry_infos: vec![],
-			basic_static_instance_infos: vec![],
-			normal_static_instance_infos: vec![],
-			lambert_static_instance_infos: vec![],
+			static_instance_groups: vec![],
+			static_material_counts: [0; 3]
 		}
 	}
 
@@ -81,9 +83,7 @@ impl MeshResources {
 
 	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &[Mesh]) {
 		self.static_geometry_infos.clear();
-		self.basic_static_instance_infos.clear();
-		self.normal_static_instance_infos.clear();
-		self.lambert_static_instance_infos.clear();
+		self.static_instance_groups.clear();
 		
 		if meshes.is_empty() {
 			return;
@@ -94,95 +94,76 @@ impl MeshResources {
 		// Iterate over meshes to
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
-		#[derive(Clone)]
-		struct TempGeometryInfo<'a> {
+		struct GeometryInfo<'a> {
 			geometry: &'a Geometry3D,
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize,
-			copied: bool,
-			static_geometry_info_index: usize
+			copied: bool
 		}
 
-		let mut geometry_infos: Vec<Option<TempGeometryInfo>> = vec![None; geometries.total_len()];
-
-		struct TempMaterialGroup<'a> {
-			map: Vec<Option<usize>>,
-			instance_groups: Vec<Vec<&'a Mesh>>,
-			instance_count: usize
+		struct InstanceGroup<'a> {
+			geometry_info_index: usize,
+			material: Material,
+			meshes: Vec<&'a Mesh>
 		}
 
-		let mut material_groups: [TempMaterialGroup; 3] = [
-			TempMaterialGroup {
-				map: vec![None; geometries.total_len()],
-				instance_groups: vec![],
-				instance_count: 0
-			},
-			TempMaterialGroup {
-				map: vec![None; geometries.total_len()],
-				instance_groups: vec![],
-				instance_count: 0
-			},
-			TempMaterialGroup {
-				map: vec![None; geometries.total_len()],
-				instance_groups: vec![],
-				instance_count: 0
-			}
-		];
-		
+		let mut geometry_infos: Vec<GeometryInfo> = vec![];
+		let mut instance_groups: Vec<InstanceGroup> = vec![];
+		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.total_len()];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
+		let mut material_counts = [0; MATERIALS_COUNT];
 
 		for mesh in meshes.iter() {
-			let geometry_info = &mut geometry_infos[mesh.geometry_handle.index];
-
-			if geometry_info.is_none() {
+			let geometry_index = mesh.geometry_handle.index;
+			let material_index = mesh.material as usize + 1;
+			
+			if map[geometry_index][0].is_none() {
 				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
 
-				*geometry_info = Some(TempGeometryInfo {
+				geometry_infos.push(GeometryInfo {
 					geometry,
 					index_array_relative_offset: index_arrays_size,
 					attribute_array_relative_offset: attribute_arrays_size,
-					copied: false,
-					static_geometry_info_index: self.static_geometry_infos.len()
+					copied: false
 				});
 
-				self.static_geometry_infos.push(StaticGeometryInfo {
-					index_array_offset: 0,
-					attribute_array_offset: 0,
-					indices_count: geometry.indices.len()
-				});
-				
+				map[geometry_index][0] = Some(geometry_infos.len() - 1);
 				index_arrays_size += size_of_val(&geometry.indices[..]);
 				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
 			}
 
-			let material_group = &mut material_groups[mesh.material as usize];
-
-			if let Some(instance_group_index) = material_group.map[mesh.geometry_handle.index] {
-				material_group.instance_groups[instance_group_index].push(mesh);
+			if let Some(instance_group_index) = map[geometry_index][material_index] {
+				instance_groups[instance_group_index].meshes.push(mesh);
 			}
 			else {
-				material_group.map[mesh.geometry_handle.index] = Some(material_group.instance_groups.len());
-				material_group.instance_groups.push(vec![mesh]);
+				instance_groups.push(InstanceGroup {
+					geometry_info_index: map[geometry_index][0].unwrap(),
+					material: mesh.material,
+					meshes: vec![mesh]
+				});
+
+				map[geometry_index][material_index] = Some(instance_groups.len() - 1);
 			}
 
-			material_group.instance_count += 1;
+			material_counts[mesh.material as usize] += 1;
 		}
 
+		self.static_material_counts = material_counts;
 		let alignment = context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * material_groups[Material::Basic as usize].instance_count;
+		let basic_instance_data_array_size = 4 * 16 * material_counts[0];
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * material_groups[Material::Normal as usize].instance_count;
+		let normal_instance_data_array_size = 4 * 16 * material_counts[1];
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * material_groups[Material::Lambert as usize].instance_count;
+		let lambert_instance_data_array_size = 4 * 16 * material_counts[2];
 
 		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		
@@ -259,88 +240,88 @@ impl MeshResources {
 		// Copy mesh data into staging buffer and save draw information
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 
-		for material_group in &material_groups {
-			let mut group_index = 0;
+		self.static_geometry_infos.resize(geometry_infos.len(), StaticGeometryInfo {
+			index_array_offset: 0,
+			attribute_array_offset: 0,
+			indices_count: 0
+		});
 
-			for instance_group in &material_group.instance_groups {
-				let geometry_handle = &instance_group[0].geometry_handle;
-				let geometry_info = geometry_infos[geometry_handle.index].as_mut().unwrap();
-				let geometry = geometries.get(geometry_handle).unwrap();
+		let mut instance_group_indices = [0; MATERIALS_COUNT];
 
-				let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
-				let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
+		for instance_group in &instance_groups {
+			let geometry_info = &mut geometry_infos[instance_group.geometry_info_index];
+			let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
+			let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
+			let geometry = geometry_info.geometry;
 
-				// Ensure geometry data is copied into the buffer and save the absolute geometry offsets
-				if !geometry_info.copied {
-					let indices = &geometry.indices;
-					let attributes = &geometry.attributes;
+			if !geometry_info.copied {
+				let indices = &geometry.indices;
+				let attributes = &geometry.attributes;
 
-					unsafe {
-						let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
-						copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+				// Copy geometry data
+				unsafe {
+					let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
+					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
 
-						let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
-						copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
-					}
-
-					geometry_info.copied = true;
-
-					let static_geometry_info = &mut self.static_geometry_infos[geometry_info.static_geometry_info_index];
-					static_geometry_info.index_array_offset = index_array_offset;
-					static_geometry_info.attribute_array_offset = attribute_array_offset;
+					let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
+					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
 				}
 
-				// Ensure the instance data is copied into the buffer and save instance group info
-				match instance_group[0].material {
-					Material::Basic => {
-						for (instance_index, instance) in instance_group.iter().enumerate() {
-							let instance_data_offset = basic_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
+				geometry_info.copied = true;
 
-							unsafe {
-								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-							}
-						}
-
-						self.basic_static_instance_infos.push(StaticInstanceInfo {
-							geometry_info_index: geometry_info.static_geometry_info_index,
-							instance_count: instance_group.len()
-						});
-					},
-					Material::Normal => {
-						for (instance_index, instance) in instance_group.iter().enumerate() {
-							let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
-
-							unsafe {
-								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-							}
-						}
-
-						self.normal_static_instance_infos.push(StaticInstanceInfo {
-							geometry_info_index: geometry_info.static_geometry_info_index,
-							instance_count: instance_group.len()
-						});
-					},
-					Material::Lambert => {
-						for (instance_index, instance) in instance_group.iter().enumerate() {
-							let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (group_index + instance_index);
-
-							unsafe {
-								let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-								copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-							}
-						}
-
-						self.lambert_static_instance_infos.push(StaticInstanceInfo {
-							geometry_info_index: geometry_info.static_geometry_info_index,
-							instance_count: instance_group.len()
-						});
-					}
-				}
-
-				group_index += instance_group.len();
+				// Save geometry info
+				self.static_geometry_infos[instance_group.geometry_info_index] = StaticGeometryInfo {
+					index_array_offset,
+					attribute_array_offset,
+					indices_count: indices.len()
+				};
 			}
+
+			// Copy instance data
+			let instance_group_index = &mut instance_group_indices[instance_group.material as usize];
+
+			match instance_group.material {
+				Material::Basic => {
+					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+						let offset = basic_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
+
+						unsafe {
+							let instance_data_dst_ptr = buffer_ptr.add(offset) as *mut [f32; 4];
+							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+						}
+					}
+				},
+				Material::Normal => {
+					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+						let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
+
+						unsafe {
+							let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+						}
+					}
+				},
+				Material::Lambert => {
+					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+						let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
+
+						unsafe {
+							let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+						}
+					}
+				}
+			}
+
+			// Save instance group
+			self.static_instance_groups.push(StaticInstanceGroup {
+				geometry_info_index: instance_group.geometry_info_index,
+				material: instance_group.material,
+				instance_count: instance_group.meshes.len(),
+				first_instance: *instance_group_index
+			});
+
+			*instance_group_index += instance_group.meshes.len();
 		}
 
 		// Flush and unmap staging buffer

@@ -57,7 +57,7 @@ fn main() {
 	}
 
 	let mut point_light = PointLight::new();
-	point_light.position.set(-5.0, -8.0, 0.0);
+	point_light.position.set(-5.0, 8.0, 0.0);
 	scene.point_lights.add(point_light);
 
 	let mut surface_changed = false;
