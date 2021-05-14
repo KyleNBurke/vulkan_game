@@ -1,5 +1,5 @@
 use std::time::{Instant, Duration};
-use engine::{glfw, Renderer, Camera, lights::AmbientLight, Scene, math::Vector3, Font, Text};
+use engine::{glfw, Renderer, Camera, lights::AmbientLight, scene::{Scene, Node, Object}, math::Vector3, Font, Text};
 
 mod state_manager;
 use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
@@ -22,10 +22,11 @@ fn main() {
 
 	let mut renderer = Renderer::new(&glfw, &window);
 
+	let mut scene = Scene::new();
+
 	let extent = renderer.get_swapchain_extent();
 	let camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
-	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
-	let mut scene = Scene::new(camera, ambient_light);
+	scene.camera_handle = scene.nodes.add(Node::new(Object::Camera(camera)));
 
 	let font = Font::new("game/res/roboto.ttf", 14);
 	let roboto_14 = scene.fonts.add(font);
@@ -91,7 +92,10 @@ fn main() {
 		if resized || surface_changed {
 			resources.renderer.resize(width, height);
 			let extent = resources.renderer.get_swapchain_extent();
-			resources.scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+			let camera_node = resources.scene.nodes.get_mut(&resources.scene.camera_handle).unwrap();
+			let camera_object = &mut camera_node.object;
+			let camera = camera_object.camera_mut().unwrap();
+			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
 		let frame_end = Instant::now();

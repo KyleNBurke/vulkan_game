@@ -5,7 +5,8 @@ use engine::{
 	Scene,
 	math::Vector3,
 	Geometry3D,
-	mesh::{Mesh, Material}
+	mesh::{Mesh, Material},
+	scene::{Node, Object}
 };
 
 fn main() {
@@ -22,12 +23,12 @@ fn main() {
 	camera.transform.position.z = -2.0;
 	camera.transform.update_matrix();
 
-	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
-	let mut scene = Scene::new(camera, ambient_light);
+	let mut scene = Scene::new();
+	scene.camera_handle = scene.nodes.add(Node::new(Object::Camera(camera)));
 
 	let geometry_handle = scene.geometries.add(Geometry3D::create_box());
 	let mesh = Mesh::new(geometry_handle, Material::Normal);
-	let mesh_handle = scene.meshes.add(mesh);
+	let mesh_handle = scene.nodes.add(Node::new(Object::Mesh(mesh)));
 
 	let mut minimized = false;
 	let mut resized;
@@ -70,12 +71,15 @@ fn main() {
 		if resized || surface_changed {
 			renderer.resize(width, height);
 			let extent = renderer.get_swapchain_extent();
-			scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+			let camera_node = scene.nodes.get_mut(&scene.camera_handle).unwrap();
+			let camera_object = &mut camera_node.object;
+			let camera = camera_object.camera_mut().unwrap();
+			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 		
-		let mesh = scene.meshes.get_mut(&mesh_handle).unwrap();
-		mesh.transform.rotate_y(0.005);
-		mesh.transform.update_matrix();
+		let mesh_node = scene.nodes.get_mut(&mesh_handle).unwrap();
+		mesh_node.transform.rotate_y(0.005);
+		mesh_node.transform.update_matrix();
 
 		surface_changed = renderer.render(&mut scene);
 	}

@@ -4,10 +4,11 @@ use engine::{
 	glfw,
 	pool::{Pool, Handle},
 	Geometry3D,
+	StaticMesh,
 	Mesh,
 	Material,
 	lights::PointLight,
-	Scene,
+	scene::{Scene, Node, Object},
 	math::Matrix4
 };
 
@@ -16,7 +17,7 @@ use crate::{CameraController, State, StateAction, EngineResources};
 pub struct GameplayState {
 	camera_controller: CameraController,
 	camera_controller_enabled: bool,
-	box_handle: Handle<Mesh>
+	box_handle: Handle<Node>
 }
 
 impl GameplayState {
@@ -105,10 +106,11 @@ impl GameplayState {
 				
 				if let Some(gltf_mesh) = node.mesh() {
 					let geometry_handle = geometry_map[gltf_mesh.index()];
-					let mut mesh = Mesh::new(geometry_handle, Material::Lambert);
-					mesh.transform.matrix = matrix;
+					let mesh = Mesh::new(geometry_handle, Material::Lambert);
+					let mut node = Node::new(Object::Mesh(mesh));
+					node.transform.matrix = matrix;
 					
-					scene.meshes.add(mesh);
+					scene.nodes.add(node);
 				}
 
 				nodes.push((node, matrix));
@@ -122,10 +124,11 @@ impl GameplayState {
 
 					if let Some(gltf_mesh) = child_node.mesh() {
 						let geometry_handle = geometry_map[gltf_mesh.index()];
-						let mut mesh = Mesh::new(geometry_handle, Material::Lambert);
-						mesh.transform.matrix = child_matrix;
+						let mesh = Mesh::new(geometry_handle, Material::Lambert);
+						let mut node = Node::new(Object::Mesh(mesh));
+						node.transform.matrix = child_matrix;
 						
-						scene.meshes.add(mesh);
+						scene.nodes.add(node);
 					}
 
 					nodes.push((child_node, child_matrix));
@@ -145,26 +148,26 @@ impl State for GameplayState {
 		let plane_geo = geometries.add(Geometry3D::create_plane());
 		let box_geo = geometries.add(Geometry3D::create_box());
 
-		let mut static_triangle = Mesh::new(triangle_geo, Material::Basic);
+		let mut static_triangle = StaticMesh::new(triangle_geo, Material::Basic);
 		static_triangle.transform.position.set(0.0, -1.0, 1.7);
 		static_triangle.transform.rotate_y(PI);
 		static_triangle.transform.update_matrix();
 
-		let mut static_plane = Mesh::new(plane_geo, Material::Lambert);
+		let mut static_plane = StaticMesh::new(plane_geo, Material::Lambert);
 		static_plane.transform.position.set(0.0, -1.0, 2.0);
 		static_plane.transform.rotate_y(PI);
 		static_plane.transform.update_matrix();
 
-		let mut static_box = Mesh::new(box_geo, Material::Normal);
+		let mut static_box = StaticMesh::new(box_geo, Material::Normal);
 		static_box.transform.position.set(2.0, 0.0, 0.0);
 		static_box.transform.update_matrix();
 
-		let mut point_light_box1 = Mesh::new(box_geo, Material::Basic);
+		let mut point_light_box1 = StaticMesh::new(box_geo, Material::Basic);
 		point_light_box1.transform.position.set(0.0, 1.0, 0.0);
 		point_light_box1.transform.scale.set_from_scalar(0.2);
 		point_light_box1.transform.update_matrix();
 
-		let mut point_light_box2 = Mesh::new(box_geo, Material::Basic);
+		let mut point_light_box2 = StaticMesh::new(box_geo, Material::Basic);
 		point_light_box2.transform.position.set(1.0, 1.0, 3.0);
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 		point_light_box2.transform.update_matrix();
@@ -175,24 +178,30 @@ impl State for GameplayState {
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());
 		let box_geo = scene.geometries.add(Geometry3D::create_box());
 
-		let mut triangle_lambert_mesh = Mesh::new(triangle_geo, Material::Basic);
-		triangle_lambert_mesh.transform.position.set(0.5, 0.6, 2.0);
-		triangle_lambert_mesh.transform.rotate_y(PI);
-		triangle_lambert_mesh.transform.update_matrix();
-		scene.meshes.add(triangle_lambert_mesh);
+		let triangle_lambert_mesh = Mesh::new(triangle_geo, Material::Basic);
+		let mut triangle_lambert_node = Node::new(Object::Mesh(triangle_lambert_mesh));
+		triangle_lambert_node.transform.position.set(0.5, 0.6, 2.0);
+		triangle_lambert_node.transform.rotate_y(PI);
+		triangle_lambert_node.transform.update_matrix();
+		scene.nodes.add(triangle_lambert_node);
 
-		let mut box_lambert_mesh = Mesh::new(box_geo, Material::Lambert);
-		box_lambert_mesh.transform.position.set(-2.0, 0.0, 0.0);
-		box_lambert_mesh.transform.update_matrix();
-		self.box_handle = scene.meshes.add(box_lambert_mesh);
+		let box_lambert_mesh = Mesh::new(box_geo, Material::Lambert);
+		let mut box_lambert_node = Node::new(Object::Mesh(box_lambert_mesh));
+		box_lambert_node.transform.position.set(-2.0, 0.0, 0.0);
+		box_lambert_node.transform.update_matrix();
+		self.box_handle = scene.nodes.add(box_lambert_node);
 
-		let mut point_light_1 = PointLight::new();
-		point_light_1.position.set(0.0, 1.0, 0.0);
-		resources.scene.point_lights.add(point_light_1);
+		let point_light_1 = PointLight::new();
+		let mut point_light_1_node = Node::new(Object::PointLight(point_light_1));
+		point_light_1_node.transform.position.set(0.0, 1.0, 0.0);
+		point_light_1_node.transform.update_matrix();
+		scene.nodes.add(point_light_1_node);
 
-		let mut point_light_2 = PointLight::new();
-		point_light_2.position.set(1.0, 1.0, 3.0);
-		resources.scene.point_lights.add(point_light_2);
+		let point_light_2 = PointLight::new();
+		let mut point_light_2_node = Node::new(Object::PointLight(point_light_2));
+		point_light_2_node.transform.position.set(1.0, 1.0, 3.0);
+		point_light_2_node.transform.update_matrix();
+		scene.nodes.add(point_light_2_node);
 
 		// Load gltf
 		self.load(&mut resources.scene);
@@ -214,12 +223,16 @@ impl State for GameplayState {
 
 	fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) -> StateAction {
 		if self.camera_controller_enabled {
-			self.camera_controller.update(&resources.window, &mut resources.scene.camera, frame_time);
+			let camera_node = resources.scene.nodes.get_mut(&resources.scene.camera_handle).unwrap();
+			let camera_object = &mut camera_node.object;
+			let camera = camera_object.camera_mut().unwrap();
+
+			self.camera_controller.update(&resources.window, camera, frame_time);
 		}
 
-		let mesh = resources.scene.meshes.get_mut(&self.box_handle).unwrap();
-		mesh.transform.rotate_y(frame_time.as_secs_f32());
-		mesh.transform.update_matrix();
+		let mesh_node = resources.scene.nodes.get_mut(&self.box_handle).unwrap();
+		mesh_node.transform.rotate_y(frame_time.as_secs_f32());
+		mesh_node.transform.update_matrix();
 
 		StateAction::None
 	}

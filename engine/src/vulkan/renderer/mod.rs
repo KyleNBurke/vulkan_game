@@ -1,16 +1,6 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{
-	Geometry3D,
-	math::Vector3,
-	Mesh,
-	Material,
-	pool::Pool,
-	Scene,
-	Font,
-	Text,
-	vulkan::{Context, Buffer}
-};
+use crate::{Font, Geometry3D, Material, StaticMesh, Mesh, scene::{Scene, Node}, Object, Text, lights::AmbientLight, math::Vector3, pool::Pool, vulkan::{Context, Buffer}};
 
 mod creation;
 use creation::*;
@@ -192,66 +182,6 @@ impl InFlightFrame {
 
 		self.index_arrays_offset = index_arrays_offset;
 	}
-
-	fn copy_frame_data(&self, logical_device: &ash::Device, scene: &Scene) {
-		// Map buffer
-		let buffer_ptr = unsafe { logical_device.map_memory(self.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-		
-		// Copy data
-		let projection_matrix = &scene.camera.projection_matrix.elements;
-		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
-
-		let mut inverse_view_matrix = scene.camera.transform.matrix;
-		inverse_view_matrix.invert();
-		unsafe {
-			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * 4) as *mut [f32; 4];
-			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
-		}
-
-		let ambient_light = &scene.ambient_light;
-		let ambient_light_intensified_color = ambient_light.color * ambient_light.intensity;
-		unsafe {
-			let ambient_light_dst_ptr = buffer_ptr.add(32 * 4) as *mut Vector3;
-			copy_nonoverlapping(&ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
-		}
-
-		let mut point_light_count = 0;
-		let position_base_offest = 36 * 4;
-		let color_base_offest = 40 * 4;
-		let stride = 8 * 4;
-
-		for point_light in scene.point_lights.iter() {
-			let intensified_color = point_light.color * point_light.intensity;
-
-			unsafe {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&point_light.position as *const Vector3, position_dst_ptr, 1);
-
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
-			}
-
-			point_light_count += 1;
-		}
-
-		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
-		unsafe {
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * 4) as *mut u32;
-			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
-		}
-
-		// Flush and unmap buffer
-		let range = vk::MappedMemoryRange::builder()
-			.memory(self.frame_data_buffer.memory)
-			.offset(0)
-			.size(vk::WHOLE_SIZE);
-		
-		unsafe {		
-			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
-			logical_device.unmap_memory(self.frame_data_buffer.memory);
-		}
-	}
 }
 
 impl Renderer {
@@ -311,7 +241,7 @@ impl Renderer {
 		println!("Renderer resized");
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[Mesh]) {
+	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {
 		self.mesh_resources.submit_static_meshes(&self.context, self.command_pool, geometries, meshes);
 		println!("Static meshes submitted");
 	}
@@ -352,10 +282,9 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
-		// Copy frame data into frame buffer
-		in_flight_frame.copy_frame_data(logical_device, scene);
-
 		// Iterate over meshes to
+		// - Update transformation matrix
+		// - Split nodes into separate lists
 		// - Group meshes together which share the same geometry and material
 		// - Calculate the offsets and size of the data
 		struct GeometryInfo<'a> {
@@ -368,7 +297,7 @@ impl Renderer {
 		struct InstanceGroup<'a> {
 			geometry_info_index: usize,
 			material: Material,
-			meshes: Vec<&'a Mesh>
+			nodes: Vec<&'a Node>
 		}
 
 		let mut geometry_infos: Vec<GeometryInfo> = vec![];
@@ -378,39 +307,57 @@ impl Renderer {
 		let mut attribute_arrays_size = 0;
 		let mut material_counts = [0; MATERIALS_COUNT];
 
-		for mesh in scene.meshes.iter() {
-			let geometry_index = mesh.geometry_handle.index;
-			let material_index = mesh.material as usize + 1;
-			
-			if map[geometry_index][0].is_none() {
-				let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+		let mut total_ambient_light_color = Vector3::new();
+		let mut total_ambient_light_intensity = 0.0;
+		let mut point_lights: Vec<&Node> = vec![];
 
-				geometry_infos.push(GeometryInfo {
-					geometry,
-					index_array_relative_offset: index_arrays_size,
-					attribute_array_relative_offset: attribute_arrays_size,
-					copied: false
-				});
+		for node in scene.nodes.iter() {
+			// update matrix...
 
-				map[geometry_index][0] = Some(geometry_infos.len() - 1);
-				index_arrays_size += size_of_val(&geometry.indices[..]);
-				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+			match &node.object {
+				Object::AmbientLight(ambient_light) => {
+					total_ambient_light_color += &ambient_light.color;
+					total_ambient_light_intensity += ambient_light.intensity;
+				},
+				Object::PointLight(_) => {
+					point_lights.push(node);
+				},
+				Object::Mesh(mesh) => {
+					let geometry_index = mesh.geometry_handle.index;
+					let material_index = mesh.material as usize + 1;
+					
+					if map[geometry_index][0].is_none() {
+						let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+
+						geometry_infos.push(GeometryInfo {
+							geometry,
+							index_array_relative_offset: index_arrays_size,
+							attribute_array_relative_offset: attribute_arrays_size,
+							copied: false
+						});
+
+						map[geometry_index][0] = Some(geometry_infos.len() - 1);
+						index_arrays_size += size_of_val(&geometry.indices[..]);
+						attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+					}
+
+					if let Some(instance_group_index) = map[geometry_index][material_index] {
+						instance_groups[instance_group_index].nodes.push(node);
+					}
+					else {
+						instance_groups.push(InstanceGroup {
+							geometry_info_index: map[geometry_index][0].unwrap(),
+							material: mesh.material,
+							nodes: vec![node]
+						});
+
+						map[geometry_index][material_index] = Some(instance_groups.len() - 1);
+					}
+
+					material_counts[mesh.material as usize] += 1;
+				},
+				_ => ()
 			}
-
-			if let Some(instance_group_index) = map[geometry_index][material_index] {
-				instance_groups[instance_group_index].meshes.push(mesh);
-			}
-			else {
-				instance_groups.push(InstanceGroup {
-					geometry_info_index: map[geometry_index][0].unwrap(),
-					material: mesh.material,
-					meshes: vec![mesh]
-				});
-
-				map[geometry_index][material_index] = Some(instance_groups.len() - 1);
-			}
-
-			material_counts[mesh.material as usize] += 1;
 		}
 
 		struct TextInfo<'a> {
@@ -444,6 +391,69 @@ impl Renderer {
 			attribute_arrays_size += vertex_attributes_size;
 		}
 
+		// Map frame data buffer
+		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
+		
+		// Copy frame data
+		let camera_node = scene.nodes.get(&scene.camera_handle).unwrap();
+		let camera_object = &camera_node.object;
+		let camera = camera_object.camera().unwrap();
+		
+		let projection_matrix = &camera.projection_matrix.elements;
+		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
+		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
+
+		let mut inverse_view_matrix = camera.transform.matrix;
+		inverse_view_matrix.invert();
+		unsafe {
+			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * 4) as *mut [f32; 4];
+			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
+		}
+
+		let total_ambient_light_intensified_color = total_ambient_light_color * total_ambient_light_intensity;
+		unsafe {
+			let ambient_light_dst_ptr = buffer_ptr.add(32 * 4) as *mut Vector3;
+			copy_nonoverlapping(&total_ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
+		}
+
+		let mut point_light_count = 0;
+		let position_base_offest = 36 * 4;
+		let color_base_offest = 40 * 4;
+		let stride = 8 * 4;
+
+		for point_light_node in point_lights {
+			let point_light = point_light_node.object.point_light().unwrap();
+			let intensified_color = point_light.color * point_light.intensity;
+
+			unsafe {
+				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+				copy_nonoverlapping(&point_light_node.transform.position as *const Vector3, position_dst_ptr, 1);
+
+				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+			}
+
+			point_light_count += 1;
+		}
+
+		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+		unsafe {
+			let point_light_count_dst_ptr = buffer_ptr.add(35 * 4) as *mut u32;
+			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+		}
+
+		// Flush and unmap frame data buffer
+		let range = vk::MappedMemoryRange::builder()
+			.memory(in_flight_frame.frame_data_buffer.memory)
+			.offset(0)
+			.size(vk::WHOLE_SIZE);
+		
+		unsafe {		
+			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
+			logical_device.unmap_memory(in_flight_frame.frame_data_buffer.memory);
+		}
+
+		// Calculate offsets
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
 		let basic_instance_data_array_offset = 0;
@@ -618,7 +628,7 @@ impl Renderer {
 
 			match instance_group.material {
 				Material::Basic => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
 						let offset = basic_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -630,7 +640,7 @@ impl Renderer {
 					secondary_command_buffer = basic_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Normal => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
 						let instance_data_offset = normal_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -642,7 +652,7 @@ impl Renderer {
 					secondary_command_buffer = normal_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Lambert => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
 						let instance_data_offset = lambert_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -659,10 +669,10 @@ impl Renderer {
 			unsafe {
 				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
-				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, instance_group.meshes.len() as u32, 0, 0, *instance_group_index as u32);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, instance_group.nodes.len() as u32, 0, 0, *instance_group_index as u32);
 			}
 
-			*instance_group_index += instance_group.meshes.len();
+			*instance_group_index += instance_group.nodes.len();
 		}
 
 		// Bind descriptor sets for static meshes

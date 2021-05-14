@@ -1,6 +1,6 @@
 use std::{mem::size_of_val, ptr::copy_nonoverlapping, cmp::max};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Buffer, Context}, pool::Pool, Geometry3D, Mesh, Material};
+use crate::{vulkan::{Buffer, Context}, pool::Pool, Geometry3D, StaticMesh, Material};
 use super::MATERIALS_COUNT;
 
 mod creation;
@@ -81,7 +81,7 @@ impl MeshResources {
 		self.lambert_pipeline = pipelines[2];
 	}
 
-	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &[Mesh]) {
+	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {
 		self.static_geometry_infos.clear();
 		self.static_instance_groups.clear();
 		
@@ -104,7 +104,7 @@ impl MeshResources {
 		struct InstanceGroup<'a> {
 			geometry_info_index: usize,
 			material: Material,
-			meshes: Vec<&'a Mesh>
+			meshes: Vec<&'a StaticMesh>
 		}
 
 		let mut geometry_infos: Vec<GeometryInfo> = vec![];
