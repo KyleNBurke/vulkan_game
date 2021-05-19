@@ -119,7 +119,7 @@ impl MeshResources {
 			let material_index = mesh.material as usize + 1;
 			
 			if map[geometry_index][0].is_none() {
-				let geometry = geometries.borrow(mesh.geometry_handle).unwrap();
+				let geometry = geometries.borrow(mesh.geometry_handle);
 
 				geometry_infos.push(GeometryInfo {
 					geometry,

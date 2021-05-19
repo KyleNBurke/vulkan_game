@@ -61,7 +61,7 @@ impl State for FrameMetricsState {
 			let max = max as f32 / 1000.0;
 
 			let string = format!("{:.1}fps {:.1}ms avg {:.1}ms max", fps, average, max);
-			resources.scene.text.borrow_mut(self.label).unwrap().set_string(string);
+			resources.scene.text.borrow_mut(self.label).set_string(string);
 			
 			self.duration = Duration::new(0, 0);
 			self.fps_sampled_frames = 0;

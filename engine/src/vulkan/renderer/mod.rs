@@ -286,9 +286,9 @@ impl Renderer {
 		let frame_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 		
 		// Copy camera data into frame data buffer
-		let camera_node = scene.graph.borrow(scene.camera_handle).unwrap();
+		let camera_node = scene.graph.borrow(scene.camera_handle);
 		let camera_object = &camera_node.object;
-		let camera = camera_object.camera().unwrap();
+		let camera = camera_object.as_camera();
 		
 		let projection_matrix = &camera.projection_matrix.elements;
 		let projection_matrix_dst_ptr = frame_data_buffer_ptr as *mut [f32; 4];
@@ -344,7 +344,7 @@ impl Renderer {
 					let material_index = mesh.material as usize + 1;
 					
 					if map[geometry_index][0].is_none() {
-						let geometry = scene.geometries.borrow(mesh.geometry_handle).unwrap();
+						let geometry = scene.geometries.borrow(mesh.geometry_handle);
 
 						geometry_infos.push(GeometryInfo {
 							geometry,
@@ -391,7 +391,7 @@ impl Renderer {
 			}
 
 			if text.generate {
-				let font = scene.fonts.borrow(text.font).unwrap();
+				let font = scene.fonts.borrow(text.font);
 				text.generate(&font);
 			}
 
@@ -421,7 +421,7 @@ impl Renderer {
 		let stride = 8 * 4;
 
 		for point_light_node in point_lights {
-			let point_light = point_light_node.object.point_light().unwrap();
+			let point_light = point_light_node.object.as_point_light();
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
@@ -769,7 +769,7 @@ impl Renderer {
 		// Copy data into buffer and record draw commands
 		for (index, text_info) in text_infos.iter().enumerate() {
 			let text = text_info.text;
-			let font = scene.fonts.borrow(text.font).unwrap();
+			let font = scene.fonts.borrow(text.font);
 			let submission_info = font.submission_info.as_ref().unwrap();
 			assert!(submission_info.generation == self.text_resources.submission_generation);
 

@@ -67,7 +67,7 @@ impl CameraController {
 		let mouse_pos_diff_x = mouse_pos_x - self.prev_mouse_pos_x;
 		let mouse_pos_diff_y = mouse_pos_y - self.prev_mouse_pos_y;
 
-		let node = resources.scene.graph.borrow_mut(resources.scene.camera_handle).unwrap();
+		let node = resources.scene.graph.borrow_mut(resources.scene.camera_handle);
 		self.euler.set_from_quaternion(&node.transform.rotation);
 		self.euler.y -= mouse_pos_diff_x * ROTATION_SPEED;
 		self.euler.x += mouse_pos_diff_y * ROTATION_SPEED;

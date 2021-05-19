@@ -1,4 +1,4 @@
-use crate::{Transform3D, Geometry3D, pool::Handle};
+use crate::{Transform3D, pool::Handle};
 
 #[derive(Copy, Clone)]
 pub enum Material {

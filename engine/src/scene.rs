@@ -1,4 +1,4 @@
-use crate::{pool::{Handle, Pool}, Geometry3D, graph::{Graph, Node}, Font, Text};
+use crate::{pool::{Handle, Pool}, Geometry3D, graph::Graph, Font, Text};
 
 pub struct Scene {
 	pub geometries: Pool<Geometry3D>,

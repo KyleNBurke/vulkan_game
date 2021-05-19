@@ -1,3 +1,4 @@
+use std::fmt;
 use crate::{Camera, Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::Matrix4, pool::{Pool, Handle, Iter, IterMut}};
 
 pub enum Object {
@@ -9,31 +10,43 @@ pub enum Object {
 }
 
 impl Object {
-	pub fn camera(&self) -> Option<&Camera> {
+	pub fn as_camera(&self) -> &Camera {
 		match self {
-			Object::Camera(camera) => Some(camera),
-			_ => None
+			Object::Camera(camera) => camera,
+			_ => panic!("Cannot convert object {} to camera", self)
 		}
 	}
 
-	pub fn camera_mut(&mut self) -> Option<&mut Camera> {
+	pub fn as_camera_mut(&mut self) -> &mut Camera {
 		match self {
-			Object::Camera(camera) => Some(camera),
-			_ => None
+			Object::Camera(camera) => camera,
+			_ => panic!("Cannot convert object {} to camera", self)
 		}
 	}
 
-	pub fn point_light(&self) -> Option<&PointLight> {
+	pub fn as_point_light(&self) -> &PointLight {
 		match self {
-			Object::PointLight(point_light) => Some(point_light),
-			_ => None
+			Object::PointLight(point_light) => point_light,
+			_ => panic!("Cannot convert object {} to point light", self)
 		}
 	}
 
-	pub fn mesh_mut(&mut self) -> Option<&mut Mesh> {
+	pub fn as_mesh_mut(&mut self) -> &mut Mesh {
 		match self {
-			Object::Mesh(mesh) => Some(mesh),
-			_ => None
+			Object::Mesh(mesh) => mesh,
+			_ => panic!("Cannot convert object {} to mesh", self)
+		}
+	}
+}
+
+impl fmt::Display for Object {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		match self {
+			Object::Empty => write!(f, "empty"),
+			Object::Camera(_) => write!(f, "camera"),
+			Object::AmbientLight(_) => write!(f, "ambient light"),
+			Object::PointLight(_) => write!(f, "point light"),
+			Object::Mesh(_) => write!(f, "mesh"),
 		}
 	}
 }
@@ -85,29 +98,25 @@ impl Graph {
 	}
 
 	pub fn add(&mut self, node: Node) -> Handle {
-		self.add_to(self.root_handle, node).unwrap()
+		self.add_to(self.root_handle, node)
 	}
 
-	pub fn add_to(&mut self, parent_handle: Handle, mut child_node: Node) -> Option<Handle> {
-		if !self.nodes.valid_handle(parent_handle) {
-			return None;
-		}
-
+	pub fn add_to(&mut self, parent_handle: Handle, mut child_node: Node) -> Handle {
 		child_node.parent_handle = Some(parent_handle);
 		let child_handle = self.nodes.add(child_node);
-		let parent = self.nodes.borrow_mut_unchecked(parent_handle);
+		let parent = self.nodes.borrow_mut(parent_handle);
 		parent.child_handles.push(child_handle);
-		Some(child_handle)
+		child_handle
 	}
 
 	pub fn remove_at(&mut self, handle: Handle) {
-		if handle == self.root_handle || !self.nodes.valid_handle(handle) {
-			return;
+		if handle == self.root_handle {
+			panic!("Cannot remove node from graph, handle points to root node");
 		}
 
-		let node = self.nodes.borrow_unchecked(handle);
+		let node = self.nodes.borrow(handle);
 		if let Some(parent_handle) = node.parent_handle() {
-			let parent_node = self.nodes.borrow_mut(parent_handle).unwrap();
+			let parent_node = self.nodes.borrow_mut(parent_handle);
 			let child_handle_index = parent_node.child_handles.iter().position(|h| *h == handle).unwrap();
 			parent_node.child_handles.remove(child_handle_index);
 		}
@@ -115,18 +124,26 @@ impl Graph {
 		let mut removes = vec![handle];
 
 		while let Some(handle) = removes.pop() {
-			let node = self.nodes.borrow(handle).unwrap();
+			let node = self.nodes.borrow(handle);
 			removes.extend_from_slice(&node.child_handles);
 			self.nodes.remove(handle);
 		}
 	}
 
-	pub fn borrow(&self, handle: Handle) -> Option<&Node> {
+	pub fn borrow(&self, handle: Handle) -> &Node {
 		self.nodes.borrow(handle)
 	}
 
-	pub fn borrow_mut(&mut self, handle: Handle) -> Option<&mut Node> {
+	pub fn borrow_mut(&mut self, handle: Handle) -> &mut Node {
 		self.nodes.borrow_mut(handle)
+	}
+
+	pub fn try_borrow(&self, handle: Handle) -> Option<&Node> {
+		self.nodes.try_borrow(handle)
+	}
+
+	pub fn try_borrow_mut(&mut self, handle: Handle) -> Option<&mut Node> {
+		self.nodes.try_borrow_mut(handle)
 	}
 
 	pub fn capacity(&self) -> usize {
@@ -153,17 +170,17 @@ impl Graph {
 		let mut updates = vec![handle];
 
 		while let Some(child_handle) = updates.pop() {
-			let child_node = self.nodes.borrow(child_handle).unwrap();
+			let child_node = self.nodes.borrow(child_handle);
 
 			let parent_global_matrix = if let Some(parent_handle) = child_node.parent_handle {
-				let parent_node = self.nodes.borrow(parent_handle).unwrap();
+				let parent_node = self.nodes.borrow(parent_handle);
 				parent_node.transform.global_matrix
 			}
 			else {
 				Matrix4::new()
 			};
 
-			let child_node = self.nodes.borrow_mut_unchecked(child_handle);
+			let child_node = self.nodes.borrow_mut(child_handle);
 
 			if child_node.transform.auto_update_matrix {
 				child_node.transform.update_matrix();

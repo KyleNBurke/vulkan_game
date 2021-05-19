@@ -1,4 +1,4 @@
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct Handle {
 	index: usize,
 	generation: u32
@@ -80,9 +80,30 @@ impl<T> Pool<T> {
 			record.payload = None;
 			self.vacant_records.push(handle.index);
 		}
+		else {
+			panic!("Cannot remove from pool, handle {:?} is invalid", handle);
+		}
 	}
 
-	pub fn borrow(&self, handle: Handle) -> Option<&T> {
+	pub fn borrow(&self, handle: Handle) -> &T {
+		if self.valid_handle(handle) {
+			self.records[handle.index].payload.as_ref().unwrap()
+		}
+		else {
+			panic!("Cannot borrow from pool, handle {:?} is invalid", handle);
+		}
+	}
+
+	pub fn borrow_mut(&mut self, handle: Handle) -> &mut T {
+		if self.valid_handle(handle) {
+			self.records[handle.index].payload.as_mut().unwrap()
+		}
+		else {
+			panic!("Cannot borrow from pool, handle {:?} is invalid", handle);
+		}
+	}
+
+	pub fn try_borrow(&self, handle: Handle) -> Option<&T> {
 		if self.valid_handle(handle) {
 			self.records[handle.index].payload.as_ref()
 		}
@@ -91,21 +112,13 @@ impl<T> Pool<T> {
 		}
 	}
 
-	pub fn borrow_mut(&mut self, handle: Handle) -> Option<&mut T> {
+	pub fn try_borrow_mut(&mut self, handle: Handle) -> Option<&mut T> {
 		if self.valid_handle(handle) {
 			self.records[handle.index].payload.as_mut()
 		}
 		else {
 			None
 		}
-	}
-
-	pub(crate) fn borrow_unchecked(&self, handle: Handle) -> &T {
-		self.records[handle.index].payload.as_ref().unwrap()
-	}
-
-	pub(crate) fn borrow_mut_unchecked(&mut self, handle: Handle) -> &mut T {
-		self.records[handle.index].payload.as_mut().unwrap()
 	}
 
 	pub fn capacity(&self) -> usize {
@@ -219,6 +232,7 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 
 #[cfg(test)]
 mod tests {
+	use std::panic;
 	use super::*;
 
 	#[test]
@@ -270,10 +284,11 @@ mod tests {
 		let mut pool = Pool::<u32>::new();
 		let handle = Handle::null();
 
-		assert!(pool.borrow(handle).is_none());
+		let result = panic::catch_unwind(|| pool.borrow(handle));
+		assert!(result.is_err());
 
 		let handle = pool.add(4);
-		assert_eq!(pool.borrow(handle), Some(&4));
+		assert_eq!(pool.borrow(handle), &4);
 	}
 
 	#[test]
@@ -281,10 +296,33 @@ mod tests {
 		let mut pool = Pool::<u32>::new();
 		let handle = Handle::null();
 
-		assert!(pool.borrow_mut(handle).is_none());
+		let result = panic::catch_unwind(|| pool.borrow(handle));
+		assert!(result.is_err());
 
 		let handle = pool.add(4);
-		assert_eq!(pool.borrow_mut(handle), Some(&mut 4));
+		assert_eq!(pool.borrow_mut(handle), &mut 4);
+	}
+
+	#[test]
+	fn try_borrow() {
+		let mut pool = Pool::<u32>::new();
+		let handle = Handle::null();
+
+		assert!(pool.try_borrow(handle).is_none());
+
+		let handle = pool.add(4);
+		assert_eq!(pool.try_borrow(handle), Some(&4));
+	}
+
+	#[test]
+	fn try_borrow_mut() {
+		let mut pool = Pool::<u32>::new();
+		let handle = Handle::null();
+
+		assert!(pool.try_borrow_mut(handle).is_none());
+
+		let handle = pool.add(4);
+		assert_eq!(pool.try_borrow_mut(handle), Some(&mut 4));
 	}
 
 	#[test]

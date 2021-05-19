@@ -207,7 +207,7 @@ impl State for GameplayState {
 		let box_2 = Mesh::new(box_geo, Material::Lambert);
 		let mut box_2_node = Node::new(Object::Mesh(box_2));
 		box_2_node.transform.translate_z(2.0);
-		scene.graph.add_to(self.box_handle, box_2_node).unwrap();
+		scene.graph.add_to(self.box_handle, box_2_node);
 
 		// Load gltf
 		self.load(&mut resources.scene);
@@ -232,7 +232,7 @@ impl State for GameplayState {
 			self.camera_controller.update(resources, frame_time);
 		}
 
-		let mesh_node = resources.scene.graph.borrow_mut(self.box_handle).unwrap();
+		let mesh_node = resources.scene.graph.borrow_mut(self.box_handle);
 		mesh_node.transform.rotate_y(frame_time.as_secs_f32());
 		resources.scene.graph.update_at(self.box_handle);
 
