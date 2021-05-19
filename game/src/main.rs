@@ -93,8 +93,7 @@ fn main() {
 			resources.renderer.resize(width, height);
 			let extent = resources.renderer.get_swapchain_extent();
 			let camera_node = resources.scene.graph.borrow_mut(resources.scene.camera_handle);
-			let camera_object = &mut camera_node.object;
-			let camera = camera_object.as_camera_mut();
+			let camera = camera_node.object.as_camera_mut();
 			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
