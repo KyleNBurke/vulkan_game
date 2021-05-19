@@ -3,9 +3,8 @@ use utilities::Window;
 use engine::{
 	Renderer,
 	Camera,
-	lights::AmbientLight,
 	Scene,
-	math::Vector3,
+	graph::{Node, Object},
 	Geometry3D,
 	mesh::{Material, Mesh},
 	Font,
@@ -16,17 +15,18 @@ fn main() {
 	let mut window = Window::new("Text");
 	let mut renderer = Renderer::new(&window.glfw, &window.glfw_window);
 
-	let extent = renderer.get_swapchain_extent();
-	let mut camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
-	camera.transform.position.z = -2.0;
-	camera.transform.update_matrix();
+	let mut scene = Scene::new();
 
-	let ambient_light = AmbientLight::from(Vector3::from_scalar(1.0), 0.01);
-	let mut scene = Scene::new(camera, ambient_light);
+	let extent = renderer.get_swapchain_extent();
+	let camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+	let camera_node = Node::new(Object::Camera(camera));
+	scene.camera_handle = scene.graph.add(camera_node);
 
 	let box_geo = scene.geometries.add(Geometry3D::create_box());
 	let mesh = Mesh::new(box_geo, Material::Normal);
-	let mesh_handle = scene.meshes.add(mesh);
+	let mut mesh_node = Node::new(Object::Mesh(mesh));
+	mesh_node.transform.translate_z(2.0);
+	let mesh_handle = scene.graph.add(mesh_node);
 
 	let font = Font::new("game/res/roboto.ttf", 32);
 	let font_handle = scene.fonts.add(font);
@@ -43,13 +43,16 @@ fn main() {
 		if resized || surface_changed {
 			renderer.resize(width, height);
 			let extent = renderer.get_swapchain_extent();
-			scene.camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+			let camera_node = scene.graph.borrow_mut(scene.camera_handle);
+			let camera_object = &mut camera_node.object;
+			let camera = camera_object.as_camera_mut();
+			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
-		let mesh = scene.meshes.get_mut(&mesh_handle).unwrap();
-		mesh.transform.rotate_y(0.005);
-		mesh.transform.update_matrix();
-
+		let node = scene.graph.borrow_mut(mesh_handle);
+		node.transform.rotate_y(0.005);
+		
+		scene.graph.update();
 		surface_changed = renderer.render(&mut scene);
 	});
 }

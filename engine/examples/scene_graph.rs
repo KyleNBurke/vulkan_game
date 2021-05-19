@@ -32,24 +32,24 @@ fn main() {
 			let mesh = Mesh::new(box_geo, Material::Normal);
 			let mut node = Node::new(Object::Mesh(mesh));
 			node.transform.position.set(i as f32 * 1.5, 0.0, j as f32 * 1.5);
-			scene.graph.add_to(empty_handle, node).unwrap();
+			scene.graph.add_to(empty_handle, node);
 		}
 	}
 
 	let mesh = Mesh::new(box_geo, Material::Normal);
 	let mut node = Node::new(Object::Mesh(mesh));
 	node.transform.position.y = 2.0;
-	let a_handle = scene.graph.add_to(empty_handle, node).unwrap();
+	let a_handle = scene.graph.add_to(empty_handle, node);
 
 	let mesh = Mesh::new(box_geo, Material::Normal);
 	let mut node = Node::new(Object::Mesh(mesh));
 	node.transform.position.y = 1.5;
-	let b_handle = scene.graph.add_to(a_handle, node).unwrap();
+	let b_handle = scene.graph.add_to(a_handle, node);
 
 	let mesh = Mesh::new(box_geo, Material::Normal);
 	let mut node = Node::new(Object::Mesh(mesh));
 	node.transform.position.z = 1.5;
-	let c_handle = scene.graph.add_to(b_handle, node).unwrap();
+	let c_handle = scene.graph.add_to(b_handle, node);
 
 	let mut scale = 0.0f32;
 	let mut surface_changed = false;
@@ -58,24 +58,24 @@ fn main() {
 		if resized || surface_changed {
 			renderer.resize(width, height);
 			let extent = renderer.get_swapchain_extent();
-			let camera_node = scene.graph.try_borrow_mut(scene.camera_handle).unwrap();
+			let camera_node = scene.graph.borrow_mut(scene.camera_handle);
 			let camera_object = &mut camera_node.object;
-			let camera = camera_object.as_camera_mut().unwrap();
+			let camera = camera_object.as_camera_mut();
 			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
-		let empty_node = scene.graph.try_borrow_mut(empty_handle).unwrap();
+		let empty_node = scene.graph.borrow_mut(empty_handle);
 		empty_node.transform.rotate_y(0.005);
 
-		let a_node = scene.graph.try_borrow_mut(a_handle).unwrap();
+		let a_node = scene.graph.borrow_mut(a_handle);
 		a_node.transform.rotate_x(0.005);
 
-		let b_node = scene.graph.try_borrow_mut(b_handle).unwrap();
+		let b_node = scene.graph.borrow_mut(b_handle);
 		b_node.transform.rotate_y(0.005);
 		scale += 0.005;
 		b_node.transform.scale.set_from_scalar(scale.sin() * 0.5 + 1.0);
 
-		let c_node = scene.graph.try_borrow_mut(c_handle).unwrap();
+		let c_node = scene.graph.borrow_mut(c_handle);
 		c_node.transform.rotate_z(0.005);
 
 		scene.graph.update();
