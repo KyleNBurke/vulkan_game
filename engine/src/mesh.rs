@@ -9,12 +9,12 @@ pub enum Material {
 
 pub struct StaticMesh {
 	pub transform: Transform3D,
-	pub geometry_handle: Handle<Geometry3D>,
+	pub geometry_handle: Handle,
 	pub material: Material
 }
 
 impl StaticMesh {
-	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
+	pub fn new(geometry_handle: Handle, material: Material) -> Self {
 		Self {
 			transform: Transform3D::new(),
 			geometry_handle,
@@ -24,12 +24,12 @@ impl StaticMesh {
 }
 
 pub struct Mesh {
-	pub geometry_handle: Handle<Geometry3D>,
+	pub geometry_handle: Handle,
 	pub material: Material
 }
 
 impl Mesh {
-	pub fn new(geometry_handle: Handle<Geometry3D>, material: Material) -> Self {
+	pub fn new(geometry_handle: Handle, material: Material) -> Self {
 		Self {
 			geometry_handle,
 			material

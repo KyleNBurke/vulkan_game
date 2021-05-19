@@ -109,17 +109,17 @@ impl MeshResources {
 
 		let mut geometry_infos: Vec<GeometryInfo> = vec![];
 		let mut instance_groups: Vec<InstanceGroup> = vec![];
-		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.total_len()];
+		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.capacity()];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
 		let mut material_counts = [0; MATERIALS_COUNT];
 
 		for mesh in meshes.iter() {
-			let geometry_index = mesh.geometry_handle.index;
+			let geometry_index = mesh.geometry_handle.index();
 			let material_index = mesh.material as usize + 1;
 			
 			if map[geometry_index][0].is_none() {
-				let geometry = geometries.get(&mesh.geometry_handle).unwrap();
+				let geometry = geometries.borrow(mesh.geometry_handle).unwrap();
 
 				geometry_infos.push(GeometryInfo {
 					geometry,

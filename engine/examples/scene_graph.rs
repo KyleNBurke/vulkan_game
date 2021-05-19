@@ -58,24 +58,24 @@ fn main() {
 		if resized || surface_changed {
 			renderer.resize(width, height);
 			let extent = renderer.get_swapchain_extent();
-			let camera_node = scene.graph.get_mut(&scene.camera_handle).unwrap();
+			let camera_node = scene.graph.borrow_mut(scene.camera_handle).unwrap();
 			let camera_object = &mut camera_node.object;
 			let camera = camera_object.camera_mut().unwrap();
 			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
 		}
 
-		let empty_node = scene.graph.get_mut(&empty_handle).unwrap();
+		let empty_node = scene.graph.borrow_mut(empty_handle).unwrap();
 		empty_node.transform.rotate_y(0.005);
 
-		let a_node = scene.graph.get_mut(&a_handle).unwrap();
+		let a_node = scene.graph.borrow_mut(a_handle).unwrap();
 		a_node.transform.rotate_x(0.005);
 
-		let b_node = scene.graph.get_mut(&b_handle).unwrap();
+		let b_node = scene.graph.borrow_mut(b_handle).unwrap();
 		b_node.transform.rotate_y(0.005);
 		scale += 0.005;
 		b_node.transform.scale.set_from_scalar(scale.sin() * 0.5 + 1.0);
 
-		let c_node = scene.graph.get_mut(&c_handle).unwrap();
+		let c_node = scene.graph.borrow_mut(c_handle).unwrap();
 		c_node.transform.rotate_z(0.005);
 
 		scene.graph.update();

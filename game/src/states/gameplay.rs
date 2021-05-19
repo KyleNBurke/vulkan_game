@@ -18,7 +18,7 @@ use crate::{CameraController, State, StateAction, EngineResources};
 pub struct GameplayState {
 	camera_controller: CameraController,
 	camera_controller_enabled: bool,
-	box_handle: Handle<Node>
+	box_handle: Handle
 }
 
 impl GameplayState {
@@ -32,7 +32,7 @@ impl GameplayState {
 
 	fn load(&mut self, scene: &mut Scene) {
 		let (document, buffers, _) = gltf::import("game/res/monkey.gltf").unwrap();
-		let mut geometry_map: Vec<Handle<Geometry3D>> = vec![];
+		let mut geometry_map: Vec<Handle> = vec![];
 
 		for mesh in document.meshes() {
 			let name = if let Some(name) = mesh.name() { name } else { "unamed" };
@@ -232,7 +232,7 @@ impl State for GameplayState {
 			self.camera_controller.update(resources, frame_time);
 		}
 
-		let mesh_node = resources.scene.graph.get_mut(&self.box_handle).unwrap();
+		let mesh_node = resources.scene.graph.borrow_mut(self.box_handle).unwrap();
 		mesh_node.transform.rotate_y(frame_time.as_secs_f32());
 		resources.scene.graph.update_at(self.box_handle);
 

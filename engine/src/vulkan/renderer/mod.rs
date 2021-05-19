@@ -286,7 +286,7 @@ impl Renderer {
 		let frame_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 		
 		// Copy camera data into frame data buffer
-		let camera_node = scene.graph.get(&scene.camera_handle).unwrap();
+		let camera_node = scene.graph.borrow(scene.camera_handle).unwrap();
 		let camera_object = &camera_node.object;
 		let camera = camera_object.camera().unwrap();
 		
@@ -321,7 +321,7 @@ impl Renderer {
 
 		let mut geometry_infos: Vec<GeometryInfo> = vec![];
 		let mut instance_groups: Vec<InstanceGroup> = vec![];
-		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; scene.geometries.total_len()];
+		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; scene.geometries.capacity()];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
 		let mut material_counts = [0; MATERIALS_COUNT];
@@ -340,11 +340,11 @@ impl Renderer {
 					point_lights.push(node);
 				},
 				Object::Mesh(mesh) => {
-					let geometry_index = mesh.geometry_handle.index;
+					let geometry_index = mesh.geometry_handle.index();
 					let material_index = mesh.material as usize + 1;
 					
 					if map[geometry_index][0].is_none() {
-						let geometry = scene.geometries.get(&mesh.geometry_handle).unwrap();
+						let geometry = scene.geometries.borrow(mesh.geometry_handle).unwrap();
 
 						geometry_infos.push(GeometryInfo {
 							geometry,
@@ -383,7 +383,7 @@ impl Renderer {
 			attribute_array_relative_offset: usize
 		}
 
-		let mut text_infos: Vec<TextInfo> = Vec::with_capacity(scene.text.available_len());
+		let mut text_infos: Vec<TextInfo> = Vec::with_capacity(scene.text.occupied_record_count());
 
 		for text in scene.text.iter_mut() {
 			if text.get_string().is_empty() {
@@ -391,7 +391,7 @@ impl Renderer {
 			}
 
 			if text.generate {
-				let font = scene.fonts.get(&text.font).unwrap();
+				let font = scene.fonts.borrow(text.font).unwrap();
 				text.generate(&font);
 			}
 
@@ -769,7 +769,7 @@ impl Renderer {
 		// Copy data into buffer and record draw commands
 		for (index, text_info) in text_infos.iter().enumerate() {
 			let text = text_info.text;
-			let font = scene.fonts.get(&text.font).unwrap();
+			let font = scene.fonts.borrow(text.font).unwrap();
 			let submission_info = font.submission_info.as_ref().unwrap();
 			assert!(submission_info.generation == self.text_resources.submission_generation);
 

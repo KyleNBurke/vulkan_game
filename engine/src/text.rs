@@ -2,7 +2,7 @@ use crate::{Transform2D, Font, pool::Handle};
 
 pub struct Text {
 	pub transform: Transform2D,
-	pub font: Handle<Font>,
+	pub font: Handle,
 	string: String,
 	indices: Vec<u16>,
 	attributes: Vec<f32>,
@@ -10,7 +10,7 @@ pub struct Text {
 }
 
 impl Text {
-	pub fn new(font: Handle<Font>, string: String) -> Self {
+	pub fn new(font: Handle, string: String) -> Self {
 		Self {
 			transform: Transform2D::new(),
 			font,

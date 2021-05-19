@@ -1,39 +1,23 @@
-use std::marker::PhantomData;
-
-#[derive(Debug, Eq, PartialEq)]
-pub struct Handle<T> {
-	type_marker: PhantomData<T>,
-	pub index: usize,
-	pub generation: u32
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct Handle {
+	index: usize,
+	generation: u32
 }
 
-impl<T> Clone for Handle<T> {
-	fn clone(&self) -> Self {
-		Self {
-			type_marker: PhantomData,
-			index: self.index,
-			generation: self.generation
-		}
-	}
-}
-
-impl<T> Copy for Handle<T> {}
-
-impl<T> Handle<T> {
+impl Handle {
 	pub fn null() -> Self {
 		Self {
-			type_marker: PhantomData,
 			index: 0,
 			generation: 0
 		}
 	}
 
-	pub fn new_first_gen(index: usize) -> Self {
-		Self {
-			type_marker: PhantomData,
-			index,
-			generation: 1
-		}
+	pub fn index(&self) -> usize {
+		self.index
+	}
+
+	pub fn generation(&self) -> u32 {
+		self.generation
 	}
 }
 
@@ -55,18 +39,15 @@ impl<T> Pool<T> {
 		}
 	}
 
-	pub fn add(&mut self, payload: T) -> Handle<T> {
+	pub fn add(&mut self, payload: T) -> Handle {
 		if let Some(index) = self.vacant_records.pop() {
 			let record = &mut self.records[index];
-			let new_generation = record.generation + 1;
-
-			record.generation = new_generation;
+			record.generation += 1;
 			record.payload = Some(payload);
 
 			Handle {
-				type_marker: PhantomData,
-				generation: new_generation,
-				index
+				index,
+				generation: record.generation
 			}
 		}
 		else {
@@ -78,66 +59,65 @@ impl<T> Pool<T> {
 			});
 
 			Handle {
-				type_marker: PhantomData,
-				generation,
-				index: self.records.len() - 1
+				index: self.records.len() - 1,
+				generation
 			}
 		}
 	}
 
-	pub fn handle_valid(&self, handle: &Handle<T>) -> bool {
-		return handle.index < self.records.len() && handle.generation == self.records[handle.index].generation;
+	pub fn valid_handle(&self, handle: Handle) -> bool {
+		if handle.index >= self.records.len() {
+			return false;
+		}
+
+		let record = &self.records[handle.index];
+		return handle.generation == record.generation && record.payload.is_some()
 	}
 
-	fn get_record(&self, handle: &Handle<T>) -> Option<&Record<T>> {
-		if self.handle_valid(handle) {
-			Some(&self.records[handle.index])
-		}
-		else {
-			None
-		}
-	}
-
-	fn get_record_mut(&mut self, handle: &Handle<T>) -> Option<&mut Record<T>> {
-		if self.handle_valid(handle) {
-			Some(&mut self.records[handle.index])
-		}
-		else {
-			None
-		}
-	}
-
-	pub fn remove(&mut self, handle: &Handle<T>) {
-		if let Some(record) = self.get_record_mut(handle) {
+	pub fn remove(&mut self, handle: Handle) {
+		if self.valid_handle(handle) {
+			let record = &mut self.records[handle.index];
 			record.payload = None;
 			self.vacant_records.push(handle.index);
 		}
 	}
 
-	pub fn get(&self, handle: &Handle<T>) -> Option<&T> {
-		if let Some(record) = self.get_record(handle) {
-			record.payload.as_ref()
+	pub fn borrow(&self, handle: Handle) -> Option<&T> {
+		if self.valid_handle(handle) {
+			self.records[handle.index].payload.as_ref()
 		}
 		else {
 			None
 		}
 	}
 
-	pub fn get_mut(&mut self, handle: &Handle<T>) -> Option<&mut T> {
-		if let Some(record) = self.get_record_mut(handle) {
-			record.payload.as_mut()
+	pub fn borrow_mut(&mut self, handle: Handle) -> Option<&mut T> {
+		if self.valid_handle(handle) {
+			self.records[handle.index].payload.as_mut()
 		}
 		else {
 			None
 		}
 	}
 
-	pub fn total_len(&self) -> usize {
+	pub(crate) fn borrow_unchecked(&self, handle: Handle) -> &T {
+		self.records[handle.index].payload.as_ref().unwrap()
+	}
+
+	pub(crate) fn borrow_mut_unchecked(&mut self, handle: Handle) -> &mut T {
+		self.records[handle.index].payload.as_mut().unwrap()
+	}
+
+	pub fn capacity(&self) -> usize {
 		self.records.len()
 	}
 
-	pub fn available_len(&self) -> usize {
+	pub fn occupied_record_count(&self) -> usize {
 		self.records.len() - self.vacant_records.len()
+	}
+
+	pub fn is_empty(&self) -> bool {
+		self.occupied_record_count() == 0
 	}
 
 	pub fn iter(&self) -> Iter<T> {
@@ -238,32 +218,16 @@ impl<'a, T> Iterator for IterMut<'a, T> {
 }
 
 #[cfg(test)]
-mod handle_tests {
+mod tests {
 	use super::*;
 
 	#[test]
 	fn null() {
-		let handle = Handle::<u32>::null();
+		let handle = Handle::null();
 
 		assert_eq!(handle.index, 0);
 		assert_eq!(handle.generation, 0);
 	}
-
-	#[test]
-	fn clone() {
-		let handle = Handle::<u32> {
-			type_marker: PhantomData,
-			index: 4,
-			generation: 2
-		};
-
-		assert_eq!(handle, handle.clone());
-	}
-}
-
-#[cfg(test)]
-mod pool_tests {
-	use super::*;
 
 	#[test]
 	fn new() {
@@ -285,104 +249,62 @@ mod pool_tests {
 		assert_eq!(handle.index, 1);
 		assert_eq!(handle.generation, 1);
 
-		pool.remove(&handle);
+		pool.remove(handle);
 		let handle = pool.add(6);
 		assert_eq!(handle.index, 1);
 		assert_eq!(handle.generation, 2);
 	}
 
 	#[test]
-	fn get_record() {
-		let mut pool = Pool::<u32>::new();
-		let handle = Handle::<u32>::null();
-
-		assert!(pool.get_record(&handle).is_none());
-
-		pool.add(4);
-		assert!(pool.get_record(&handle).is_none());
-		
-		let handle = Handle::<u32> {
-			type_marker: PhantomData,
-			index: 0,
-			generation: 1
-		};
-
-		let record = pool.get_record(&handle).unwrap();
-		assert_eq!(record.generation, 1);
-		assert_eq!(record.payload, Some(4));
-	}
-
-	#[test]
-	fn get_record_mut() {
-		let mut pool = Pool::<u32>::new();
-		let handle = Handle::<u32>::null();
-
-		assert!(pool.get_record_mut(&handle).is_none());
-
-		pool.add(4);
-		assert!(pool.get_record_mut(&handle).is_none());
-		
-		let handle = Handle::<u32> {
-			type_marker: PhantomData,
-			index: 0,
-			generation: 1
-		};
-
-		let record = pool.get_record_mut(&handle).unwrap();
-		assert_eq!(record.generation, 1);
-		assert_eq!(record.payload, Some(4));
-	}
-
-	#[test]
 	fn remove() {
 		let mut pool = Pool::<u32>::new();
 		let handle = pool.add(4);
-		pool.remove(&handle);
+		pool.remove(handle);
 
 		assert!(pool.records[0].payload.is_none());
 		assert_eq!(pool.vacant_records[0], 0);
 	}
 
 	#[test]
-	fn get() {
+	fn borrow() {
 		let mut pool = Pool::<u32>::new();
-		let handle = Handle::<u32>::null();
+		let handle = Handle::null();
 
-		assert!(pool.get(&handle).is_none());
+		assert!(pool.borrow(handle).is_none());
 
 		let handle = pool.add(4);
-		assert_eq!(pool.get(&handle), Some(&4));
+		assert_eq!(pool.borrow(handle), Some(&4));
 	}
 
 	#[test]
-	fn get_mut() {
+	fn borrow_mut() {
 		let mut pool = Pool::<u32>::new();
-		let handle = Handle::<u32>::null();
+		let handle = Handle::null();
 
-		assert!(pool.get_mut(&handle).is_none());
+		assert!(pool.borrow_mut(handle).is_none());
 
 		let handle = pool.add(4);
-		assert_eq!(pool.get_mut(&handle), Some(&mut 4));
+		assert_eq!(pool.borrow_mut(handle), Some(&mut 4));
 	}
 
 	#[test]
-	fn total_len() {
+	fn capacity() {
 		let mut pool = Pool::<u32>::new();
 		let handle = pool.add(4);
 		pool.add(6);
-		pool.remove(&handle);
+		pool.remove(handle);
 
-		assert_eq!(pool.total_len(), 2);
+		assert_eq!(pool.capacity(), 2);
 	}
 
 	#[test]
-	fn available_len() {
+	fn occupied_record_count() {
 		let mut pool = Pool::<u32>::new();
 		let handle = pool.add(4);
 		pool.add(6);
-		pool.remove(&handle);
+		pool.remove(handle);
 
-		assert_eq!(pool.available_len(), 1);
+		assert_eq!(pool.occupied_record_count(), 1);
 	}
 
 	#[test]
@@ -394,8 +316,8 @@ mod pool_tests {
 		let handle_2 = pool.add(2);
 		pool.add(3);
 
-		pool.remove(&handle_1);
-		pool.remove(&handle_2);
+		pool.remove(handle_1);
+		pool.remove(handle_2);
 
 		let mut iter = pool.into_iter();
 		assert_eq!(iter.next(), Some(3));
@@ -412,8 +334,8 @@ mod pool_tests {
 		let handle_2 = pool.add(2);
 		pool.add(3);
 
-		pool.remove(&handle_1);
-		pool.remove(&handle_2);
+		pool.remove(handle_1);
+		pool.remove(handle_2);
 
 		let mut iter = pool.iter();
 		assert_eq!(iter.next(), Some(&0));
@@ -430,8 +352,8 @@ mod pool_tests {
 		let handle_2 = pool.add(2);
 		pool.add(3);
 
-		pool.remove(&handle_1);
-		pool.remove(&handle_2);
+		pool.remove(handle_1);
+		pool.remove(handle_2);
 
 		let mut iter = pool.iter_mut();
 		assert_eq!(iter.next(), Some(&mut 0));

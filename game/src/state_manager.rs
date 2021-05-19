@@ -1,8 +1,8 @@
 use std::time::Duration;
-use engine::{glfw, pool::Handle, Renderer, Scene, Font};
+use engine::{glfw, pool::Handle, Renderer, Scene};
 
 pub struct GameResources {
-	pub roboto_14: Handle<Font>
+	pub roboto_14: Handle
 }
 
 pub struct EngineResources {
