@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::{Camera, Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::Matrix4, pool::{Pool, Handle, Iter, IterMut}};
+use crate::{Camera, mesh::Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::Matrix4, pool::{Pool, Handle, Iter, IterMut}};
 
 pub enum Object {
 	Empty,

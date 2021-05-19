@@ -22,9 +22,6 @@ pub mod geometry3d;
 pub use geometry3d::Geometry3D;
 
 pub mod mesh;
-pub use mesh::Material;
-pub use mesh::StaticMesh;
-pub use mesh::Mesh;
 
 pub mod graph;
 

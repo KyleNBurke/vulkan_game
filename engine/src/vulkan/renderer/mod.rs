@@ -1,6 +1,6 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{Font, Geometry3D, Material, StaticMesh, Scene, Text, math::Vector3, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
+use crate::{Font, Geometry3D, mesh::{StaticMesh, Material}, Scene, Text, math::Vector3, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
 
 mod creation;
 use creation::*;
