@@ -1,6 +1,6 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{Font, Geometry3D, Material, StaticMesh, Mesh, scene::{Scene, Node}, Object, Text, lights::AmbientLight, math::Vector3, pool::Pool, vulkan::{Context, Buffer}};
+use crate::{Font, Geometry3D, Material, StaticMesh, Scene, Text, math::Vector3, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
 
 mod creation;
 use creation::*;
@@ -282,6 +282,25 @@ impl Renderer {
 
 		swapchain_frame.fence = in_flight_frame.fence;
 
+		// Map frame data buffer
+		let frame_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
+		
+		// Copy camera data into frame data buffer
+		let camera_node = scene.graph.get(&scene.camera_handle).unwrap();
+		let camera_object = &camera_node.object;
+		let camera = camera_object.camera().unwrap();
+		
+		let projection_matrix = &camera.projection_matrix.elements;
+		let projection_matrix_dst_ptr = frame_data_buffer_ptr as *mut [f32; 4];
+		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
+
+		let mut inverse_view_matrix = camera_node.transform.global_matrix;
+		inverse_view_matrix.invert();
+		unsafe {
+			let inverse_view_matrix_dst_ptr = frame_data_buffer_ptr.add(16 * 4) as *mut [f32; 4];
+			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
+		}
+
 		// Iterate over meshes to
 		// - Update transformation matrix
 		// - Split nodes into separate lists
@@ -311,9 +330,7 @@ impl Renderer {
 		let mut total_ambient_light_intensity = 0.0;
 		let mut point_lights: Vec<&Node> = vec![];
 
-		for node in scene.nodes.iter() {
-			// update matrix...
-
+		for node in scene.graph.iter() {
 			match &node.object {
 				Object::AmbientLight(ambient_light) => {
 					total_ambient_light_color += &ambient_light.color;
@@ -391,28 +408,10 @@ impl Renderer {
 			attribute_arrays_size += vertex_attributes_size;
 		}
 
-		// Map frame data buffer
-		let buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
-		
-		// Copy frame data
-		let camera_node = scene.nodes.get(&scene.camera_handle).unwrap();
-		let camera_object = &camera_node.object;
-		let camera = camera_object.camera().unwrap();
-		
-		let projection_matrix = &camera.projection_matrix.elements;
-		let projection_matrix_dst_ptr = buffer_ptr as *mut [f32; 4];
-		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
-
-		let mut inverse_view_matrix = camera.transform.matrix;
-		inverse_view_matrix.invert();
-		unsafe {
-			let inverse_view_matrix_dst_ptr = buffer_ptr.add(16 * 4) as *mut [f32; 4];
-			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
-		}
-
+		// Copy light data into frame data buffer
 		let total_ambient_light_intensified_color = total_ambient_light_color * total_ambient_light_intensity;
 		unsafe {
-			let ambient_light_dst_ptr = buffer_ptr.add(32 * 4) as *mut Vector3;
+			let ambient_light_dst_ptr = frame_data_buffer_ptr.add(32 * 4) as *mut Vector3;
 			copy_nonoverlapping(&total_ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
 		}
 
@@ -426,10 +425,10 @@ impl Renderer {
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
-				let position_dst_ptr = buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&point_light_node.transform.position as *const Vector3, position_dst_ptr, 1);
+				let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+				copy_nonoverlapping(&point_light_node.transform.position as *const Vector3, position_dst_ptr, 1); // Needs to be global position
 
-				let color_dst_ptr = buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+				let color_dst_ptr = frame_data_buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
 				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
 			}
 
@@ -438,7 +437,7 @@ impl Renderer {
 
 		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
 		unsafe {
-			let point_light_count_dst_ptr = buffer_ptr.add(35 * 4) as *mut u32;
+			let point_light_count_dst_ptr = frame_data_buffer_ptr.add(35 * 4) as *mut u32;
 			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
 		}
 
@@ -633,7 +632,7 @@ impl Renderer {
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 						}
 					}
 
@@ -645,7 +644,7 @@ impl Renderer {
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 						}
 					}
 
@@ -657,7 +656,7 @@ impl Renderer {
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
 						}
 					}
 

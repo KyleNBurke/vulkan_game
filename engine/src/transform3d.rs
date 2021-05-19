@@ -4,7 +4,9 @@ pub struct Transform3D {
 	pub position: Vector3,
 	pub rotation: Quaternion,
 	pub scale: Vector3,
-	pub matrix: Matrix4
+	pub matrix: Matrix4,
+	pub auto_update_matrix: bool,
+	pub(crate) global_matrix: Matrix4
 }
 
 impl Transform3D {
@@ -13,7 +15,9 @@ impl Transform3D {
 			position: Vector3::new(),
 			rotation: Quaternion::new(),
 			scale: Vector3::from_scalar(1.0),
-			matrix: Matrix4::new()
+			matrix: Matrix4::new(),
+			auto_update_matrix: true,
+			global_matrix: Matrix4::new()
 		}
 	}
 

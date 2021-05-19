@@ -85,32 +85,26 @@ impl<T> Pool<T> {
 		}
 	}
 
+	pub fn handle_valid(&self, handle: &Handle<T>) -> bool {
+		return handle.index < self.records.len() && handle.generation == self.records[handle.index].generation;
+	}
+
 	fn get_record(&self, handle: &Handle<T>) -> Option<&Record<T>> {
-		if handle.index >= self.records.len() {
-			return None;
+		if self.handle_valid(handle) {
+			Some(&self.records[handle.index])
 		}
-
-		let record = &self.records[handle.index];
-
-		if handle.generation != record.generation {
-			return None;
+		else {
+			None
 		}
-
-		Some(record)
 	}
 
 	fn get_record_mut(&mut self, handle: &Handle<T>) -> Option<&mut Record<T>> {
-		if handle.index >= self.records.len() {
-			return None;
+		if self.handle_valid(handle) {
+			Some(&mut self.records[handle.index])
 		}
-
-		let record = &mut self.records[handle.index];
-
-		if handle.generation != record.generation {
-			return None;
+		else {
+			None
 		}
-
-		Some(record)
 	}
 
 	pub fn remove(&mut self, handle: &Handle<T>) {

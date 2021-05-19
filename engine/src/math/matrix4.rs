@@ -2,7 +2,7 @@ use std::fmt::Display;
 use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
 use auto_ops::impl_op_ex;
 
-const IDENTITY: Matrix4 = Matrix4 {
+pub const IDENTITY: Matrix4 = Matrix4 {
 	elements: [
 		[1.0, 0.0, 0.0, 0.0],
 		[0.0, 1.0, 0.0, 0.0],

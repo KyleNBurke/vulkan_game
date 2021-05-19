@@ -1,8 +1,6 @@
-use crate::{Transform3D, math::Matrix4};
+use crate::math::Matrix4;
 
 pub struct Camera {
-	pub transform: Transform3D,
-	pub auto_update_view_matrix: bool,
 	pub projection_matrix: Matrix4
 }
 
@@ -12,8 +10,6 @@ impl Camera {
 		projection_matrix.make_perspective(aspect, fov, near, far);
 
 		Self {
-			transform: Transform3D::new(),
-			auto_update_view_matrix: true,
 			projection_matrix
 		}
 	}
