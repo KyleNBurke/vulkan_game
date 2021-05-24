@@ -76,13 +76,15 @@ impl MeshResources {
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 			logical_device.destroy_pipeline(self.normal_pipeline, None);
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.line_pipeline, None);
 		}
 
 		let pipelines = create_pipelines(logical_device, extent, self.pipeline_layout, render_pass);
 
-		self.basic_pipeline = pipelines[0];
-		self.normal_pipeline = pipelines[1];
-		self.lambert_pipeline = pipelines[2];
+		self.line_pipeline = pipelines[0];
+		self.basic_pipeline = pipelines[1];
+		self.normal_pipeline = pipelines[2];
+		self.lambert_pipeline = pipelines[3];
 	}
 
 	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {
