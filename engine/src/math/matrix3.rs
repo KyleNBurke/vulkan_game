@@ -107,28 +107,31 @@ impl_op_ex!(-= |a: &mut Matrix3, b: &Matrix3| {
 });
 
 impl_op_ex!(*= |a: &mut Matrix3, b: &Matrix3| {
-	let ae = &mut a.elements;
-	let be = &b.elements;
+	#[allow(clippy::clippy::suspicious_op_assign_impl)]
+	{
+		let ae = &mut a.elements;
+		let be = &b.elements;
 
-	let (a00, a01, a02) = (ae[0][0], ae[0][1], ae[0][2]);
-	let (a10, a11, a12) = (ae[1][0], ae[1][1], ae[1][2]);
-	let (a20, a21, a22) = (ae[2][0], ae[2][1], ae[2][2]);
+		let (a00, a01, a02) = (ae[0][0], ae[0][1], ae[0][2]);
+		let (a10, a11, a12) = (ae[1][0], ae[1][1], ae[1][2]);
+		let (a20, a21, a22) = (ae[2][0], ae[2][1], ae[2][2]);
 
-	let (b00, b01, b02) = (be[0][0], be[0][1], be[0][2]);
-	let (b10, b11, b12) = (be[1][0], be[1][1], be[1][2]);
-	let (b20, b21, b22) = (be[2][0], be[2][1], be[2][2]);
+		let (b00, b01, b02) = (be[0][0], be[0][1], be[0][2]);
+		let (b10, b11, b12) = (be[1][0], be[1][1], be[1][2]);
+		let (b20, b21, b22) = (be[2][0], be[2][1], be[2][2]);
 
-	ae[0][0] = a00 * b00 + a01 * b10 + a02 * b20;
-	ae[0][1] = a00 * b01 + a01 * b11 + a02 * b21;
-	ae[0][2] = a00 * b02 + a01 * b12 + a02 * b22;
+		ae[0][0] = a00 * b00 + a01 * b10 + a02 * b20;
+		ae[0][1] = a00 * b01 + a01 * b11 + a02 * b21;
+		ae[0][2] = a00 * b02 + a01 * b12 + a02 * b22;
 
-	ae[1][0] = a10 * b00 + a11 * b10 + a12 * b20;
-	ae[1][1] = a10 * b01 + a11 * b11 + a12 * b21;
-	ae[1][2] = a10 * b02 + a11 * b12 + a12 * b22;
+		ae[1][0] = a10 * b00 + a11 * b10 + a12 * b20;
+		ae[1][1] = a10 * b01 + a11 * b11 + a12 * b21;
+		ae[1][2] = a10 * b02 + a11 * b12 + a12 * b22;
 
-	ae[2][0] = a20 * b00 + a21 * b10 + a22 * b20;
-	ae[2][1] = a20 * b01 + a21 * b11 + a22 * b21;
-	ae[2][2] = a20 * b02 + a21 * b12 + a22 * b22;
+		ae[2][0] = a20 * b00 + a21 * b10 + a22 * b20;
+		ae[2][1] = a20 * b01 + a21 * b11 + a22 * b21;
+		ae[2][2] = a20 * b02 + a21 * b12 + a22 * b22;
+	}
 });
 
 impl ApproxEq for Matrix3 {

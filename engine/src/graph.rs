@@ -186,8 +186,14 @@ impl Graph {
 				child_node.transform.update_matrix();
 			}
 
-			child_node.transform.global_matrix = parent_global_matrix * &child_node.transform.matrix;
+			child_node.transform.global_matrix = parent_global_matrix * child_node.transform.matrix;
 			updates.extend_from_slice(&child_node.child_handles);
 		}
+	}
+}
+
+impl Default for Graph {
+	fn default() -> Self {
+		Self::new()
 	}
 }

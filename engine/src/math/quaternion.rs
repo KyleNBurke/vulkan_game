@@ -122,13 +122,16 @@ impl_op_ex!(* |a: &Quaternion, b: &Quaternion| -> Quaternion {
 });
 
 impl_op_ex!(*= |a: &mut Quaternion, b: &Quaternion| {
-	let (ax, ay, az, aw) = (a.x, a.y, a.z, a.w);
-	let (bx, by, bz, bw) = (b.x, b.y, b.z, b.w);
+	#[allow(clippy::suspicious_op_assign_impl)]
+	{
+		let (ax, ay, az, aw) = (a.x, a.y, a.z, a.w);
+		let (bx, by, bz, bw) = (b.x, b.y, b.z, b.w);
 
-	a.x =  ax * bw + ay * bz - az * by + aw * bx;
-	a.y = -ax * bz + ay * bw + az * bx + aw * by;
-	a.z =  ax * by - ay * bx + az * bw + aw * bz;
-	a.w = -ax * bx - ay * by - az * bz + aw * bw;
+		a.x =  ax * bw + ay * bz - az * by + aw * bx;
+		a.y = -ax * bz + ay * bw + az * bx + aw * by;
+		a.z =  ax * by - ay * bx + az * bw + aw * bz;
+		a.w = -ax * bx - ay * by - az * bz + aw * bw;
+	}
 });
 
 impl ApproxEq for Quaternion {

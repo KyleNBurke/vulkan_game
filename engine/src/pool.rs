@@ -71,7 +71,7 @@ impl<T> Pool<T> {
 		}
 
 		let record = &self.records[handle.index];
-		return handle.generation == record.generation && record.payload.is_some()
+		handle.generation == record.generation && record.payload.is_some()
 	}
 
 	pub fn remove(&mut self, handle: Handle) {
