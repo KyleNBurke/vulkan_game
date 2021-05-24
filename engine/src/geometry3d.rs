@@ -96,7 +96,7 @@ impl Geometry3D {
 		}
 	}
 
-	pub fn new_axis_helper() -> Self {
+	pub fn create_axis_helper() -> Self {
 		let indices = vec![0, 1, 0, 2, 0, 3];
 	
 		let attributes = vec![
@@ -104,6 +104,23 @@ impl Geometry3D {
 			1.0, 0.0, 0.0,
 			0.0, 1.0, 0.0,
 			0.0, 0.0, 1.0
+		];
+	
+		Self { indices, attributes }
+	}
+
+	pub fn create_box_helper() -> Self {
+		let indices = vec![0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 5, 2, 6, 3, 7, 4, 5, 5, 6, 6, 7, 7, 4];
+	
+		let attributes = vec![
+			 0.5,  0.5,  0.5,
+			-0.5,  0.5,  0.5,
+			-0.5,  0.5, -0.5,
+			 0.5,  0.5, -0.5,
+			 0.5, -0.5,  0.5,
+			-0.5, -0.5,  0.5,
+			-0.5, -0.5, -0.5,
+			 0.5, -0.5, -0.5
 		];
 	
 		Self { indices, attributes }
