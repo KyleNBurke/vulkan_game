@@ -229,17 +229,17 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Vector3::new(), Vector3{ x: 0.0, y: 0.0, z: 0.0 });
+		assert_eq!(Vector3::new(), Vector3 { x: 0.0, y: 0.0, z: 0.0 });
 	}
 
 	#[test]
 	fn from() {
-		assert_eq!(Vector3::from(1.0, 2.0, 3.0), Vector3{ x: 1.0, y: 2.0, z: 3.0 });
+		assert_eq!(Vector3::from(1.0, 2.0, 3.0), Vector3 { x: 1.0, y: 2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn from_scalar() {
-		assert_eq!(Vector3::from_scalar(1.0), Vector3{ x: 1.0, y: 1.0, z: 1.0 });
+		assert_eq!(Vector3::from_scalar(1.0), Vector3 { x: 1.0, y: 1.0, z: 1.0 });
 	}
 
 	#[test]
@@ -299,11 +299,11 @@ mod tests {
 	fn normalize() {
 		let mut v = Vector3::from(3.0, 0.0, 4.0);
 		v.normalize();
-		assert_eq!(v, Vector3{ x: 0.6, y: 0.0, z: 0.8 });
+		assert_eq!(v, Vector3 { x: 0.6, y: 0.0, z: 0.8 });
 
 		v = ZERO;
 		v.normalize();
-		assert_eq!(v, Vector3{ x: 0.0, y: 0.0, z: 0.0 });
+		assert_eq!(v, Vector3 { x: 0.0, y: 0.0, z: 0.0 });
 	}
 
 	#[test]
@@ -317,7 +317,7 @@ mod tests {
 	fn cross() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v.cross(&Vector3::from(4.0, -3.0, 1.0));
-		assert_eq!(v, Vector3{ x: 7.0, y: 11.0, z: 5.0 });
+		assert_eq!(v, Vector3 { x: 7.0, y: 11.0, z: 5.0 });
 	}
 
 	#[test]
@@ -326,121 +326,121 @@ mod tests {
 		let mut q = Quaternion::new();
 		q.set_from_axis_angle(&Vector3::from(0.0, 1.0, 0.0), FRAC_PI_2);
 		v.apply_quaternion(&q);
-		assert_approx_eq(&v, &Vector3{ x: 1.0, y: 0.0, z: 0.0 }, 1e-6);
+		assert_approx_eq(&v, &Vector3 { x: 1.0, y: 0.0, z: 0.0 }, 1e-6);
 	}
 
 	#[test]
 	fn add_vector() {
 		let a = Vector3::from(1.0, -2.0, 3.0);
 		let b = Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(a + b, Vector3{ x: -2.0, y: -1.0, z: 5.0 });
+		assert_eq!(a + b, Vector3 { x: -2.0, y: -1.0, z: 5.0 });
 	}
 
 	#[test]
 	fn sub_vector() {
 		let a = Vector3::from(1.0, -2.0, 3.0);
 		let b = Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(a - b, Vector3{ x: 4.0, y: -3.0, z: 1.0 });
+		assert_eq!(a - b, Vector3 { x: 4.0, y: -3.0, z: 1.0 });
 	}
 
 	#[test]
 	fn mul_vector() {
 		let a = Vector3::from(1.0, -2.0, 3.0);
 		let b = Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(a * b, Vector3{ x: -3.0, y: -2.0, z: 6.0 });
+		assert_eq!(a * b, Vector3 { x: -3.0, y: -2.0, z: 6.0 });
 	}
 
 	#[test]
 	fn div_vector() {
 		let a = Vector3::from(-3.0, 4.0, 9.0);
 		let b = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(a / b, Vector3{ x: -3.0, y: -2.0, z: 3.0 });
+		assert_eq!(a / b, Vector3 { x: -3.0, y: -2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn add_assign_vector() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v += Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(v, Vector3{ x: -2.0, y: -1.0, z: 5.0 });
+		assert_eq!(v, Vector3 { x: -2.0, y: -1.0, z: 5.0 });
 	}
 
 	#[test]
 	fn sub_assign_vector() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v -= Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(v, Vector3{ x: 4.0, y: -3.0, z: 1.0 });
+		assert_eq!(v, Vector3 { x: 4.0, y: -3.0, z: 1.0 });
 	}
 
 	#[test]
 	fn mul_assign_vector() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v *= Vector3::from(-3.0, 1.0, 2.0);
-		assert_eq!(v, Vector3{ x: -3.0, y: -2.0, z: 6.0 });
+		assert_eq!(v, Vector3 { x: -3.0, y: -2.0, z: 6.0 });
 	}
 
 	#[test]
 	fn div_assign_vector() {
 		let mut v = Vector3::from(-3.0, 4.0, 9.0);
 		v /= Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v, Vector3{ x: -3.0, y: -2.0, z: 3.0 });
+		assert_eq!(v, Vector3 { x: -3.0, y: -2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn add_scalar() {
 		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v + 3.0, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
+		assert_eq!(v + 3.0, Vector3 { x: 4.0, y: 1.0, z: 6.0 });
 	}
 
 	#[test]
 	fn sub_scalar() {
 		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v - 3.0, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
+		assert_eq!(v - 3.0, Vector3 { x: -2.0, y: -5.0, z: 0.0 });
 	}
 
 	#[test]
 	fn mul_scalar() {
 		let v = Vector3::from(1.0, -2.0, 3.0);
-		assert_eq!(v * 3.0, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
+		assert_eq!(v * 3.0, Vector3 { x: 3.0, y: -6.0, z: 9.0 });
 	}
 
 	#[test]
 	fn div_scalar() {
 		let v = Vector3::from(-2.0, 4.0, 6.0);
-		assert_eq!(v / 2.0, Vector3{ x: -1.0, y: 2.0, z: 3.0 });
+		assert_eq!(v / 2.0, Vector3 { x: -1.0, y: 2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn add_assign_scalar() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v += 3.0;
-		assert_eq!(v, Vector3{ x: 4.0, y: 1.0, z: 6.0 });
+		assert_eq!(v, Vector3 { x: 4.0, y: 1.0, z: 6.0 });
 	}
 
 	#[test]
 	fn sub_assign_scalar() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v -= 3.0;
-		assert_eq!(v, Vector3{ x: -2.0, y: -5.0, z: 0.0 });
+		assert_eq!(v, Vector3 { x: -2.0, y: -5.0, z: 0.0 });
 	}
 
 	#[test]
 	fn mul_assign_scalar() {
 		let mut v = Vector3::from(1.0, -2.0, 3.0);
 		v *= 3.0;
-		assert_eq!(v, Vector3{ x: 3.0, y: -6.0, z: 9.0 });
+		assert_eq!(v, Vector3 { x: 3.0, y: -6.0, z: 9.0 });
 	}
 
 	#[test]
 	fn div_assign_scalar() {
 		let mut v = Vector3::from(-2.0, 4.0, 6.0);
 		v /= 2.0;
-		assert_eq!(v, Vector3{ x: -1.0, y: 2.0, z: 3.0 });
+		assert_eq!(v, Vector3 { x: -1.0, y: 2.0, z: 3.0 });
 	}
 
 	#[test]
 	fn neg() {
 		let v = Vector3::from(1.0, 2.0, 3.0);
-		assert_eq!(-v, Vector3{ x: -1.0, y: -2.0, z: -3.0 });
+		assert_eq!(-v, Vector3 { x: -1.0, y: -2.0, z: -3.0 });
 	}
 
 	#[test]
