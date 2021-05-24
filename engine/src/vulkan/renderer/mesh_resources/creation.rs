@@ -91,6 +91,59 @@ pub fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipe
 	let color_blend_state_create_info = vk::PipelineColorBlendStateCreateInfo::builder()
 		.logic_op_enable(false)
 		.attachments(&color_blend_attachment_states);
+	
+	// Line
+	let line_vert_module = create_shader_module(logical_device, "basic.vert.spv");
+	let line_vert_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+		.stage(vk::ShaderStageFlags::VERTEX)
+		.module(line_vert_module)
+		.name(entry_point_cstr);
+	
+	let line_frag_module = create_shader_module(logical_device, "basic.frag.spv");
+	let line_frag_stage_create_info = vk::PipelineShaderStageCreateInfo::builder()
+		.stage(vk::ShaderStageFlags::FRAGMENT)
+		.module(line_frag_module)
+		.name(entry_point_cstr);
+	
+	let line_stage_create_infos = [line_vert_stage_create_info.build(), line_frag_stage_create_info.build()];
+
+	let line_input_binding_description = vk::VertexInputBindingDescription::builder()
+		.binding(0)
+		.stride(12)
+		.input_rate(vk::VertexInputRate::VERTEX);
+	let line_input_binding_descriptions = [line_input_binding_description.build()];
+
+	let line_input_attribute_descriptions = [input_attribute_description_position];
+
+	let line_vertex_input_state_create_info = vk::PipelineVertexInputStateCreateInfo::builder()
+		.vertex_binding_descriptions(&line_input_binding_descriptions)
+		.vertex_attribute_descriptions(&line_input_attribute_descriptions);
+	
+	let line_input_assembly_state_create_info = vk::PipelineInputAssemblyStateCreateInfo::builder()
+		.topology(vk::PrimitiveTopology::LINE_LIST)
+		.primitive_restart_enable(false);
+	
+	let line_rasterization_state_create_info = vk::PipelineRasterizationStateCreateInfo::builder()
+		.depth_clamp_enable(false)
+		.rasterizer_discard_enable(false)
+		.polygon_mode(vk::PolygonMode::FILL)
+		.line_width(1.0)
+		.cull_mode(vk::CullModeFlags::NONE)
+		.front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+		.depth_bias_enable(false);
+	
+	let line_pipeline_create_info = vk::GraphicsPipelineCreateInfo::builder()
+		.stages(&line_stage_create_infos)
+		.vertex_input_state(&line_vertex_input_state_create_info)
+		.input_assembly_state(&line_input_assembly_state_create_info)
+		.viewport_state(&viewport_state_create_info)
+		.rasterization_state(&line_rasterization_state_create_info)
+		.multisample_state(&multisample_state_create_info)
+		.depth_stencil_state(&depth_stencil_state_create_info)
+		.color_blend_state(&color_blend_state_create_info)
+		.layout(pipeline_layout)
+		.render_pass(render_pass)
+		.subpass(0);
 
 	// Basic
 	let basic_vert_module = create_shader_module(logical_device, "basic.vert.spv");
@@ -193,6 +246,7 @@ pub fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipe
 	
 	// Create pipelines
 	let pipeline_create_infos = [
+		line_pipeline_create_info.build(),
 		basic_pipeline_create_info.build(),
 		normal_pipeline_create_info.build(),
 		lambert_pipeline_create_info.build()];
@@ -201,6 +255,9 @@ pub fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipe
 
 	// Destroy shader modules
 	unsafe {
+		logical_device.destroy_shader_module(line_vert_module, None);
+		logical_device.destroy_shader_module(line_frag_module, None);
+
 		logical_device.destroy_shader_module(basic_vert_module, None);
 		logical_device.destroy_shader_module(basic_frag_module, None);
 
@@ -215,7 +272,7 @@ pub fn create_pipelines(logical_device: &ash::Device, extent: vk::Extent2D, pipe
 }
 
 pub fn create_static_descriptor_sets(logical_device: &ash::Device, descriptor_pool: vk::DescriptorPool, instance_data_descriptor_set_layout: vk::DescriptorSetLayout) -> Vec<vk::DescriptorSet> {
-	let descriptor_set_layouts = [instance_data_descriptor_set_layout, instance_data_descriptor_set_layout, instance_data_descriptor_set_layout];
+	let descriptor_set_layouts = [instance_data_descriptor_set_layout, instance_data_descriptor_set_layout, instance_data_descriptor_set_layout, instance_data_descriptor_set_layout];
 	let descriptor_set_allocate_info = vk::DescriptorSetAllocateInfo::builder()
 		.descriptor_pool(descriptor_pool)
 		.set_layouts(&descriptor_set_layouts);

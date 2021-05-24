@@ -171,7 +171,12 @@ impl State for GameplayState {
 		point_light_box2.transform.scale.set_from_scalar(0.2);
 		point_light_box2.transform.update_matrix();
 
-		resources.renderer.submit_static_meshes(&geometries, &vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2]);
+		let axis_helper_geometry = geometries.add(Geometry3D::new_axis_helper());
+		let mut axis_helper = StaticMesh::new(axis_helper_geometry, Material::Line);
+		axis_helper.transform.position.x = -4.0;
+		axis_helper.transform.update_matrix();
+
+		resources.renderer.submit_static_meshes(&geometries, &vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2, axis_helper]);
 
 		// Dynamic
 		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());
@@ -206,6 +211,13 @@ impl State for GameplayState {
 		let mut box_2_node = Node::new(Object::Mesh(box_2));
 		box_2_node.transform.translate_z(2.0);
 		scene.graph.add_to(self.box_handle, box_2_node);
+
+		let axis_helper_geometry = scene.geometries.add(Geometry3D::new_axis_helper());
+		let axis_helper = Mesh::new(axis_helper_geometry, Material::Line);
+		let mut axis_helper_node = Node::new(Object::Mesh(axis_helper));
+		axis_helper_node.transform.translate_x(4.0);
+		let axis_helper_handle = scene.graph.add(axis_helper_node);
+		resources.scene.graph.update_at(axis_helper_handle);
 
 		// Load gltf
 		self.load(&mut resources.scene);

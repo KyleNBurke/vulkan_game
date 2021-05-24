@@ -231,7 +231,7 @@ pub fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
 
 	let storage_buffer_pool_size = vk::DescriptorPoolSize::builder()
 		.ty(vk::DescriptorType::STORAGE_BUFFER)
-		.descriptor_count(frames_count * 4 + 3);
+		.descriptor_count(frames_count * 5 + 4);
 	
 	let uniform_buffer_pool_size = vk::DescriptorPoolSize::builder()
 		.ty(vk::DescriptorType::UNIFORM_BUFFER)
@@ -254,7 +254,7 @@ pub fn create_descriptor_pool(context: &Context) -> vk::DescriptorPool {
 	
 	let create_info = vk::DescriptorPoolCreateInfo::builder()
 		.pool_sizes(&pool_sizes)
-		.max_sets(frames_count * 5 + 5);
+		.max_sets(frames_count * 6 + 6);
 	
 	unsafe { context.logical_device.create_descriptor_pool(&create_info, None) }.unwrap()
 }
@@ -319,12 +319,13 @@ pub(super) fn create_in_flight_frames(
 	let secondary_command_buffer_allocate_info = vk::CommandBufferAllocateInfo::builder()
 		.command_pool(command_pool)
 		.level(vk::CommandBufferLevel::SECONDARY)
-		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 4);
+		.command_buffer_count(IN_FLIGHT_FRAMES_COUNT as u32 * 5);
 	
 	let secondary_command_buffers = unsafe { context.logical_device.allocate_command_buffers(&secondary_command_buffer_allocate_info) }.unwrap();
 
 	let descriptor_set_layouts = [
 		frame_data_descriptor_set_layout,
+		instance_data_descriptor_set_layout,
 		instance_data_descriptor_set_layout,
 		instance_data_descriptor_set_layout,
 		instance_data_descriptor_set_layout,
@@ -367,30 +368,37 @@ pub(super) fn create_in_flight_frames(
 		let write_descriptor_sets = [frame_data_write_descriptor_set.build()];
 		unsafe { context.logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 
-		let basic_material_data = InstanceDataResources {
+		let line_instance_data_resources = InstanceDataResources {
 			descriptor_set: descriptor_sets[1],
-			secondary_command_buffer: secondary_command_buffers[4 * index],
+			secondary_command_buffer: secondary_command_buffers[5 * index],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let normal_material_data = InstanceDataResources {
+		let basic_instance_data_resources = InstanceDataResources {
 			descriptor_set: descriptor_sets[2],
-			secondary_command_buffer: secondary_command_buffers[4 * index + 1],
+			secondary_command_buffer: secondary_command_buffers[5 * index + 1],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let lambert_material_data = InstanceDataResources {
+		let normal_instance_data_resources = InstanceDataResources {
 			descriptor_set: descriptor_sets[3],
-			secondary_command_buffer: secondary_command_buffers[4 * index + 2],
+			secondary_command_buffer: secondary_command_buffers[5 * index + 2],
 			array_offset: 0,
 			array_size: 0
 		};
 
-		let text_material_data = InstanceDataResources {
+		let lambert_instance_data_resources = InstanceDataResources {
 			descriptor_set: descriptor_sets[4],
-			secondary_command_buffer: secondary_command_buffers[4 * index + 3],
+			secondary_command_buffer: secondary_command_buffers[5 * index + 3],
+			array_offset: 0,
+			array_size: 0
+		};
+
+		let text_instance_data_resources = InstanceDataResources {
+			descriptor_set: descriptor_sets[5],
+			secondary_command_buffer: secondary_command_buffers[5 * index + 4],
 			array_offset: 0,
 			array_size: 0
 		};
@@ -403,10 +411,11 @@ pub(super) fn create_in_flight_frames(
 			primary_command_buffer,
 			frame_data_buffer,
 			instance_data_buffer,
-			basic_instance_data_resources: basic_material_data,
-			normal_instance_data_resources: normal_material_data,
-			lambert_instance_data_resources: lambert_material_data,
-			text_instance_data_resources: text_material_data,
+			line_instance_data_resources,
+			basic_instance_data_resources,
+			normal_instance_data_resources,
+			lambert_instance_data_resources,
+			text_instance_data_resources,
 			index_arrays_offset: 0
 		});
 	}

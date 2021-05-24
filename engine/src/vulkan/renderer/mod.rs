@@ -13,7 +13,7 @@ use text_resources::*;
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * 4;
-const MATERIALS_COUNT: usize = 3;
+const MATERIALS_COUNT: usize = 4;
 const MAX_POINT_LIGHTS: usize = 5;
 const MAX_FONTS: usize = 10;
 
@@ -59,6 +59,7 @@ struct InFlightFrame {
 	primary_command_buffer: vk::CommandBuffer,
 	frame_data_buffer: Buffer,
 	instance_data_buffer: Buffer,
+	line_instance_data_resources: InstanceDataResources,
 	basic_instance_data_resources: InstanceDataResources,
 	normal_instance_data_resources: InstanceDataResources,
 	lambert_instance_data_resources: InstanceDataResources,
@@ -91,6 +92,8 @@ impl InFlightFrame {
 	fn update_descriptor_sets(
 		&mut self,
 		logical_device: &ash::Device,
+		line_instance_data_array_offset: usize,
+		line_instance_data_array_size: usize,
 		basic_instance_data_array_offset: usize,
 		basic_instance_data_array_size: usize,
 		normal_instance_data_array_offset: usize,
@@ -101,6 +104,20 @@ impl InFlightFrame {
 		text_instance_data_array_size: usize,
 		index_arrays_offset: usize)
 	{
+		// Line
+		let line_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+			.buffer(self.instance_data_buffer.handle)
+			.offset(line_instance_data_array_offset as u64)
+			.range(max(1, line_instance_data_array_size) as u64);
+		let line_descriptor_buffer_infos = [line_descriptor_buffer_info.build()];
+
+		let line_write_descriptor_set = vk::WriteDescriptorSet::builder()
+			.dst_set(self.line_instance_data_resources.descriptor_set)
+			.dst_binding(0)
+			.dst_array_element(0)
+			.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+			.buffer_info(&line_descriptor_buffer_infos);
+		
 		// Basic
 		let basic_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
 			.buffer(self.instance_data_buffer.handle)
@@ -159,6 +176,7 @@ impl InFlightFrame {
 		
 		// Update descriptor sets
 		let write_descriptor_sets = [
+			line_write_descriptor_set.build(),
 			basic_write_descriptor_set.build(),
 			normal_write_descriptor_set.build(),
 			lambert_write_descriptor_set.build(),
@@ -168,6 +186,9 @@ impl InFlightFrame {
 		unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 
 		// Set offsets and sizes
+		self.line_instance_data_resources.array_offset = line_instance_data_array_offset;
+		self.line_instance_data_resources.array_size = line_instance_data_array_size;
+
 		self.basic_instance_data_resources.array_offset = basic_instance_data_array_offset;
 		self.basic_instance_data_resources.array_size = basic_instance_data_array_size;
 
@@ -455,18 +476,23 @@ impl Renderer {
 		// Calculate offsets
 		let alignment = self.context.physical_device.min_storage_buffer_offset_alignment as usize;
 
-		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * material_counts[0];
+		let line_instance_data_array_offset = 0;
+		let line_instance_data_array_size = 4 * 16 * material_counts[Material::Line as usize];
+
+		let unaligned_basic_instance_data_array_offset = line_instance_data_array_offset + line_instance_data_array_size;
+		let basic_instance_data_array_padding = (alignment - unaligned_basic_instance_data_array_offset % alignment) % alignment;
+		let basic_instance_data_array_offset = unaligned_basic_instance_data_array_offset + basic_instance_data_array_padding;
+		let basic_instance_data_array_size = 4 * 16 * material_counts[Material::Basic as usize];
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * material_counts[1];
+		let normal_instance_data_array_size = 4 * 16 * material_counts[Material::Normal as usize];
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * material_counts[2];
+		let lambert_instance_data_array_size = 4 * 16 * material_counts[Material::Lambert as usize];
 
 		let unaligned_text_instance_data_array_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		let text_instance_data_array_padding = (alignment - unaligned_text_instance_data_array_offset % alignment) % alignment;
@@ -487,6 +513,8 @@ impl Renderer {
 
 			in_flight_frame.update_descriptor_sets(
 				logical_device,
+				line_instance_data_array_offset,
+				line_instance_data_array_size,
 				basic_instance_data_array_offset,
 				basic_instance_data_array_size,
 				normal_instance_data_array_offset,
@@ -507,6 +535,8 @@ impl Renderer {
 		{
 			in_flight_frame.update_descriptor_sets(
 				logical_device,
+				line_instance_data_array_offset,
+				line_instance_data_array_size,
 				basic_instance_data_array_offset,
 				basic_instance_data_array_size,
 				normal_instance_data_array_offset,
@@ -519,6 +549,7 @@ impl Renderer {
 		}
 
 		let in_flight_frame = &self.in_flight_frames[self.current_in_flight_frame_index];
+		let line_instance_data_resources = &in_flight_frame.line_instance_data_resources;
 		let basic_instance_data_resources = &in_flight_frame.basic_instance_data_resources;
 		let normal_instance_data_resources = &in_flight_frame.normal_instance_data_resources;
 		let lambert_instance_data_resources = &in_flight_frame.lambert_instance_data_resources;
@@ -537,6 +568,24 @@ impl Renderer {
 			.inheritance_info(&command_buffer_inheritance_info);
 
 		unsafe {
+			// Line
+			logical_device.begin_command_buffer(line_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
+			logical_device.cmd_bind_pipeline(line_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.line_pipeline);
+			logical_device.cmd_bind_descriptor_sets(
+				line_instance_data_resources.secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_resources.pipeline_layout,
+				0,
+				&[in_flight_frame.frame_data_descriptor_set],
+				&[]);
+			logical_device.cmd_bind_descriptor_sets(
+				line_instance_data_resources.secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_resources.pipeline_layout,
+				1,
+				&[line_instance_data_resources.descriptor_set],
+				&[]);
+			
 			// Basic
 			logical_device.begin_command_buffer(basic_instance_data_resources.secondary_command_buffer, &command_buffer_begin_info).unwrap();
 			logical_device.cmd_bind_pipeline(basic_instance_data_resources.secondary_command_buffer, vk::PipelineBindPoint::GRAPHICS, self.mesh_resources.basic_pipeline);
@@ -626,6 +675,18 @@ impl Renderer {
 			let secondary_command_buffer;
 
 			match instance_group.material {
+				Material::Line => {
+					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
+						let offset = line_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
+
+						unsafe {
+							let instance_data_dst_ptr = instance_data_buffer_ptr.add(offset) as *mut [f32; 4];
+							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+						}
+					}
+
+					secondary_command_buffer = line_instance_data_resources.secondary_command_buffer;
+				},
 				Material::Basic => {
 					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
 						let offset = basic_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
@@ -677,6 +738,14 @@ impl Renderer {
 		// Bind descriptor sets for static meshes
 		unsafe {
 			logical_device.cmd_bind_descriptor_sets(
+				line_instance_data_resources.secondary_command_buffer,
+				vk::PipelineBindPoint::GRAPHICS,
+				self.mesh_resources.pipeline_layout,
+				1,
+				&[self.mesh_resources.line_static_descriptor_set],
+				&[]);
+
+			logical_device.cmd_bind_descriptor_sets(
 				basic_instance_data_resources.secondary_command_buffer,
 				vk::PipelineBindPoint::GRAPHICS,
 				self.mesh_resources.pipeline_layout,
@@ -706,6 +775,7 @@ impl Renderer {
 			let geometry_info = &self.mesh_resources.static_geometry_infos[instance_group.geometry_info_index];
 
 			let secondary_command_buffer = match instance_group.material {
+				Material::Line => line_instance_data_resources.secondary_command_buffer,
 				Material::Basic => basic_instance_data_resources.secondary_command_buffer,
 				Material::Normal => normal_instance_data_resources.secondary_command_buffer,
 				Material::Lambert => lambert_instance_data_resources.secondary_command_buffer
@@ -720,6 +790,7 @@ impl Renderer {
 
 		// End command buffers and add to submission list if there are meshes to draw
 		unsafe {
+			logical_device.end_command_buffer(line_instance_data_resources.secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(basic_instance_data_resources.secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(normal_instance_data_resources.secondary_command_buffer).unwrap();
 			logical_device.end_command_buffer(lambert_instance_data_resources.secondary_command_buffer).unwrap();
@@ -727,15 +798,19 @@ impl Renderer {
 
 		let mut secondary_command_buffers = vec![];
 
-		if material_counts[0] != 0 || self.mesh_resources.static_material_counts[0] != 0 {
+		if material_counts[Material::Line as usize] != 0 || self.mesh_resources.static_material_counts[Material::Line as usize] != 0 {
+			secondary_command_buffers.push(line_instance_data_resources.secondary_command_buffer);
+		}
+
+		if material_counts[Material::Basic as usize] != 0 || self.mesh_resources.static_material_counts[Material::Basic as usize] != 0 {
 			secondary_command_buffers.push(basic_instance_data_resources.secondary_command_buffer);
 		}
 
-		if material_counts[1] != 0 || self.mesh_resources.static_material_counts[1] != 0 {
+		if material_counts[Material::Normal as usize] != 0 || self.mesh_resources.static_material_counts[Material::Normal as usize] != 0 {
 			secondary_command_buffers.push(normal_instance_data_resources.secondary_command_buffer);
 		}
 
-		if material_counts[2] != 0 || self.mesh_resources.static_material_counts[2] != 0 {
+		if material_counts[Material::Lambert as usize] != 0 || self.mesh_resources.static_material_counts[Material::Lambert as usize] != 0 {
 			secondary_command_buffers.push(lambert_instance_data_resources.secondary_command_buffer);
 		}
 

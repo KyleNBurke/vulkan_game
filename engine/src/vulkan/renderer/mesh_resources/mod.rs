@@ -8,16 +8,18 @@ use creation::*;
 
 pub struct MeshResources {
 	pub pipeline_layout: vk::PipelineLayout,
+	pub line_pipeline: vk::Pipeline,
 	pub basic_pipeline: vk::Pipeline,
 	pub normal_pipeline: vk::Pipeline,
 	pub lambert_pipeline: vk::Pipeline,
+	pub line_static_descriptor_set: vk::DescriptorSet,
 	pub basic_static_descriptor_set: vk::DescriptorSet,
 	pub normal_static_descriptor_set: vk::DescriptorSet,
 	pub lambert_static_descriptor_set: vk::DescriptorSet,
 	pub static_mesh_buffer: Buffer,
 	pub static_geometry_infos: Vec<StaticGeometryInfo>,
 	pub static_instance_groups: Vec<StaticInstanceGroup>,
-	pub static_material_counts: [usize; 3]
+	pub static_material_counts: [usize; MATERIALS_COUNT]
 }
 
 #[derive(Clone)]
@@ -54,16 +56,18 @@ impl MeshResources {
 
 		Self {
 			pipeline_layout,
-			basic_pipeline: pipelines[0],
-			normal_pipeline: pipelines[1],
-			lambert_pipeline: pipelines[2],
-			basic_static_descriptor_set: static_descriptor_sets[0],
-			normal_static_descriptor_set: static_descriptor_sets[1],
-			lambert_static_descriptor_set: static_descriptor_sets[2],
+			line_pipeline: pipelines[0],
+			basic_pipeline: pipelines[1],
+			normal_pipeline: pipelines[2],
+			lambert_pipeline: pipelines[3],
+			line_static_descriptor_set: static_descriptor_sets[0],
+			basic_static_descriptor_set: static_descriptor_sets[1],
+			normal_static_descriptor_set: static_descriptor_sets[2],
+			lambert_static_descriptor_set: static_descriptor_sets[3],
 			static_mesh_buffer,
 			static_geometry_infos: vec![],
 			static_instance_groups: vec![],
-			static_material_counts: [0; 3]
+			static_material_counts: [0; MATERIALS_COUNT]
 		}
 	}
 
@@ -152,18 +156,23 @@ impl MeshResources {
 		self.static_material_counts = material_counts;
 		let alignment = context.physical_device.min_storage_buffer_offset_alignment as usize;
 
-		let basic_instance_data_array_offset = 0;
-		let basic_instance_data_array_size = 4 * 16 * material_counts[0];
+		let line_instance_data_array_offset = 0;
+		let line_instance_data_array_size = 4 * 16 * material_counts[Material::Line as usize];
+
+		let unaligned_basic_instance_data_array_offset = line_instance_data_array_offset + line_instance_data_array_size;
+		let basic_instance_data_array_padding = (alignment - unaligned_basic_instance_data_array_offset % alignment) % alignment;
+		let basic_instance_data_array_offset = unaligned_basic_instance_data_array_offset + basic_instance_data_array_padding;
+		let basic_instance_data_array_size = 4 * 16 * material_counts[Material::Basic as usize];
 
 		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
 		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
 		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * material_counts[1];
+		let normal_instance_data_array_size = 4 * 16 * material_counts[Material::Normal as usize];
 		
 		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
 		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
 		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * material_counts[2];
+		let lambert_instance_data_array_size = 4 * 16 * material_counts[Material::Lambert as usize];
 
 		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
 		
@@ -185,6 +194,20 @@ impl MeshResources {
 
 		// Update the descriptor sets to potentially use the new device local buffer and to use the calculated offsets and sizes
 		{
+			// Line
+			let line_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
+				.buffer(self.static_mesh_buffer.handle)
+				.offset(line_instance_data_array_offset as u64)
+				.range(max(1, line_instance_data_array_size) as u64);
+			let line_descriptor_buffer_infos = [line_descriptor_buffer_info.build()];
+
+			let line_write_descriptor_set = vk::WriteDescriptorSet::builder()
+				.dst_set(self.line_static_descriptor_set)
+				.dst_binding(0)
+				.dst_array_element(0)
+				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+				.buffer_info(&line_descriptor_buffer_infos);
+			
 			// Basic
 			let basic_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
 				.buffer(self.static_mesh_buffer.handle)
@@ -229,6 +252,7 @@ impl MeshResources {
 			
 			// Update descriptor sets
 			let write_descriptor_sets = [
+				line_write_descriptor_set.build(),
 				basic_write_descriptor_set.build(),
 				normal_write_descriptor_set.build(),
 				lambert_write_descriptor_set.build()
@@ -281,6 +305,16 @@ impl MeshResources {
 			let instance_group_index = &mut instance_group_indices[instance_group.material as usize];
 
 			match instance_group.material {
+				Material::Line => {
+					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
+						let offset = line_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
+
+						unsafe {
+							let instance_data_dst_ptr = buffer_ptr.add(offset) as *mut [f32; 4];
+							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+						}
+					}
+				},
 				Material::Basic => {
 					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
 						let offset = basic_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
@@ -377,6 +411,7 @@ impl MeshResources {
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 			logical_device.destroy_pipeline(self.normal_pipeline, None);
 			logical_device.destroy_pipeline(self.basic_pipeline, None);
+			logical_device.destroy_pipeline(self.line_pipeline, None);
 			logical_device.destroy_pipeline_layout(self.pipeline_layout, None);
 		}
 	}

@@ -95,4 +95,17 @@ impl Geometry3D {
 			attributes
 		}
 	}
+
+	pub fn new_axis_helper() -> Self {
+		let indices = vec![0, 1, 0, 2, 0, 3];
+	
+		let attributes = vec![
+			0.0, 0.0, 0.0,
+			1.0, 0.0, 0.0,
+			0.0, 1.0, 0.0,
+			0.0, 0.0, 1.0
+		];
+	
+		Self { indices, attributes }
+	}
 }
