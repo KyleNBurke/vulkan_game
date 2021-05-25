@@ -17,6 +17,9 @@ pub mod euler;
 pub use euler::Order;
 pub use euler::Euler;
 
+pub mod box3;
+pub use box3::Box3;
+
 use std::fmt::Debug;
 
 pub trait ApproxEq {
