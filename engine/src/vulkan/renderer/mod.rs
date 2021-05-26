@@ -449,8 +449,9 @@ impl Renderer {
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
+				let position = point_light_node.transform.global_matrix.extract_position();
 				let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&point_light_node.transform.position as *const Vector3, position_dst_ptr, 1); // Needs to be global position
+				copy_nonoverlapping(&position as *const Vector3, position_dst_ptr, 1);
 
 				let color_dst_ptr = frame_data_buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
 				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);

@@ -184,13 +184,15 @@ impl State for GameplayState {
 		let mut point_light_1_node = Node::new(Object::PointLight(point_light_1));
 		point_light_1_node.transform.position.set(0.0, 2.0, 0.0);
 		point_light_1_node.transform.update_matrix();
-		scene.graph.add(point_light_1_node);
+		let point_light_1_handle = scene.graph.add(point_light_1_node);
+		scene.graph.update_at(point_light_1_handle);
 
 		let point_light_2 = PointLight::new();
 		let mut point_light_2_node = Node::new(Object::PointLight(point_light_2));
 		point_light_2_node.transform.position.set(1.0, 1.0, 3.0);
 		point_light_2_node.transform.update_matrix();
-		scene.graph.add(point_light_2_node);
+		let point_light_2_handle = scene.graph.add(point_light_2_node);
+		scene.graph.update_at(point_light_2_handle);
 
 		let box_2 = Mesh::new(box_geo, Material::Lambert);
 		let mut box_2_node = Node::new(Object::Mesh(box_2));

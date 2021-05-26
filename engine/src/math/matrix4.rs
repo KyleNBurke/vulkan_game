@@ -124,6 +124,11 @@ impl Matrix4 {
 		se[3][3] = 1.0;
 	}
 
+	pub fn extract_position(&self) -> Vector3 {
+		let se = &self.elements;
+		Vector3::new(se[0][3], se[1][3], se[2][3])
+	}
+
 	pub fn make_perspective(&mut self, aspect: f32, fov: f32, near: f32, far: f32) {
 		let f = (fov / 2.0 * std::f32::consts::PI / 180.0).tan();
 		let d = far - near;
@@ -471,6 +476,17 @@ mod tests {
 			[0.0, 0.0, 0.0, 1.0]]);
 
 		assert_eq!(m, expected);
+	}
+
+	#[test]
+	fn extract_position() {
+		let m = Matrix4::new([
+			[0.0, 0.1, 0.2, 0.3],
+			[1.0, 1.1, 1.2, 1.3],
+			[2.0, 2.1, 2.2, 2.3],
+			[3.0, 3.1, 3.2, 3.3]]);
+
+		assert_eq!(Vector3::new(0.3, 1.3, 2.3), m.extract_position());
 	}
 
 	#[test]
