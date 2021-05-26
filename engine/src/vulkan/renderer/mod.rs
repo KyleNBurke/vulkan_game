@@ -375,8 +375,8 @@ impl Renderer {
 						});
 
 						map[geometry_index][0] = Some(geometry_infos.len() - 1);
-						index_arrays_size += size_of_val(&geometry.indices[..]);
-						attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+						index_arrays_size += size_of_val(geometry.indices());
+						attribute_arrays_size += size_of_val(geometry.attributes());
 					}
 
 					if let Some(instance_group_index) = map[geometry_index][material_index] {
@@ -656,8 +656,8 @@ impl Renderer {
 
 			// Copy geometry data
 			if !geometry_info.copied {
-				let indices = &geometry.indices;
-				let attributes = &geometry.attributes;
+				let indices = geometry.indices();
+				let attributes = geometry.attributes();
 
 				unsafe {
 					let index_array_dst_ptr = instance_data_buffer_ptr.add(index_array_offset) as *mut u16;
@@ -729,7 +729,7 @@ impl Renderer {
 			unsafe {
 				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
-				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices.len() as u32, instance_group.nodes.len() as u32, 0, 0, *instance_group_index as u32);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices().len() as u32, instance_group.nodes.len() as u32, 0, 0, *instance_group_index as u32);
 			}
 
 			*instance_group_index += instance_group.nodes.len();

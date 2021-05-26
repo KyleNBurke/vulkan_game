@@ -3,12 +3,12 @@ use std::{time::Duration, vec, f32::consts::PI, convert::TryInto};
 use engine::{
 	glfw,
 	pool::{Pool, Handle},
-	Geometry3D,
+	geometry3d::{Geometry3D, Topology},
 	mesh::{Mesh, StaticMesh, Material},
 	lights::PointLight,
 	Scene,
 	graph::{Node, Object},
-	math::Matrix4
+	math::{Matrix4, Box3, Vector3}
 };
 
 use crate::{CameraController, State, StateAction, EngineResources};
@@ -91,7 +91,7 @@ impl GameplayState {
 				attributes.extend_from_slice(&normal);
 			}
 
-			let geometry = Geometry3D::new(indices, attributes);
+			let geometry = Geometry3D::new(indices, attributes, Topology::Triangle);
 			let handle = scene.geometries.add(geometry);
 			geometry_map.push(handle);
 		}
@@ -219,7 +219,8 @@ impl State for GameplayState {
 		let axis_helper_handle = scene.graph.add(axis_helper_node);
 		scene.graph.update_at(axis_helper_handle);
 
-		let box_helper_geometry = scene.geometries.add(Geometry3D::create_box_helper());
+		let box3 = Box3::new(Vector3::from_scalar(-0.5), Vector3::from_scalar(0.5));
+		let box_helper_geometry = scene.geometries.add(Geometry3D::create_box_helper(&box3));
 		let box_helper = Mesh::new(box_helper_geometry, Material::Line);
 		let mut box_helper = Node::new(Object::Mesh(box_helper));
 		box_helper.transform.translate_x(6.0);

@@ -135,8 +135,8 @@ impl MeshResources {
 				});
 
 				map[geometry_index][0] = Some(geometry_infos.len() - 1);
-				index_arrays_size += size_of_val(&geometry.indices[..]);
-				attribute_arrays_size += size_of_val(&geometry.attributes[..]);
+				index_arrays_size += size_of_val(geometry.indices());
+				attribute_arrays_size += size_of_val(geometry.attributes());
 			}
 
 			if let Some(instance_group_index) = map[geometry_index][material_index] {
@@ -281,8 +281,8 @@ impl MeshResources {
 			let geometry = geometry_info.geometry;
 
 			if !geometry_info.copied {
-				let indices = &geometry.indices;
-				let attributes = &geometry.attributes;
+				let indices = geometry.indices();
+				let attributes = geometry.attributes();
 
 				// Copy geometry data
 				unsafe {

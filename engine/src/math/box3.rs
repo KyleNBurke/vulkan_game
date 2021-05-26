@@ -7,8 +7,8 @@ pub const ONE_BY_ONE: Box3 = Box3 {
 
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
 pub struct Box3 {
-	min: Vector3,
-	max: Vector3
+	pub min: Vector3,
+	pub max: Vector3
 }
 
 impl Box3 {
