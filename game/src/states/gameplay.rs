@@ -143,14 +143,8 @@ impl State for GameplayState {
 
 		// Static
 		let mut geometries = Pool::<Geometry3D>::new();
-		let triangle_geo = geometries.add(Geometry3D::create_triangle());
 		let plane_geo = geometries.add(Geometry3D::create_plane());
 		let box_geo = geometries.add(Geometry3D::create_box());
-
-		let mut static_triangle = StaticMesh::new(triangle_geo, Material::Basic);
-		static_triangle.transform.position.set(0.0, -1.0, 1.7);
-		static_triangle.transform.rotate_y(PI);
-		static_triangle.transform.update_matrix();
 
 		let mut static_plane = StaticMesh::new(plane_geo, Material::Lambert);
 		static_plane.transform.position.set(0.0, -1.0, 2.0);
@@ -161,7 +155,7 @@ impl State for GameplayState {
 		static_box.transform.update_matrix();
 
 		let mut point_light_box1 = StaticMesh::new(box_geo, Material::Basic);
-		point_light_box1.transform.position.set(0.0, 1.0, 0.0);
+		point_light_box1.transform.position.set(0.0, 2.0, 0.0);
 		point_light_box1.transform.scale.set_from_scalar(0.2);
 		point_light_box1.transform.update_matrix();
 
@@ -175,18 +169,10 @@ impl State for GameplayState {
 		axis_helper.transform.position.x = -4.0;
 		axis_helper.transform.update_matrix();
 
-		resources.renderer.submit_static_meshes(&geometries, &vec![static_triangle, static_plane, static_box, point_light_box1, point_light_box2, axis_helper]);
+		resources.renderer.submit_static_meshes(&geometries, &vec![static_plane, static_box, point_light_box1, point_light_box2, axis_helper]);
 
 		// Dynamic
-		let triangle_geo = scene.geometries.add(Geometry3D::create_triangle());
 		let box_geo = scene.geometries.add(Geometry3D::create_box());
-
-		let triangle_lambert_mesh = Mesh::new(triangle_geo, Material::Basic);
-		let mut triangle_lambert_node = Node::new(Object::Mesh(triangle_lambert_mesh));
-		triangle_lambert_node.transform.position.set(0.5, 0.6, 2.0);
-		triangle_lambert_node.transform.rotate_y(PI);
-		triangle_lambert_node.transform.update_matrix();
-		scene.graph.add(triangle_lambert_node);
 
 		let box_lambert_mesh = Mesh::new(box_geo, Material::Lambert);
 		let mut box_lambert_node = Node::new(Object::Mesh(box_lambert_mesh));
@@ -196,7 +182,7 @@ impl State for GameplayState {
 
 		let point_light_1 = PointLight::new();
 		let mut point_light_1_node = Node::new(Object::PointLight(point_light_1));
-		point_light_1_node.transform.position.set(0.0, 1.0, 0.0);
+		point_light_1_node.transform.position.set(0.0, 2.0, 0.0);
 		point_light_1_node.transform.update_matrix();
 		scene.graph.add(point_light_1_node);
 
@@ -208,7 +194,7 @@ impl State for GameplayState {
 
 		let box_2 = Mesh::new(box_geo, Material::Lambert);
 		let mut box_2_node = Node::new(Object::Mesh(box_2));
-		box_2_node.transform.translate_z(2.0);
+		box_2_node.transform.translate_z(2.5);
 		scene.graph.add_to(self.box_handle, box_2_node);
 
 		let axis_helper_geometry = scene.geometries.add(Geometry3D::create_axis_helper());
