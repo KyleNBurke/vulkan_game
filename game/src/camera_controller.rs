@@ -20,7 +20,7 @@ impl CameraController {
 		Self {
 			prev_mouse_pos_x: 0.0,
 			prev_mouse_pos_y: 0.0,
-			euler: Euler::from(0.0, 0.0, 0.0, Order::Yxz)
+			euler: Euler::new(0.0, 0.0, 0.0, Order::Yxz)
 		}
 	}
 

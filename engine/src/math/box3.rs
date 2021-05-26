@@ -1,8 +1,8 @@
 use super::Vector3;
 
-pub const ONE_BY_ONE: Box3 = Box3 {
-	min: Vector3 { x: -0.5, y: -0.5, z: -0.5 },
-	max: Vector3 { x: 0.5, y: 0.5, z: 0.5 }
+pub const DEFAULT_SQUARE: Box3 = Box3 {
+	min: Vector3 { x: -1.0, y: -1.0, z: -1.0 },
+	max: Vector3 { x:  1.0, y:  1.0, z:  1.0 }
 };
 
 #[derive(Default, Copy, Clone, Debug, PartialEq)]
@@ -23,8 +23,8 @@ mod tests {
 
 	#[test]
 	fn new() {
-		let min = Vector3::from(1.0, 2.0, 3.0);
-		let max = Vector3::from(4.0, 5.0, 6.0);
+		let min = Vector3::new(1.0, 2.0, 3.0);
+		let max = Vector3::new(4.0, 5.0, 6.0);
 
 		assert_eq!(Box3::new(min, max), Box3 { min, max });
 	}

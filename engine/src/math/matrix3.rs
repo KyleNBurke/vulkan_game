@@ -1,7 +1,7 @@
 use super::{Vector2, ApproxEq};
 use auto_ops::impl_op_ex;
 
-const IDENTITY: Matrix3 = Matrix3 {
+pub const IDENTITY: Matrix3 = Matrix3 {
 	elements: [
 		[1.0, 0.0, 0.0],
 		[0.0, 1.0, 0.0],
@@ -15,11 +15,7 @@ pub struct Matrix3 {
 }
 
 impl Matrix3 {
-	pub fn new() -> Self {
-		IDENTITY
-	}
-
-	pub fn from(elements: [[f32; 3]; 3]) -> Self {
+	pub fn new(elements: [[f32; 3]; 3]) -> Self {
 		Self { elements }
 	}
 
@@ -155,17 +151,12 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Matrix3::new(), IDENTITY);
-	}
-
-	#[test]
-	fn from() {
 		let elements = [
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]];
 
-		let m = Matrix3::from(elements);
+		let m = Matrix3::new(elements);
 		assert_eq!(m.elements, elements);
 	}
 
@@ -176,14 +167,14 @@ mod tests {
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]];
 
-		let mut m = Matrix3::new();
+		let mut m = IDENTITY;
 		m.set(elements);
 		assert_eq!(m.elements, elements);
 	}
 
 	#[test]
 	fn to_padded_array() {
-		let m = Matrix3::from([
+		let m = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
@@ -199,13 +190,13 @@ mod tests {
 
 	#[test]
 	fn compose() {
-		let pos = Vector2::from(100.0, 200.0);
+		let pos = Vector2::new(100.0, 200.0);
 		let rot = std::f32::consts::PI;
-		let scale = Vector2::from(3.0, 4.0);
-		let mut m = Matrix3::new();
+		let scale = Vector2::new(3.0, 4.0);
+		let mut m = IDENTITY;
 		m.compose(&pos, rot, &scale);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[-3.0, 0.0, 100.0],
 			[0.0, -4.0, 200.0],
 			[0.0, 0.0, 1.0]]);
@@ -215,17 +206,17 @@ mod tests {
 
 	#[test]
 	fn add() {
-		let a = Matrix3::from([
+		let a = Matrix3::new([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
 			[0.0, 2.0, 6.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
 			[0.0, 9.0, 1.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[13.0, 2.0, 12.0],
 			[14.0, 7.0, 18.0],
 			[0.0, 11.0, 7.0]]);
@@ -235,17 +226,17 @@ mod tests {
 
 	#[test]
 	fn sub() {
-		let a = Matrix3::from([
+		let a = Matrix3::new([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
 			[0.0, 2.0, 6.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
 			[0.0, 9.0, 1.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[-5.0, 2.0, 4.0],
 			[0.0, -5.0, 0.0],
 			[0.0, -7.0, 5.0]]);
@@ -255,17 +246,17 @@ mod tests {
 
 	#[test]
 	fn mul() {
-		let a = Matrix3::from([
+		let a = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
 			[102.0, 126.0, 150.0]]);
@@ -275,17 +266,17 @@ mod tests {
 
 	#[test]
 	fn add_assign() {
-		let mut a = Matrix3::from([
+		let mut a = Matrix3::new([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
 			[0.0, 2.0, 6.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
 			[0.0, 9.0, 1.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[13.0, 2.0, 12.0],
 			[14.0, 7.0, 18.0],
 			[0.0, 11.0, 7.0]]);
@@ -296,17 +287,17 @@ mod tests {
 
 	#[test]
 	fn sub_assign() {
-		let mut a = Matrix3::from([
+		let mut a = Matrix3::new([
 			[4.0, 2.0, 8.0],
 			[7.0, 1.0, 9.0],
 			[0.0, 2.0, 6.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[9.0, 0.0, 4.0],
 			[7.0, 6.0, 9.0],
 			[0.0, 9.0, 1.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[-5.0, 2.0, 4.0],
 			[0.0, -5.0, 0.0],
 			[0.0, -7.0, 5.0]]);
@@ -317,17 +308,17 @@ mod tests {
 
 	#[test]
 	fn mul_assign() {
-		let mut a = Matrix3::from([
+		let mut a = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
 
-		let expected = Matrix3::from([
+		let expected = Matrix3::new([
 			[30.0, 36.0, 42.0],
 			[66.0, 81.0, 96.0],
 			[102.0, 126.0, 150.0]]);
@@ -338,12 +329,12 @@ mod tests {
 
 	#[test]
 	fn approx_eq() {
-		let a = Matrix3::from([
+		let a = Matrix3::new([
 			[1.0, 2.0, 3.0],
 			[4.0, 5.0, 6.0],
 			[7.0, 8.0, 9.0]]);
 
-		let b = Matrix3::from([
+		let b = Matrix3::new([
 			[0.0, 3.0, 4.0],
 			[5.0, 4.0, 7.0],
 			[6.0, 7.0, 10.0]]);

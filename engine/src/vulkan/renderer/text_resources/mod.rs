@@ -37,7 +37,7 @@ impl TextResources {
 		let sampler = create_sampler(logical_device);
 		update_sampler(logical_device, sampler, descriptor_sets[0]);
 
-		let projection_matrix = Matrix3::from([
+		let projection_matrix = Matrix3::new([
 			[2.0 / extent.width as f32, 0.0, -1.0],
 			[0.0, 2.0 / extent.height as f32, -1.0],
 			[0.0, 0.0, 1.0]]);

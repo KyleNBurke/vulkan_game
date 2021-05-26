@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::{Camera, mesh::Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::Matrix4, pool::{Pool, Handle, Iter, IterMut}};
+use crate::{Camera, mesh::Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::matrix4, pool::{Pool, Handle, Iter, IterMut}};
 
 pub enum Object {
 	Empty,
@@ -177,7 +177,7 @@ impl Graph {
 				parent_node.transform.global_matrix
 			}
 			else {
-				Matrix4::new()
+				matrix4::IDENTITY
 			};
 
 			let child_node = self.nodes.borrow_mut(child_handle);

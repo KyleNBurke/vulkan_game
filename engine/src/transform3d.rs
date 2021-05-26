@@ -1,4 +1,4 @@
-use crate::math::{vector3, Vector3, Quaternion, Matrix4};
+use crate::math::{vector3, Vector3, quaternion, Quaternion, matrix4, Matrix4};
 
 pub struct Transform3D {
 	pub position: Vector3,
@@ -12,12 +12,12 @@ pub struct Transform3D {
 impl Transform3D {
 	pub fn new() -> Self {
 		Self {
-			position: Vector3::new(),
-			orientation: Quaternion::new(),
+			position: vector3::ZERO,
+			orientation: quaternion::ZERO,
 			scale: Vector3::from_scalar(1.0),
-			matrix: Matrix4::new(),
+			matrix: matrix4::IDENTITY,
 			auto_update_matrix: true,
-			global_matrix: Matrix4::new()
+			global_matrix: matrix4::IDENTITY
 		}
 	}
 
@@ -43,7 +43,7 @@ impl Transform3D {
 	}
 
 	pub fn rotate_on_axis(&mut self, axis: &Vector3, angle: f32) {
-		let mut quat = Quaternion::new();
+		let mut quat = quaternion::ZERO;
 		quat.set_from_axis_angle(axis, angle);
 		self.orientation *= quat;
 	}

@@ -100,7 +100,7 @@ impl GameplayState {
 			let mut nodes: Vec<(gltf::Node, Matrix4)> = vec![];
 
 			for node in gltf_scene.nodes() {
-				let mut matrix = Matrix4::from(node.transform().matrix());
+				let mut matrix = Matrix4::new(node.transform().matrix());
 				matrix.transpose();
 				
 				if let Some(gltf_mesh) = node.mesh() {
@@ -117,7 +117,7 @@ impl GameplayState {
 
 			while let Some((parent_node, parent_matrix)) = nodes.pop() {
 				for child_node in parent_node.children() {
-					let mut child_matrix = Matrix4::from(child_node.transform().matrix());
+					let mut child_matrix = Matrix4::new(child_node.transform().matrix());
 					child_matrix.transpose();
 					child_matrix = parent_matrix * child_matrix;
 

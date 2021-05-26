@@ -1,6 +1,6 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{Font, Geometry3D, mesh::{StaticMesh, Material}, Scene, Text, math::Vector3, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
+use crate::{Font, Geometry3D, mesh::{StaticMesh, Material}, Scene, Text, math::{vector3, Vector3}, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
 
 mod creation;
 use creation::*;
@@ -347,7 +347,7 @@ impl Renderer {
 		let mut attribute_arrays_size = 0;
 		let mut material_counts = [0; MATERIALS_COUNT];
 
-		let mut total_ambient_light_color = Vector3::new();
+		let mut total_ambient_light_color = vector3::ZERO;
 		let mut total_ambient_light_intensity = 0.0;
 		let mut point_lights: Vec<&Node> = vec![];
 

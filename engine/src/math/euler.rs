@@ -1,5 +1,7 @@
-use super::{Quaternion, Matrix4, ApproxEq};
+use super::{Quaternion, matrix4,Matrix4, ApproxEq};
 use std::fmt::Display;
+
+pub const ZERO: Euler = Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz};
 
 const SINGULARITY_THRESHOLD: f32 = 0.999999;
 
@@ -28,11 +30,7 @@ pub struct Euler {
 }
 
 impl Euler {
-	pub fn new() -> Self {
-		Self { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz }
-	}
-
-	pub fn from(x: f32, y: f32, z: f32, order: Order) -> Self {
+	pub fn new(x: f32, y: f32, z: f32, order: Order) -> Self {
 		Self { x, y, z, order }
 	}
 
@@ -147,15 +145,9 @@ impl Euler {
 	}
 
 	pub fn set_from_quaternion(&mut self, q: &Quaternion) {
-		let mut m = Matrix4::new();
+		let mut m = matrix4::IDENTITY;
 		m.make_orientation_from_quaternion(q);
 		self.set_from_orientation_matrix(&m);
-	}
-}
-
-impl Default for Euler {
-	fn default() -> Self {
-		Self::new()
 	}
 }
 
@@ -183,33 +175,23 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz });
-	}
-
-	#[test]
-	fn default() {
-		assert_eq!(Euler::new(), Euler { x: 0.0, y: 0.0, z: 0.0, order: Order::Xyz });
-	}
-
-	#[test]
-	fn from() {
-		let e = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
+		let e = Euler::new(1.0, 2.0, 3.0, Order::Xyz);
 		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn set() {
-		let mut e = Euler::new();
+		let mut e = ZERO;
 		e.set(1.0, 2.0, 3.0, Order::Xyz);
 		assert_eq!(e, Euler { x: 1.0, y: 2.0, z: 3.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn set_from_orientation_matrix() {
-		let mut m = Matrix4::new();
+		let mut m = matrix4::IDENTITY;
 
 		{ // XYZ
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Xyz);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Xyz);
 
 			// No gimbal lock
 			m.set([
@@ -240,7 +222,7 @@ mod tests {
 		}
 
 		{ // XZY
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Xzy);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Xzy);
 
 			// No gimbal lock
 			m.set([
@@ -271,7 +253,7 @@ mod tests {
 		}
 
 		{ // YXZ
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Yxz);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Yxz);
 
 			// No gimbal lock
 			m.set([
@@ -302,7 +284,7 @@ mod tests {
 		}
 
 		{ // YZX
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Yzx);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Yzx);
 
 			// No gimbal lock
 			m.set([
@@ -333,7 +315,7 @@ mod tests {
 		}
 
 		{ // ZXY
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Zxy);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Zxy);
 
 			// No gimbal lock
 			m.set([
@@ -364,7 +346,7 @@ mod tests {
 		}
 
 		{ // ZYX
-			let mut e = Euler::from(0.0, 0.0, 0.0, Order::Zyx);
+			let mut e = Euler::new(0.0, 0.0, 0.0, Order::Zyx);
 
 			// No gimbal lock
 			m.set([
@@ -397,15 +379,15 @@ mod tests {
 
 	#[test]
 	fn set_from_quaternion() {
-		let mut e = Euler::new();
-		e.set_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
+		let mut e = ZERO;
+		e.set_from_quaternion(&Quaternion::new(0.5, 0.5, 0.5, 0.5));
 		assert_eq!(e, Euler { x: FRAC_PI_2, y: FRAC_PI_2, z: 0.0, order: Order::Xyz });
 	}
 
 	#[test]
 	fn approx_eq() {
-		let a = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
-		let b = Euler::from(1.0, 2.0, 3.0, Order::Xyz);
+		let a = Euler::new(1.0, 2.0, 3.0, Order::Xyz);
+		let b = Euler::new(1.0, 2.0, 3.0, Order::Xyz);
 		assert_approx_eq(&a, &b, 0.0);
 	}
 }

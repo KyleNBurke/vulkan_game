@@ -17,11 +17,7 @@ pub struct Matrix4 {
 }
 
 impl Matrix4 {
-	pub fn new() -> Self {
-		IDENTITY
-	}
-
-	pub fn from(elements: [[f32; 4]; 4]) -> Self {
+	pub fn new(elements: [[f32; 4]; 4]) -> Self {
 		Self { elements }
 	}
 
@@ -389,18 +385,13 @@ mod tests {
 
 	#[test]
 	fn new() {
-		assert_eq!(Matrix4::new(), IDENTITY);
-	}
-
-	#[test]
-	fn from() {
 		let elements = [
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
 			[3.0, 3.1, 3.2, 3.3]];
 
-		let m = Matrix4::from(elements);
+		let m = Matrix4::new(elements);
 		assert_eq!(m.elements, elements);
 	}
 
@@ -412,14 +403,14 @@ mod tests {
 			[2.0, 2.1, 2.2, 2.3],
 			[3.0, 3.1, 3.2, 3.3]];
 
-		let mut m = Matrix4::new();
+		let mut m = IDENTITY;
 		m.set(elements);
 		assert_eq!(m.elements, elements);
 	}
 
 	#[test]
 	fn identity() {
-		let mut m = Matrix4::from([
+		let mut m = Matrix4::new([
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
@@ -431,14 +422,14 @@ mod tests {
 
 	#[test]
 	fn transpose() {
-		let mut m = Matrix4::from([
+		let mut m = Matrix4::new([
 			[0.0, 0.1, 0.2, 0.3],
 			[1.0, 1.1, 1.2, 1.3],
 			[2.0, 2.1, 2.2, 2.3],
 			[3.0, 3.1, 3.2, 3.3]]);
 		m.transpose();
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[0.0, 1.0, 2.0, 3.0],
 			[0.1, 1.1, 2.1, 3.1],
 			[0.2, 1.2, 2.2, 3.2],
@@ -449,14 +440,14 @@ mod tests {
 
 	#[test]
 	fn invert() {
-		let mut m = Matrix4::from([
+		let mut m = Matrix4::new([
 			[1.0, 0.0, 0.0, 1.0],
 			[0.0, 2.0, 1.0, 2.0],
 			[2.0, 1.0, 0.0, 1.0],
 			[2.0, 0.0, 1.0, 4.0]]);
 		m.invert();
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[-2.0, -0.5, 1.0, 0.5],
 			[1.0, 0.5, 0.0, -0.5],
 			[-8.0, -1.0, 2.0, 2.0],
@@ -467,13 +458,13 @@ mod tests {
 
 	#[test]
 	fn compose() {
-		let pos = Vector3::from(1.0, 2.0, 3.0);
-		let rot = Quaternion::from(1.0, 2.0, 3.0, 4.0);
-		let scale = Vector3::from(3.0, 4.0, 5.0);
-		let mut m = Matrix4::new();
+		let pos = Vector3::new(1.0, 2.0, 3.0);
+		let rot = Quaternion::new(1.0, 2.0, 3.0, 4.0);
+		let scale = Vector3::new(3.0, 4.0, 5.0);
+		let mut m = IDENTITY;
 		m.compose(&pos, &rot, &scale);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[-75.0, -80.0, 110.0, 1.0],
 			[84.0, -76.0, 20.0, 2.0],
 			[-30.0, 80.0, -45.0, 3.0],
@@ -484,10 +475,10 @@ mod tests {
 
 	#[test]
 	fn make_perspective() {
-		let mut m = Matrix4::new();
+		let mut m = IDENTITY;
 		m.make_perspective(0.5, 90.0, 1.0, 5.0);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[-2.0, 0.0, 0.0, 0.0],
 			[0.0, -1.0, 0.0, 0.0],
 			[0.0, 0.0, 1.25, -1.25],
@@ -498,10 +489,10 @@ mod tests {
 
 	#[test]
 	fn make_orientation_from_quaternion() {
-		let mut m = Matrix4::new();
-		m.make_orientation_from_quaternion(&Quaternion::from(0.5, 0.5, 0.5, 0.5));
+		let mut m = IDENTITY;
+		m.make_orientation_from_quaternion(&Quaternion::new(0.5, 0.5, 0.5, 0.5));
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[0.0, 0.0, 1.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
@@ -512,11 +503,11 @@ mod tests {
 
 	#[test]
 	fn make_orientation_from_euler() {
-		let mut m = Matrix4::new();
+		let mut m = IDENTITY;
 
 		// XYZ
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xyz));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xyz));
+		let expected = Matrix4::new([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, -1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
@@ -524,8 +515,8 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// XZY
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xzy));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Xzy));
+		let expected = Matrix4::new([
 			[0.0, -1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
@@ -533,8 +524,8 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YXZ
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yxz));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yxz));
+		let expected = Matrix4::new([
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, -1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
@@ -542,8 +533,8 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// YZX
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yzx));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Yzx));
+		let expected = Matrix4::new([
 			[0.0, 1.0, 0.0, 0.0],
 			[1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, -1.0, 0.0],
@@ -551,8 +542,8 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZXY
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zxy));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zxy));
+		let expected = Matrix4::new([
 			[-1.0, 0.0, 0.0, 0.0],
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
@@ -560,8 +551,8 @@ mod tests {
 		assert_approx_eq(&m, &expected, 1e-6);
 
 		// ZYX
-		m.make_orientation_from_euler(&Euler::from(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zyx));
-		let expected = Matrix4::from([
+		m.make_orientation_from_euler(&Euler::new(FRAC_PI_2, FRAC_PI_2, FRAC_PI_2, Order::Zyx));
+		let expected = Matrix4::new([
 			[0.0, 0.0, 1.0, 0.0],
 			[0.0, 1.0, 0.0, 0.0],
 			[-1.0, 0.0, 0.0, 0.0],
@@ -571,19 +562,19 @@ mod tests {
 
 	#[test]
 	fn add() {
-		let a = Matrix4::from([
+		let a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[13.0, 2.0, 12.0, 10.0],
 			[14.0, 7.0, 18.0, 6.0],
 			[0.0, 11.0, 7.0, 10.0],
@@ -594,19 +585,19 @@ mod tests {
 
 	#[test]
 	fn sub() {
-		let a = Matrix4::from([
+		let a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[-5.0, 2.0, 4.0, 0.0],
 			[0.0, -5.0, 0.0, 2.0],
 			[0.0, -7.0, 5.0, -4.0],
@@ -617,19 +608,19 @@ mod tests {
 
 	#[test]
 	fn mul() {
-		let a = Matrix4::from([
+		let a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[65.0, 104.0, 67.0, 90.0],
 			[82.0, 103.0, 66.0, 108.0],
 			[23.0, 78.0, 39.0, 52.0],
@@ -640,19 +631,19 @@ mod tests {
 
 	#[test]
 	fn add_assign() {
-		let mut a = Matrix4::from([
+		let mut a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[13.0, 2.0, 12.0, 10.0],
 			[14.0, 7.0, 18.0, 6.0],
 			[0.0, 11.0, 7.0, 10.0],
@@ -664,19 +655,19 @@ mod tests {
 
 	#[test]
 	fn sub_assign() {
-		let mut a = Matrix4::from([
+		let mut a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[-5.0, 2.0, 4.0, 0.0],
 			[0.0, -5.0, 0.0, 2.0],
 			[0.0, -7.0, 5.0, -4.0],
@@ -688,19 +679,19 @@ mod tests {
 
 	#[test]
 	fn mul_assign() {
-		let mut a = Matrix4::from([
+		let mut a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
 			[7.0, 1.0, 9.0, 4.0],
 			[0.0, 2.0, 6.0, 3.0],
 			[7.0, 8.0, 5.0, 3.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[9.0, 0.0, 4.0, 5.0],
 			[7.0, 6.0, 9.0, 2.0],
 			[0.0, 9.0, 1.0, 7.0],
 			[3.0, 4.0, 5.0, 2.0]]);
 
-		let expected = Matrix4::from([
+		let expected = Matrix4::new([
 			[65.0, 104.0, 67.0, 90.0],
 			[82.0, 103.0, 66.0, 108.0],
 			[23.0, 78.0, 39.0, 52.0],
@@ -712,13 +703,13 @@ mod tests {
 
 	#[test]
 	fn approx_eq() {
-		let a = Matrix4::from([
+		let a = Matrix4::new([
 			[1.0, 2.0, 3.0, 9.0],
 			[4.0, 5.0, 6.0, 2.0],
 			[7.0, 8.0, 9.0, 0.0],
 			[3.0, 5.0, 8.0, 1.0]]);
 
-		let b = Matrix4::from([
+		let b = Matrix4::new([
 			[0.0, 3.0, 2.0, 8.0],
 			[5.0, 6.0, 7.0, 1.0],
 			[6.0, 9.0, 8.0, 1.0],

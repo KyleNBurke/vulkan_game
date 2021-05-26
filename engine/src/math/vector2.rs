@@ -9,11 +9,7 @@ pub struct Vector2 {
 }
 
 impl Vector2 {
-	pub fn new() -> Self {
-		ZERO
-	}
-
-	pub fn from(x: f32, y: f32) -> Self {
+	pub fn new(x: f32, y: f32) -> Self {
 		Self { x, y }
 	}
 
@@ -127,13 +123,8 @@ mod tests {
 	use super::*;
 
 	#[test]
-	fn new() {
-		assert_eq!(Vector2::new(), Vector2 { x: 0.0, y: 0.0 });
-	}
-
-	#[test]
 	fn from() {
-		assert_eq!(Vector2::from(1.0, 2.0), Vector2 { x: 1.0, y: 2.0 });
+		assert_eq!(Vector2::new(1.0, 2.0), Vector2 { x: 1.0, y: 2.0 });
 	}
 
 	#[test]
@@ -143,122 +134,122 @@ mod tests {
 
 	#[test]
 	fn set() {
-		let mut v = Vector2::new();
+		let mut v = ZERO;
 		v.set(1.0, 2.0);
 		assert_eq!(v, Vector2 { x: 1.0, y: 2.0 });
 	}
 
 	#[test]
 	fn add_vector() {
-		let a = Vector2::from(1.0, -2.0);
-		let b = Vector2::from(-3.0, 1.0);
+		let a = Vector2::new(1.0, -2.0);
+		let b = Vector2::new(-3.0, 1.0);
 		assert_eq!(a + b, Vector2 { x: -2.0, y: -1.0 });
 	}
 
 	#[test]
 	fn sub_vector() {
-		let a = Vector2::from(1.0, -2.0);
-		let b = Vector2::from(-3.0, 1.0);
+		let a = Vector2::new(1.0, -2.0);
+		let b = Vector2::new(-3.0, 1.0);
 		assert_eq!(a - b, Vector2 { x: 4.0, y: -3.0 });
 	}
 
 	#[test]
 	fn mul_vector() {
-		let a = Vector2::from(1.0, -2.0);
-		let b = Vector2::from(-3.0, 1.0);
+		let a = Vector2::new(1.0, -2.0);
+		let b = Vector2::new(-3.0, 1.0);
 		assert_eq!(a * b, Vector2 { x: -3.0, y: -2.0 });
 	}
 
 	#[test]
 	fn div_vector() {
-		let a = Vector2::from(-3.0, 4.0);
-		let b = Vector2::from(1.0, -2.0);
+		let a = Vector2::new(-3.0, 4.0);
+		let b = Vector2::new(1.0, -2.0);
 		assert_eq!(a / b, Vector2 { x: -3.0, y: -2.0 });
 	}
 
 	#[test]
 	fn add_assign_vector() {
-		let mut v = Vector2::from(1.0, -2.0);
-		v += Vector2::from(-3.0, 1.0);
+		let mut v = Vector2::new(1.0, -2.0);
+		v += Vector2::new(-3.0, 1.0);
 		assert_eq!(v, Vector2 { x: -2.0, y: -1.0 });
 	}
 
 	#[test]
 	fn sub_assign_vector() {
-		let mut v = Vector2::from(1.0, -2.0);
-		v -= Vector2::from(-3.0, 1.0);
+		let mut v = Vector2::new(1.0, -2.0);
+		v -= Vector2::new(-3.0, 1.0);
 		assert_eq!(v, Vector2 { x: 4.0, y: -3.0 });
 	}
 
 	#[test]
 	fn mul_assign_vector() {
-		let mut v = Vector2::from(1.0, -2.0);
-		v *= Vector2::from(-3.0, 1.0);
+		let mut v = Vector2::new(1.0, -2.0);
+		v *= Vector2::new(-3.0, 1.0);
 		assert_eq!(v, Vector2 { x: -3.0, y: -2.0 });
 	}
 
 	#[test]
 	fn div_assign_vector() {
-		let mut v = Vector2::from(-3.0, 4.0);
-		v /= Vector2::from(1.0, -2.0);
+		let mut v = Vector2::new(-3.0, 4.0);
+		v /= Vector2::new(1.0, -2.0);
 		assert_eq!(v, Vector2 { x: -3.0, y: -2.0 });
 	}
 
 	#[test]
 	fn add_scalar() {
-		let v = Vector2::from(1.0, -2.0);
+		let v = Vector2::new(1.0, -2.0);
 		assert_eq!(v + 3.0, Vector2 { x: 4.0, y: 1.0 });
 	}
 
 	#[test]
 	fn sub_scalar() {
-		let v = Vector2::from(1.0, -2.0);
+		let v = Vector2::new(1.0, -2.0);
 		assert_eq!(v - 3.0, Vector2 { x: -2.0, y: -5.0 });
 	}
 
 	#[test]
 	fn mul_scalar() {
-		let v = Vector2::from(1.0, -2.0);
+		let v = Vector2::new(1.0, -2.0);
 		assert_eq!(v * 3.0, Vector2 { x: 3.0, y: -6.0 });
 	}
 
 	#[test]
 	fn div_scalar() {
-		let v = Vector2::from(-2.0, 4.0);
+		let v = Vector2::new(-2.0, 4.0);
 		assert_eq!(v / 2.0, Vector2 { x: -1.0, y: 2.0 });
 	}
 
 	#[test]
 	fn add_assign_scalar() {
-		let mut v = Vector2::from(1.0, -2.0);
+		let mut v = Vector2::new(1.0, -2.0);
 		v += 3.0;
 		assert_eq!(v, Vector2 { x: 4.0, y: 1.0 });
 	}
 
 	#[test]
 	fn sub_assign_scalar() {
-		let mut v = Vector2::from(1.0, -2.0);
+		let mut v = Vector2::new(1.0, -2.0);
 		v -= 3.0;
 		assert_eq!(v, Vector2 { x: -2.0, y: -5.0 });
 	}
 
 	#[test]
 	fn mul_assign_scalar() {
-		let mut v = Vector2::from(1.0, -2.0);
+		let mut v = Vector2::new(1.0, -2.0);
 		v *= 3.0;
 		assert_eq!(v, Vector2 { x: 3.0, y: -6.0 });
 	}
 
 	#[test]
 	fn div_assign_scalar() {
-		let mut v = Vector2::from(-2.0, 4.0);
+		let mut v = Vector2::new(-2.0, 4.0);
 		v /= 2.0;
 		assert_eq!(v, Vector2 { x: -1.0, y: 2.0 });
 	}
 
 	#[test]
 	fn neg() {
-		let v = Vector2::from(1.0, 2.0);
+		let v = Vector2::new(1.0, 2.0);
 		assert_eq!(-v, Vector2 { x: -1.0, y: -2.0 });
 	}
 }
