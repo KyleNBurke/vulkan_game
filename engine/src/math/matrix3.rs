@@ -37,15 +37,15 @@ impl Matrix3 {
 		]
 	}
 
-	pub fn compose(&mut self, position: &Vector2, rotation: f32, scale: &Vector2) {
+	pub fn compose(&mut self, position: &Vector2, orientation: f32, scale: &Vector2) {
 		let se = &mut self.elements;
 
-		se[0][0] = rotation.cos() * scale.x;
-		se[0][1] = -rotation.sin();
+		se[0][0] = orientation.cos() * scale.x;
+		se[0][1] = -orientation.sin();
 		se[0][2] = position.x;
 
-		se[1][0] = rotation.sin();
-		se[1][1] = rotation.cos() * scale.y;
+		se[1][0] = orientation.sin();
+		se[1][1] = orientation.cos() * scale.y;
 		se[1][2] = position.y;
 
 		se[2][0] = 0.0;
