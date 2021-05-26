@@ -234,11 +234,12 @@ impl Renderer {
 		}
 	}
 
-	pub fn get_swapchain_extent(&self) -> vk::Extent2D {
-		self.swapchain.extent
+	pub fn get_swapchain_extent(&self) -> (u32, u32) {
+		let extent = &self.swapchain.extent;
+		(extent.width, extent.height)
 	}
 
-	pub fn resize(&mut self, framebuffer_width: i32, framebuffer_height: i32) {
+	pub fn resize(&mut self, framebuffer_width: i32, framebuffer_height: i32) -> (u32, u32) {
 		let logical_device = &self.context.logical_device;
 
 		unsafe {
@@ -258,8 +259,10 @@ impl Renderer {
 		self.swapchain = create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, self.render_pass);
 		self.mesh_resources.resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
 		self.text_resources.resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
-
 		println!("Renderer resized");
+
+		let extent = &self.swapchain.extent;
+		(extent.width, extent.height)
 	}
 
 	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {

@@ -32,8 +32,8 @@ fn main() {
 
 	let mut scene = Scene::new();
 
-	let extent = renderer.get_swapchain_extent();
-	let camera = Camera::new(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+	let (extent_width, extent_height) = renderer.get_swapchain_extent();
+	let camera = Camera::new(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 	let mut camera_node = Node::new(Object::Camera(camera));
 	camera_node.transform.position.set(-2.0, 3.0, -2.0);
 	camera_node.transform.rotate_y(3.14 / 4.0);
@@ -67,11 +67,10 @@ fn main() {
 
 	window.main_loop(|resized, width, height| {
 		if resized || surface_changed {
-			renderer.resize(width, height);
-			let extent = renderer.get_swapchain_extent();
+			let (extent_width, extent_height) = renderer.resize(width, height);
 			let camera_node = scene.graph.borrow_mut(scene.camera_handle);
 			let camera = camera_node.object.as_camera_mut();
-			camera.projection_matrix.make_perspective(extent.width as f32 / extent.height as f32, 75.0, 0.1, 50.0);
+			camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 		}
 
 		surface_changed = renderer.render(&mut scene);
