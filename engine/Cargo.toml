@@ -12,3 +12,4 @@ freetype = "0.7.0"
 
 [dev-dependencies]
 utilities = { path = "utilities" }
+gltf = "0.15.2"
