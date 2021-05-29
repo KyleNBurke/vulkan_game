@@ -16,5 +16,5 @@ layout(location = 0) out vec3 fragColor;
 
 void main() {
 	gl_Position = projectionMatrix * viewMatrix * modelMatrix[gl_InstanceIndex] * vec4(inPosition, 1.0);
-	fragColor = abs(inNormal);
+	fragColor = inNormal * 0.5 + 0.5;
 }

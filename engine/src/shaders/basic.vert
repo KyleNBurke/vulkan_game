@@ -21,5 +21,5 @@ vec3 colors[3] = vec3[](
 
 void main() {
 	gl_Position = projectionMatrix * viewMatrix * modelMatrix[gl_InstanceIndex] * vec4(inPosition, 1.0);
-	fragColor = colors[gl_VertexIndex % 3];
+	fragColor = vec3(0.1, 0.1, 0.1);
 }
