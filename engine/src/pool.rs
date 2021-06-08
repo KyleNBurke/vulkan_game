@@ -28,19 +28,19 @@ struct Record<T> {
 
 pub struct Pool<T> {
 	records: Vec<Record<T>>,
-	vacant_records: Vec<usize>
+	vacant_record_indices: Vec<usize>
 }
 
 impl<T> Pool<T> {
 	pub fn new() -> Self {
 		Self {
 			records: vec![],
-			vacant_records: vec![]
+			vacant_record_indices: vec![]
 		}
 	}
 
 	pub fn add(&mut self, payload: T) -> Handle {
-		if let Some(index) = self.vacant_records.pop() {
+		if let Some(index) = self.vacant_record_indices.pop() {
 			let record = &mut self.records[index];
 			record.generation += 1;
 			record.payload = Some(payload);
@@ -78,7 +78,7 @@ impl<T> Pool<T> {
 		if self.valid_handle(handle) {
 			let record = &mut self.records[handle.index];
 			record.payload = None;
-			self.vacant_records.push(handle.index);
+			self.vacant_record_indices.push(handle.index);
 		}
 		else {
 			panic!("Cannot remove from pool, handle {:?} is invalid", handle);
@@ -126,7 +126,7 @@ impl<T> Pool<T> {
 	}
 
 	pub fn occupied_record_count(&self) -> usize {
-		self.records.len() - self.vacant_records.len()
+		self.records.len() - self.vacant_record_indices.len()
 	}
 
 	pub fn is_empty(&self) -> bool {
@@ -248,7 +248,7 @@ mod tests {
 		let pool = Pool::<u32>::new();
 
 		assert!(pool.records.is_empty());
-		assert!(pool.vacant_records.is_empty());
+		assert!(pool.vacant_record_indices.is_empty());
 	}
 
 	#[test]
@@ -276,7 +276,7 @@ mod tests {
 		pool.remove(handle);
 
 		assert!(pool.records[0].payload.is_none());
-		assert_eq!(pool.vacant_records[0], 0);
+		assert_eq!(pool.vacant_record_indices[0], 0);
 	}
 
 	#[test]

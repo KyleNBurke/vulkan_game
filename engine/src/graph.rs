@@ -1,5 +1,5 @@
 use std::fmt;
-use crate::{Camera, mesh::Mesh, Transform3D, lights::{AmbientLight, PointLight}, math::matrix4, pool::{Pool, Handle, Iter, IterMut}};
+use crate::{Camera, mesh::Mesh, Transform3D, lights::{AmbientLight, PointLight}, pool::{Pool, Handle, Iter}};
 
 pub enum Object {
 	Empty,
@@ -31,6 +31,13 @@ impl Object {
 		}
 	}
 
+	pub fn as_mesh(&self) -> &Mesh {
+		match self {
+			Object::Mesh(mesh) => mesh,
+			_ => panic!("Cannot convert object {} to mesh", self)
+		}
+	}
+
 	pub fn as_mesh_mut(&mut self) -> &mut Mesh {
 		match self {
 			Object::Mesh(mesh) => mesh,
@@ -54,8 +61,9 @@ impl fmt::Display for Object {
 pub struct Node {
 	parent_handle: Option<Handle>,
 	child_handles: Vec<Handle>,
-	pub transform: Transform3D,
-	pub object: Object
+	pub transform: Transform3D, // you can never get a node mutably so this can just be public? Right now, you can create a mutable node and mutate this though
+	dirty: bool,
+	pub object: Object // you can never get a node mutably so this can just be public?
 }
 
 impl Node {
@@ -64,136 +72,103 @@ impl Node {
 			parent_handle: None,
 			child_handles: vec![],
 			transform: Transform3D::new(),
+			dirty: false,
 			object
 		}
-	}
-
-	pub fn parent_handle(&self) -> Option<Handle> {
-		self.parent_handle
-	}
-
-	pub fn child_handles(&self) -> &[Handle] {
-		&self.child_handles
 	}
 }
 
 pub struct Graph {
 	nodes: Pool<Node>,
-	root_handle: Handle
+	dirty_handles: Vec<Handle>
 }
 
 impl Graph {
 	pub fn new() -> Self {
-		let mut nodes = Pool::new();
-		let root_handle = nodes.add(Node::new(Object::Empty));
-
 		Self {
-			nodes,
-			root_handle
+			nodes: Pool::new(),
+			dirty_handles: vec![]
 		}
 	}
 
-	pub fn root_handle(&self) -> Handle {
-		self.root_handle
+	pub fn add(&mut self, mut node: Node) -> Handle {
+		let transform = &mut node.transform;
+		transform.update_local_matrix();
+		transform.global_matrix = *transform.local_matrix();
+
+		self.nodes.add(node)
 	}
 
-	pub fn add(&mut self, node: Node) -> Handle {
-		self.add_to(self.root_handle, node)
-	}
+	pub fn add_child(&mut self, parent_handle: Handle, mut child_node: Node) -> Handle {
+		let parent_node = self.nodes.borrow_mut(parent_handle);
+		let parent_global_matrix = &parent_node.transform.global_matrix;
+		let child_transform = &mut child_node.transform;
+		child_transform.update_local_matrix();
+		child_transform.global_matrix = parent_global_matrix * child_transform.local_matrix();
 
-	pub fn add_to(&mut self, parent_handle: Handle, mut child_node: Node) -> Handle {
 		child_node.parent_handle = Some(parent_handle);
 		let child_handle = self.nodes.add(child_node);
-		let parent = self.nodes.borrow_mut(parent_handle);
-		parent.child_handles.push(child_handle);
+		let parent_node = self.nodes.borrow_mut(parent_handle);
+		parent_node.child_handles.push(child_handle);
+
 		child_handle
 	}
 
-	pub fn remove_at(&mut self, handle: Handle) {
-		if handle == self.root_handle {
-			panic!("Cannot remove node from graph, handle points to root node");
-		}
-
-		let node = self.nodes.borrow(handle);
-		if let Some(parent_handle) = node.parent_handle() {
-			let parent_node = self.nodes.borrow_mut(parent_handle);
-			let child_handle_index = parent_node.child_handles.iter().position(|h| *h == handle).unwrap();
-			parent_node.child_handles.remove(child_handle_index);
-		}
-
-		let mut removes = vec![handle];
-
-		while let Some(handle) = removes.pop() {
-			let node = self.nodes.borrow(handle);
-			removes.extend_from_slice(&node.child_handles);
-			self.nodes.remove(handle);
-		}
-	}
-
-	pub fn borrow(&self, handle: Handle) -> &Node {
+	pub fn borrow_node(&self, handle: Handle) -> &Node {
 		self.nodes.borrow(handle)
 	}
 
-	pub fn borrow_mut(&mut self, handle: Handle) -> &mut Node {
-		self.nodes.borrow_mut(handle)
+	pub fn borrow_transform(&self, handle: Handle) -> &Transform3D {
+		&self.nodes.borrow(handle).transform
 	}
 
-	pub fn try_borrow(&self, handle: Handle) -> Option<&Node> {
-		self.nodes.try_borrow(handle)
+	pub fn borrow_transform_mut(&mut self, handle: Handle) -> &mut Transform3D {
+		let mut handles_to_visit = vec![handle];
+
+		while let Some(handle) = handles_to_visit.pop() {
+			let node = self.nodes.borrow_mut(handle);
+			if node.dirty { break };
+			node.dirty = true;
+			self.dirty_handles.push(handle);
+			handles_to_visit.extend_from_slice(&node.child_handles);
+		}
+
+		&mut self.nodes.borrow_mut(handle).transform
 	}
 
-	pub fn try_borrow_mut(&mut self, handle: Handle) -> Option<&mut Node> {
-		self.nodes.try_borrow_mut(handle)
+	pub fn borrow_object(&self, handle: Handle) -> &Object {
+		&self.nodes.borrow(handle).object
 	}
 
-	pub fn capacity(&self) -> usize {
-		self.nodes.capacity()
+	pub fn borrow_object_mut(&mut self, handle: Handle) -> &mut Object {
+		&mut self.nodes.borrow_mut(handle).object
 	}
 
-	pub fn node_count(&self) -> usize {
-		self.nodes.occupied_record_count()
+	pub fn update(&mut self) {
+		while let Some(dirty_handle) = self.dirty_handles.pop() {
+			let mut nodes_to_visit = vec![dirty_handle];
+
+			while let Some(child_handle) = nodes_to_visit.pop() {
+				let child_node = self.nodes.borrow_mut(child_handle);
+				if !child_node.dirty { break };
+				child_node.transform.update_local_matrix();
+				child_node.dirty = false;
+				nodes_to_visit.extend_from_slice(&child_node.child_handles);
+				
+				if let Some(parent_handle) = child_node.parent_handle {
+					let parent_global_matrix = self.nodes.borrow(parent_handle).transform.global_matrix;
+					let child_transform = &mut self.nodes.borrow_mut(dirty_handle).transform;
+					child_transform.global_matrix = parent_global_matrix * child_transform.local_matrix();
+				}
+				else {
+					let child_transform = &mut child_node.transform;
+					child_transform.global_matrix = *child_transform.local_matrix();
+				}
+			}
+		}
 	}
 
 	pub fn iter(&self) -> Iter<Node> {
 		self.nodes.iter()
-	}
-
-	pub fn iter_mut(&mut self) -> IterMut<Node> {
-		self.nodes.iter_mut()
-	}
-
-	pub fn update(&mut self) {
-		self.update_at(self.root_handle);
-	}
-
-	pub fn update_at(&mut self, handle: Handle) {
-		let mut updates = vec![handle];
-
-		while let Some(child_handle) = updates.pop() {
-			let child_node = self.nodes.borrow(child_handle);
-
-			let parent_global_matrix = if let Some(parent_handle) = child_node.parent_handle {
-				let parent_node = self.nodes.borrow(parent_handle);
-				parent_node.transform.global_matrix
-			}
-			else {
-				matrix4::IDENTITY
-			};
-
-			let child_node = self.nodes.borrow_mut(child_handle);
-
-			if child_node.transform.auto_update_matrix {
-				child_node.transform.update_matrix();
-			}
-
-			child_node.transform.global_matrix = parent_global_matrix * child_node.transform.matrix;
-			updates.extend_from_slice(&child_node.child_handles);
-		}
-	}
-}
-
-impl Default for Graph {
-	fn default() -> Self {
-		Self::new()
 	}
 }

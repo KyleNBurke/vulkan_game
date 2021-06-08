@@ -29,7 +29,6 @@ fn main() {
 	let mut camera_node = Node::new(Object::Camera(camera));
 	camera_node.transform.position.y = 4.0;
 	scene.camera_handle = scene.graph.add(camera_node);
-	scene.graph.update_at(scene.camera_handle);
 
 	let font = Font::new("game/res/roboto.ttf", 14);
 	let roboto_14 = scene.fonts.add(font);
@@ -94,8 +93,7 @@ fn main() {
 
 		if resized || surface_changed {
 			let (extent_width, extent_height) = resources.renderer.resize(width, height);
-			let camera_node = resources.scene.graph.borrow_mut(resources.scene.camera_handle);
-			let camera = camera_node.object.as_camera_mut();
+			let camera = resources.scene.graph.borrow_object_mut(resources.scene.camera_handle).as_camera_mut();
 			camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 		}
 

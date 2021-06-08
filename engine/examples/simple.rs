@@ -18,8 +18,7 @@ fn main() {
 
 	let (extent_width, extent_height) = renderer.get_swapchain_extent();
 	let camera = Camera::new(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
-	let mut camera_node = Node::new(Object::Camera(camera));
-	camera_node.transform.update_matrix();
+	let camera_node = Node::new(Object::Camera(camera));
 
 	let mut scene = Scene::new();
 	scene.camera_handle = scene.graph.add(camera_node);
@@ -27,7 +26,7 @@ fn main() {
 	let geometry_handle = scene.geometries.add(Geometry3D::create_box());
 	let mesh = Mesh::new(geometry_handle, Material::Normal);
 	let mut mesh_node = Node::new(Object::Mesh(mesh));
-	mesh_node.transform.translate_z(2.0);
+	mesh_node.transform.translate_z(4.0);
 	let mesh_handle = scene.graph.add(mesh_node);
 
 	let mut minimized = false;
@@ -70,15 +69,15 @@ fn main() {
 
 		if resized || surface_changed {
 			let (extent_width, extent_height) = renderer.resize(width, height);
-			let camera_node = scene.graph.borrow_mut(scene.camera_handle);
-			let camera = camera_node.object.as_camera_mut();
+			let camera = scene.graph.borrow_object_mut(scene.camera_handle).as_camera_mut();
 			camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 		}
 		
-		let mesh_node = scene.graph.borrow_mut(mesh_handle);
-		mesh_node.transform.rotate_y(0.005);
-		
+		let transform = scene.graph.borrow_transform_mut(mesh_handle);
+		transform.rotate_y(0.005);
+
 		scene.graph.update();
+		
 		surface_changed = renderer.render(&mut scene);
 	}
 }

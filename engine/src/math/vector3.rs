@@ -1,4 +1,4 @@
-use super::{Quaternion, ApproxEq};
+use super::{Vector4, Quaternion, ApproxEq};
 use std::fmt::Display;
 use auto_ops::impl_op_ex;
 
@@ -53,6 +53,10 @@ impl Vector3 {
 			2 => self.z,
 			_ => panic!("invalid index {}", index)
 		}
+	}
+
+	pub fn expand(&self, w: f32) -> Vector4 {
+		Vector4::new(self.x, self.y, self.z, w)
 	}
 
 	pub fn length(&self) -> f32 {
@@ -269,6 +273,12 @@ mod tests {
 		assert_eq!(v.get_from_index(0), 1.0);
 		assert_eq!(v.get_from_index(1), 2.0);
 		assert_eq!(v.get_from_index(2), 3.0);
+	}
+
+	#[test]
+	fn expand() {
+		let v = Vector3::new(1.0, 2.0, 3.0);
+		assert_eq!(v.expand(4.0), Vector4 { x: 1.0, y: 2.0, z: 3.0, w: 4.0 });
 	}
 
 	#[test]

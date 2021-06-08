@@ -1,19 +1,63 @@
 use crate::math::{Box3, Vector3};
 
+#[derive(Clone, Copy)]
 pub enum Topology {
 	Triangle,
 	Line
+}
+
+pub(crate) struct SubmissionInfo {
+	pub generation: usize,
+	pub index_array_offset: usize,
+	pub attributes_array_offset: usize
 }
 
 pub struct Geometry3D {
 	indices: Vec<u16>,
 	attributes: Vec<f32>,
 	topology: Topology,
-	bounding_box: Box3
+	bounding_box: Box3,
+	pub(crate) submission_info: Option<SubmissionInfo>
 }
 
 impl Geometry3D {
 	pub fn new(indices: Vec<u16>, attributes: Vec<f32>, topology: Topology) -> Self {
+		let bounding_box = Self::calculate_bounding_box(&attributes, topology);
+
+		Self {
+			indices,
+			attributes,
+			topology,
+			bounding_box,
+			submission_info: None
+		}
+	}
+
+	pub fn indices(&self) -> &[u16] {
+		&self.indices
+	}
+
+	pub fn attributes(&self) -> &[f32] {
+		&self.attributes
+	}
+
+	pub fn topology(&self) -> &Topology {
+		&self.topology
+	}
+
+	pub fn bounding_box(&self) -> &Box3 {
+		&self.bounding_box
+	}
+
+	pub fn set(&mut self, indices: Vec<u16>, attributes: Vec<f32>, topology: Topology) {
+		self.indices = indices;
+		self.attributes = attributes;
+		self.topology = topology;
+		self.bounding_box = Self::calculate_bounding_box(&self.attributes, self.topology);
+		self.submission_info = None;
+	}
+
+	fn calculate_bounding_box(attributes: &[f32], topology: Topology) -> Box3 {
 		let mut min = Vector3::from_scalar(f32::INFINITY);
 		let mut max = Vector3::from_scalar(f32::NEG_INFINITY);
 
@@ -36,28 +80,7 @@ impl Geometry3D {
 			max.z = max.z.max(z);
 		}
 
-		Self {
-			indices,
-			attributes,
-			topology,
-			bounding_box: Box3::new(min, max)
-		}
-	}
-
-	pub fn indices(&self) -> &[u16] {
-		&self.indices
-	}
-
-	pub fn attributes(&self) -> &[f32] {
-		&self.attributes
-	}
-
-	pub fn topology(&self) -> &Topology {
-		&self.topology
-	}
-
-	pub fn bounding_box(&self) -> &Box3 {
-		&self.bounding_box
+		Box3::new(min, max)
 	}
 
 	pub fn create_plane() -> Self {
@@ -151,7 +174,27 @@ impl Geometry3D {
 			min.x, min.y, min.z,
 			max.x, min.y, min.z,
 		];
-	
+
 		Self::new(indices, attributes, Topology::Line)
+	}
+
+	pub fn make_box_helper(&mut self, box3: &Box3) {
+		let min = &box3.min;
+		let max = &box3.max;
+
+		let indices = vec![0, 1, 1, 2, 2, 3, 3, 0, 0, 4, 1, 5, 2, 6, 3, 7, 4, 5, 5, 6, 6, 7, 7, 4];
+	
+		let attributes = vec![
+			max.x, max.y, max.z,
+			min.x, max.y, max.z,
+			min.x, max.y, min.z,
+			max.x, max.y, min.z,
+			max.x, min.y, max.z,
+			min.x, min.y, max.z,
+			min.x, min.y, min.z,
+			max.x, min.y, min.z,
+		];
+
+		self.set(indices, attributes, Topology::Line);
 	}
 }

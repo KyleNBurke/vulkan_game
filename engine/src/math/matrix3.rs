@@ -1,4 +1,4 @@
-use super::{Vector2, ApproxEq};
+use super::{Vector2, Vector3, ApproxEq};
 use auto_ops::impl_op_ex;
 
 pub const IDENTITY: Matrix3 = Matrix3 {
@@ -127,6 +127,16 @@ impl_op_ex!(*= |a: &mut Matrix3, b: &Matrix3| {
 		ae[2][0] = a20 * b00 + a21 * b10 + a22 * b20;
 		ae[2][1] = a20 * b01 + a21 * b11 + a22 * b21;
 		ae[2][2] = a20 * b02 + a21 * b12 + a22 * b22;
+	}
+});
+
+impl_op_ex!(* |a: &Matrix3, b: &Vector3| -> Vector3 {
+	let ae = &a.elements;
+
+	Vector3 {
+		x: ae[0][0] * b.x + ae[0][1] * b.y + ae[0][2] * b.z,
+		y: ae[1][0] * b.x + ae[1][1] * b.y + ae[1][2] * b.z,
+		z: ae[2][0] * b.x + ae[2][1] * b.y + ae[2][2] * b.z
 	}
 });
 
@@ -325,6 +335,19 @@ mod tests {
 
 		a *= b;
 		assert_eq!(a, expected);
+	}
+
+	#[test]
+	fn mul_vec_3() {
+		let a = Matrix3::new([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]]);
+		
+		let b = Vector3::new(3.0, 2.0, 5.0);
+
+		let expected = Vector3::new(56.0, 68.0, 34.0);
+		assert_eq!(a * b, expected);
 	}
 
 	#[test]

@@ -1,6 +1,6 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{Font, Geometry3D, mesh::{StaticMesh, Material}, Scene, Text, math::{vector3, Vector3}, pool::Pool, vulkan::{Context, Buffer}, graph::{Node, Object}};
+use crate::{Font, Geometry3D, mesh::Material, Scene, Text, math::{vector3, Vector3}, pool::{Pool, Handle}, vulkan::{Context, Buffer}, graph::{Node, Object}};
 
 mod creation;
 use creation::*;
@@ -265,8 +265,8 @@ impl Renderer {
 		(extent.width, extent.height)
 	}
 
-	pub fn submit_static_meshes(&mut self, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {
-		self.mesh_resources.submit_static_meshes(&self.context, self.command_pool, geometries, meshes);
+	pub fn submit_static_geometries(&mut self, geometries: &mut Pool<Geometry3D>, handles: &[Handle]) {
+		self.mesh_resources.submit_static_geometries(&self.context, self.command_pool, geometries, handles);
 		println!("Static meshes submitted");
 	}
 
@@ -310,15 +310,14 @@ impl Renderer {
 		let frame_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 		
 		// Copy camera data into frame data buffer
-		let camera_node = scene.graph.borrow(scene.camera_handle);
-		let camera_object = &camera_node.object;
-		let camera = camera_object.as_camera();
+		let camera = scene.graph.borrow_object(scene.camera_handle).as_camera();
 		
 		let projection_matrix = &camera.projection_matrix.elements;
 		let projection_matrix_dst_ptr = frame_data_buffer_ptr as *mut [f32; 4];
 		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
 
-		let mut inverse_view_matrix = camera_node.transform.global_matrix;
+		let camera_transform = scene.graph.borrow_transform(scene.camera_handle);
+		let mut inverse_view_matrix = camera_transform.global_matrix;
 		inverse_view_matrix.invert();
 		unsafe {
 			let inverse_view_matrix_dst_ptr = frame_data_buffer_ptr.add(16 * 4) as *mut [f32; 4];
@@ -737,59 +736,6 @@ impl Renderer {
 			}
 
 			*instance_group_index += instance_group.nodes.len();
-		}
-
-		// Bind descriptor sets for static meshes
-		unsafe {
-			logical_device.cmd_bind_descriptor_sets(
-				line_instance_data_resources.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_resources.pipeline_layout,
-				1,
-				&[self.mesh_resources.line_static_descriptor_set],
-				&[]);
-
-			logical_device.cmd_bind_descriptor_sets(
-				basic_instance_data_resources.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_resources.pipeline_layout,
-				1,
-				&[self.mesh_resources.basic_static_descriptor_set],
-				&[]);
-
-			logical_device.cmd_bind_descriptor_sets(
-				normal_instance_data_resources.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_resources.pipeline_layout,
-				1,
-				&[self.mesh_resources.normal_static_descriptor_set],
-				&[]);
-
-			logical_device.cmd_bind_descriptor_sets(
-				lambert_instance_data_resources.secondary_command_buffer,
-				vk::PipelineBindPoint::GRAPHICS,
-				self.mesh_resources.pipeline_layout,
-				1,
-				&[self.mesh_resources.lambert_static_descriptor_set],
-				&[]);
-		}
-
-		// Record static mesh draw commands
-		for instance_group in &self.mesh_resources.static_instance_groups {
-			let geometry_info = &self.mesh_resources.static_geometry_infos[instance_group.geometry_info_index];
-
-			let secondary_command_buffer = match instance_group.material {
-				Material::Line => line_instance_data_resources.secondary_command_buffer,
-				Material::Basic => basic_instance_data_resources.secondary_command_buffer,
-				Material::Normal => normal_instance_data_resources.secondary_command_buffer,
-				Material::Lambert => lambert_instance_data_resources.secondary_command_buffer
-			};
-
-			unsafe {
-				logical_device.cmd_bind_index_buffer(secondary_command_buffer, self.mesh_resources.static_mesh_buffer.handle, geometry_info.index_array_offset as u64, vk::IndexType::UINT16);
-				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[self.mesh_resources.static_mesh_buffer.handle], &[geometry_info.attribute_array_offset as u64]);
-				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry_info.indices_count as u32, instance_group.instance_count as u32, 0, 0, instance_group.first_instance as u32);
-			}
 		}
 
 		// End command buffers and add to submission list if there are meshes to draw

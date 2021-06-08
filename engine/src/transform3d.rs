@@ -4,8 +4,7 @@ pub struct Transform3D {
 	pub position: Vector3,
 	pub orientation: Quaternion,
 	pub scale: Vector3,
-	pub matrix: Matrix4,
-	pub auto_update_matrix: bool,
+	local_matrix: Matrix4,
 	pub(crate) global_matrix: Matrix4
 }
 
@@ -15,14 +14,21 @@ impl Transform3D {
 			position: vector3::ZERO,
 			orientation: quaternion::ZERO,
 			scale: Vector3::from_scalar(1.0),
-			matrix: matrix4::IDENTITY,
-			auto_update_matrix: true,
+			local_matrix: matrix4::IDENTITY,
 			global_matrix: matrix4::IDENTITY
 		}
 	}
 
-	pub fn update_matrix(&mut self) {
-		self.matrix.compose(&self.position, &self.orientation, &self.scale);
+	pub fn local_matrix(&self) -> &Matrix4 {
+		&self.local_matrix
+	}
+
+	pub fn global_matrix(&self) -> &Matrix4 {
+		&self.global_matrix
+	}
+
+	pub fn update_local_matrix(&mut self) {
+		self.local_matrix.compose(&self.position, &self.orientation, &self.scale);
 	}
 
 	pub fn translate_on_axis(&mut self, mut axis: Vector3, distance: f32) {

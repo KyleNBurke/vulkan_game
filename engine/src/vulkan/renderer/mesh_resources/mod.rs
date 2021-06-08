@@ -1,6 +1,6 @@
-use std::{mem::size_of_val, ptr::copy_nonoverlapping, cmp::max};
+use std::{mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Buffer, Context}, pool::Pool, Geometry3D, mesh::{StaticMesh, Material}};
+use crate::{vulkan::{Buffer, Context}, pool::{Pool, Handle}, geometry3d::{Geometry3D, SubmissionInfo}, mesh::{Material}};
 use super::MATERIALS_COUNT;
 
 mod creation;
@@ -16,10 +16,11 @@ pub struct MeshResources {
 	pub basic_static_descriptor_set: vk::DescriptorSet,
 	pub normal_static_descriptor_set: vk::DescriptorSet,
 	pub lambert_static_descriptor_set: vk::DescriptorSet,
-	pub static_mesh_buffer: Buffer,
+	pub static_geometry_buffer: Buffer,
 	pub static_geometry_infos: Vec<StaticGeometryInfo>,
 	pub static_instance_groups: Vec<StaticInstanceGroup>,
-	pub static_material_counts: [usize; MATERIALS_COUNT]
+	pub static_material_counts: [usize; MATERIALS_COUNT],
+	static_geometry_submission_generation: usize
 }
 
 #[derive(Clone)]
@@ -50,8 +51,8 @@ impl MeshResources {
 		let pipelines = create_pipelines(logical_device, extent, pipeline_layout, render_pass);
 		let static_descriptor_sets = create_static_descriptor_sets(logical_device, descriptor_pool, instance_data_descriptor_set_layout);
 
-		let static_mesh_buffer = Buffer::null(
-			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER | vk::BufferUsageFlags::STORAGE_BUFFER,
+		let static_geometry_buffer = Buffer::null(
+			vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER | vk::BufferUsageFlags::VERTEX_BUFFER,
 			vk::MemoryPropertyFlags::DEVICE_LOCAL);
 
 		Self {
@@ -64,10 +65,11 @@ impl MeshResources {
 			basic_static_descriptor_set: static_descriptor_sets[1],
 			normal_static_descriptor_set: static_descriptor_sets[2],
 			lambert_static_descriptor_set: static_descriptor_sets[3],
-			static_mesh_buffer,
+			static_geometry_buffer,
 			static_geometry_infos: vec![],
 			static_instance_groups: vec![],
-			static_material_counts: [0; MATERIALS_COUNT]
+			static_material_counts: [0; MATERIALS_COUNT],
+			static_geometry_submission_generation: 0
 		}
 	}
 
@@ -87,277 +89,59 @@ impl MeshResources {
 		self.lambert_pipeline = pipelines[3];
 	}
 
-	pub fn submit_static_meshes(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &Pool<Geometry3D>, meshes: &[StaticMesh]) {
-		self.static_geometry_infos.clear();
-		self.static_instance_groups.clear();
-		
-		if meshes.is_empty() {
-			return;
-		}
-
+	pub fn submit_static_geometries(&mut self, context: &Context, command_pool: vk::CommandPool, geometries: &mut Pool<Geometry3D>, handles: &[Handle]) {
+		// Don't forget to increment the submission generation
 		let logical_device = &context.logical_device;
 
-		// Iterate over meshes to
-		// - Group meshes together which share the same geometry and material
-		// - Calculate the offsets and size of the data
-		struct GeometryInfo<'a> {
-			geometry: &'a Geometry3D,
-			index_array_relative_offset: usize,
-			attribute_array_relative_offset: usize,
-			copied: bool
+		let mut buffer_size = 0;
+
+		for handle in handles {
+			let geometry = geometries.borrow_mut(*handle);
+			let index_array_size = size_of_val(geometry.indices());
+			let attributes_array_size = size_of_val(geometry.attributes());
+
+			let index_array_offset = buffer_size;
+			let unaligned_attributes_array_offset = index_array_offset + index_array_size;
+			let attributes_array_padding = (4 - unaligned_attributes_array_offset % 4) % 4;
+			let attributes_array_offset = unaligned_attributes_array_offset + attributes_array_padding;
+
+			geometry.submission_info = Some(SubmissionInfo {
+				generation: self.static_geometry_submission_generation,
+				index_array_offset,
+				attributes_array_offset
+			});
+
+			buffer_size += index_array_size + attributes_array_padding + attributes_array_size;
 		}
-
-		struct InstanceGroup<'a> {
-			geometry_info_index: usize,
-			material: Material,
-			meshes: Vec<&'a StaticMesh>
-		}
-
-		let mut geometry_infos: Vec<GeometryInfo> = vec![];
-		let mut instance_groups: Vec<InstanceGroup> = vec![];
-		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.capacity()];
-		let mut index_arrays_size = 0;
-		let mut attribute_arrays_size = 0;
-		let mut material_counts = [0; MATERIALS_COUNT];
-
-		for mesh in meshes.iter() {
-			let geometry_index = mesh.geometry_handle.index();
-			let material_index = mesh.material as usize + 1;
-			
-			if map[geometry_index][0].is_none() {
-				let geometry = geometries.borrow(mesh.geometry_handle);
-
-				geometry_infos.push(GeometryInfo {
-					geometry,
-					index_array_relative_offset: index_arrays_size,
-					attribute_array_relative_offset: attribute_arrays_size,
-					copied: false
-				});
-
-				map[geometry_index][0] = Some(geometry_infos.len() - 1);
-				index_arrays_size += size_of_val(geometry.indices());
-				attribute_arrays_size += size_of_val(geometry.attributes());
-			}
-
-			if let Some(instance_group_index) = map[geometry_index][material_index] {
-				instance_groups[instance_group_index].meshes.push(mesh);
-			}
-			else {
-				instance_groups.push(InstanceGroup {
-					geometry_info_index: map[geometry_index][0].unwrap(),
-					material: mesh.material,
-					meshes: vec![mesh]
-				});
-
-				map[geometry_index][material_index] = Some(instance_groups.len() - 1);
-			}
-
-			material_counts[mesh.material as usize] += 1;
-		}
-
-		self.static_material_counts = material_counts;
-		let alignment = context.physical_device.min_storage_buffer_offset_alignment as usize;
-
-		let line_instance_data_array_offset = 0;
-		let line_instance_data_array_size = 4 * 16 * material_counts[Material::Line as usize];
-
-		let unaligned_basic_instance_data_array_offset = line_instance_data_array_offset + line_instance_data_array_size;
-		let basic_instance_data_array_padding = (alignment - unaligned_basic_instance_data_array_offset % alignment) % alignment;
-		let basic_instance_data_array_offset = unaligned_basic_instance_data_array_offset + basic_instance_data_array_padding;
-		let basic_instance_data_array_size = 4 * 16 * material_counts[Material::Basic as usize];
-
-		let unaligned_normal_instance_data_array_offset = basic_instance_data_array_offset + basic_instance_data_array_size;
-		let normal_instance_data_array_padding = (alignment - unaligned_normal_instance_data_array_offset % alignment) % alignment;
-		let normal_instance_data_array_offset = unaligned_normal_instance_data_array_offset + normal_instance_data_array_padding;
-		let normal_instance_data_array_size = 4 * 16 * material_counts[Material::Normal as usize];
 		
-		let unaligned_lambert_instance_data_array_offset = normal_instance_data_array_offset + normal_instance_data_array_size;
-		let lambert_instance_data_array_padding = (alignment - unaligned_lambert_instance_data_array_offset % alignment) % alignment;
-		let lambert_instance_data_array_offset = unaligned_lambert_instance_data_array_offset + lambert_instance_data_array_padding;
-		let lambert_instance_data_array_size = 4 * 16 * material_counts[Material::Lambert as usize];
-
-		let index_arrays_offset = lambert_instance_data_array_offset + lambert_instance_data_array_size;
-		
-		let unaligned_attribute_arrays_offset = index_arrays_offset + index_arrays_size;
-		let attribute_arrays_padding = (4 - unaligned_attribute_arrays_offset % 4) % 4;
-		let attribute_arrays_offset = unaligned_attribute_arrays_offset + attribute_arrays_padding;
-
-		let buffer_size = (attribute_arrays_offset + attribute_arrays_size) as u64;
+		let buffer_size = buffer_size as u64;
 
 		// Create a host visible staging buffer
 		let staging_buffer = Buffer::new(&context, buffer_size, vk::BufferUsageFlags::TRANSFER_SRC, vk::MemoryPropertyFlags::HOST_VISIBLE);
 
 		// Allocate larger device local buffer if necessary and update descriptor sets to reference new buffer
-		if buffer_size > self.static_mesh_buffer.capacity {
+		if buffer_size > self.static_geometry_buffer.capacity {
 			unsafe { logical_device.queue_wait_idle(context.graphics_queue) }.unwrap();
-			self.static_mesh_buffer.reallocate(&context, buffer_size);
+			self.static_geometry_buffer.reallocate(&context, buffer_size);
 			println!("Static mesh buffer reallocated");
-		}
-
-		// Update the descriptor sets to potentially use the new device local buffer and to use the calculated offsets and sizes
-		{
-			// Line
-			let line_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(self.static_mesh_buffer.handle)
-				.offset(line_instance_data_array_offset as u64)
-				.range(max(1, line_instance_data_array_size) as u64);
-			let line_descriptor_buffer_infos = [line_descriptor_buffer_info.build()];
-
-			let line_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.line_static_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-				.buffer_info(&line_descriptor_buffer_infos);
-			
-			// Basic
-			let basic_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(self.static_mesh_buffer.handle)
-				.offset(basic_instance_data_array_offset as u64)
-				.range(max(1, basic_instance_data_array_size) as u64);
-			let basic_descriptor_buffer_infos = [basic_descriptor_buffer_info.build()];
-
-			let basic_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.basic_static_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-				.buffer_info(&basic_descriptor_buffer_infos);
-			
-			// Normal
-			let normal_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(self.static_mesh_buffer.handle)
-				.offset(normal_instance_data_array_offset as u64)
-				.range(max(1, normal_instance_data_array_size) as u64);
-			let normal_descriptor_buffer_infos = [normal_descriptor_buffer_info.build()];
-
-			let normal_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.normal_static_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-				.buffer_info(&normal_descriptor_buffer_infos);
-			
-			// Lambert
-			let lambert_descriptor_buffer_info = vk::DescriptorBufferInfo::builder()
-				.buffer(self.static_mesh_buffer.handle)
-				.offset(lambert_instance_data_array_offset as u64)
-				.range(max(1, lambert_instance_data_array_size) as u64);
-			let lambert_descriptor_buffer_infos = [lambert_descriptor_buffer_info.build()];
-
-			let lambert_write_descriptor_set = vk::WriteDescriptorSet::builder()
-				.dst_set(self.lambert_static_descriptor_set)
-				.dst_binding(0)
-				.dst_array_element(0)
-				.descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-				.buffer_info(&lambert_descriptor_buffer_infos);
-			
-			// Update descriptor sets
-			let write_descriptor_sets = [
-				line_write_descriptor_set.build(),
-				basic_write_descriptor_set.build(),
-				normal_write_descriptor_set.build(),
-				lambert_write_descriptor_set.build()
-			];
-			
-			unsafe { logical_device.update_descriptor_sets(&write_descriptor_sets, &[]) };
 		}
 
 		// Copy mesh data into staging buffer and save draw information
 		let buffer_ptr = unsafe { logical_device.map_memory(staging_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 
-		self.static_geometry_infos.resize(geometry_infos.len(), StaticGeometryInfo {
-			index_array_offset: 0,
-			attribute_array_offset: 0,
-			indices_count: 0
-		});
+		for handle in handles {
+			let geometry = geometries.borrow(*handle);
+			let submission_info = geometry.submission_info.as_ref().unwrap();
+			let indices = geometry.indices();
+			let attributes = geometry.attributes();
 
-		let mut instance_group_indices = [0; MATERIALS_COUNT];
+			unsafe {
+				let index_array_dst_ptr = buffer_ptr.add(submission_info.index_array_offset) as *mut u16;
+				copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
 
-		for instance_group in &instance_groups {
-			let geometry_info = &mut geometry_infos[instance_group.geometry_info_index];
-			let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
-			let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
-			let geometry = geometry_info.geometry;
-
-			if !geometry_info.copied {
-				let indices = geometry.indices();
-				let attributes = geometry.attributes();
-
-				// Copy geometry data
-				unsafe {
-					let index_array_dst_ptr = buffer_ptr.add(index_array_offset) as *mut u16;
-					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
-
-					let attribute_array_dst_ptr = buffer_ptr.add(attribute_array_offset) as *mut f32;
-					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
-				}
-
-				geometry_info.copied = true;
-
-				// Save geometry info
-				self.static_geometry_infos[instance_group.geometry_info_index] = StaticGeometryInfo {
-					index_array_offset,
-					attribute_array_offset,
-					indices_count: indices.len()
-				};
+				let attribute_array_dst_ptr = buffer_ptr.add(submission_info.attributes_array_offset) as *mut f32;
+				copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
 			}
-
-			// Copy instance data
-			let instance_group_index = &mut instance_group_indices[instance_group.material as usize];
-
-			match instance_group.material {
-				Material::Line => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
-						let offset = line_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
-
-						unsafe {
-							let instance_data_dst_ptr = buffer_ptr.add(offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-						}
-					}
-				},
-				Material::Basic => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
-						let offset = basic_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
-
-						unsafe {
-							let instance_data_dst_ptr = buffer_ptr.add(offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-						}
-					}
-				},
-				Material::Normal => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
-						let instance_data_offset = normal_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
-
-						unsafe {
-							let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-						}
-					}
-				},
-				Material::Lambert => {
-					for (instance_index, instance) in instance_group.meshes.iter().enumerate() {
-						let instance_data_offset = lambert_instance_data_array_offset + 4 * 16 * (*instance_group_index + instance_index);
-
-						unsafe {
-							let instance_data_dst_ptr = buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
-						}
-					}
-				}
-			}
-
-			// Save instance group
-			self.static_instance_groups.push(StaticInstanceGroup {
-				geometry_info_index: instance_group.geometry_info_index,
-				material: instance_group.material,
-				instance_count: instance_group.meshes.len(),
-				first_instance: *instance_group_index
-			});
-
-			*instance_group_index += instance_group.meshes.len();
 		}
 
 		// Flush and unmap staging buffer
@@ -387,7 +171,7 @@ impl MeshResources {
 		
 		unsafe {
 			logical_device.begin_command_buffer(command_buffer, &command_buffer_begin_info).unwrap();
-			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_mesh_buffer.handle, &[region.build()]);
+			logical_device.cmd_copy_buffer(command_buffer, staging_buffer.handle, self.static_geometry_buffer.handle, &[region.build()]);
 			logical_device.end_command_buffer(command_buffer).unwrap();
 		}
 
@@ -407,7 +191,7 @@ impl MeshResources {
 	}
 
 	pub fn drop(&self, logical_device: &ash::Device) {
-		self.static_mesh_buffer.drop(logical_device);
+		self.static_geometry_buffer.drop(logical_device);
 		
 		unsafe {
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);

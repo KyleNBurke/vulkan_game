@@ -67,17 +67,16 @@ impl CameraController {
 		let mouse_pos_diff_x = mouse_pos_x - self.prev_mouse_pos_x;
 		let mouse_pos_diff_y = mouse_pos_y - self.prev_mouse_pos_y;
 
-		let node = resources.scene.graph.borrow_mut(resources.scene.camera_handle);
-		self.euler.set_from_quaternion(&node.transform.orientation);
+		let transform = resources.scene.graph.borrow_transform_mut(resources.scene.camera_handle);
+		self.euler.set_from_quaternion(&transform.orientation);
 		self.euler.y -= mouse_pos_diff_x * ROTATION_SPEED;
 		self.euler.x += mouse_pos_diff_y * ROTATION_SPEED;
 		self.euler.x = self.euler.x.max(-MAX_VERTICAL_ROTATION_ANGLE).min(MAX_VERTICAL_ROTATION_ANGLE);
-		node.transform.orientation.set_from_euler(&self.euler);
+		transform.orientation.set_from_euler(&self.euler);
 
 		self.prev_mouse_pos_x = mouse_pos_x;
 		self.prev_mouse_pos_y = mouse_pos_y;
 
-		node.transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * frame_time.as_secs_f32());
-		resources.scene.graph.update_at(resources.scene.camera_handle);
+		transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * frame_time.as_secs_f32());
 	}
 }

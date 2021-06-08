@@ -1,5 +1,5 @@
 use std::fmt::Display;
-use super::{vector3, Vector3, Quaternion, Euler, Order, ApproxEq};
+use super::{ApproxEq, Euler, Matrix3, Order, Quaternion, Vector3, Vector4, vector3};
 use auto_ops::impl_op_ex;
 
 pub const IDENTITY: Matrix4 = Matrix4 {
@@ -254,6 +254,18 @@ impl Matrix4 {
 		se[3][2] = 0.0;
 		se[3][3] = 1.0;
 	}
+
+	pub fn truncate(&self) -> Matrix3 {
+		let e = &self.elements;
+
+		Matrix3 {
+			elements: [
+				[e[0][0], e[0][1], e[0][2]],
+				[e[1][0], e[1][1], e[1][2]],
+				[e[2][0], e[2][1], e[2][2]]
+			]
+		}
+	}
 }
 
 impl_op_ex!(+ |a: &Matrix4, b: &Matrix4| -> Matrix4 {
@@ -359,6 +371,17 @@ impl_op_ex!(*= |a: &mut Matrix4, b: &Matrix4| {
 		ae[3][1] = a30 * b01 + a31 * b11 + a32 * b21 + a33 * b31;
 		ae[3][2] = a30 * b02 + a31 * b12 + a32 * b22 + a33 * b32;
 		ae[3][3] = a30 * b03 + a31 * b13 + a32 * b23 + a33 * b33;
+	}
+});
+
+impl_op_ex!(* |a: &Matrix4, b: &Vector4| -> Vector4 {
+	let ae = &a.elements;
+
+	Vector4 {
+		x: ae[0][0] * b.x + ae[0][1] * b.y + ae[0][2] * b.z + ae[0][3] * b.w,
+		y: ae[1][0] * b.x + ae[1][1] * b.y + ae[1][2] * b.z + ae[1][3] * b.w,
+		z: ae[2][0] * b.x + ae[2][1] * b.y + ae[2][2] * b.z + ae[2][3] * b.w,
+		w: ae[3][0] * b.x + ae[3][1] * b.y + ae[3][2] * b.z + ae[3][3] * b.w
 	}
 });
 
@@ -577,6 +600,22 @@ mod tests {
 	}
 
 	#[test]
+	fn truncate() {
+		let a = Matrix4::new([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]]);
+		
+		let expected = Matrix3::new([
+			[4.0, 2.0, 8.0],
+			[7.0, 1.0, 9.0],
+			[0.0, 2.0, 6.0]]);
+		
+		assert_eq!(a.truncate(), expected);
+	}
+
+	#[test]
 	fn add() {
 		let a = Matrix4::new([
 			[4.0, 2.0, 8.0, 5.0],
@@ -715,6 +754,20 @@ mod tests {
 
 		a *= b;
 		assert_eq!(a, expected);
+	}
+
+	#[test]
+	fn mul_vec_4() {
+		let a = Matrix4::new([
+			[4.0, 2.0, 8.0, 5.0],
+			[7.0, 1.0, 9.0, 4.0],
+			[0.0, 2.0, 6.0, 3.0],
+			[7.0, 8.0, 5.0, 3.0]]);
+		
+		let b = Vector4::new(3.0, 2.0, 5.0, 4.0);
+
+		let expected = Vector4::new(76.0, 84.0, 46.0, 74.0);
+		assert_eq!(a * b, expected);
 	}
 
 	#[test]

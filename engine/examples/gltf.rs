@@ -120,7 +120,7 @@ fn load(scene: &mut Scene) {
 				let geometry_handle = geometry_map[gltf_mesh.index()];
 				let mesh = Mesh::new(geometry_handle, Material::Normal);
 				let mut node = Node::new(Object::Mesh(mesh));
-				node.transform.matrix = matrix;
+				node.transform.local_matrix = matrix;
 				
 				scene.graph.add(node);
 			}
@@ -138,7 +138,7 @@ fn load(scene: &mut Scene) {
 					let geometry_handle = geometry_map[gltf_mesh.index()];
 					let mesh = Mesh::new(geometry_handle, Material::Normal);
 					let mut node = Node::new(Object::Mesh(mesh));
-					node.transform.matrix = child_matrix;
+					node.transform.local_matrix = child_matrix;
 					
 					scene.graph.add(node);
 				}
