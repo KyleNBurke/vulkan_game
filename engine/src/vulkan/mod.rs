@@ -1,11 +1,8 @@
-mod context;
-use context::Context;
+pub(crate) mod context;
+pub(crate) use context::Context;
 
-mod physical_device;
-use physical_device::PhysicalDevice;
+pub(crate) mod physical_device;
+pub(crate) use physical_device::PhysicalDevice;
 
-pub mod renderer;
-pub use renderer::Renderer;
-
-mod buffer;
-use buffer::Buffer;
+pub(crate) mod buffer;
+pub(crate) use buffer::Buffer;

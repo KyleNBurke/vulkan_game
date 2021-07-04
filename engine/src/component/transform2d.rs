@@ -21,9 +21,3 @@ impl Transform2D {
 		self.matrix.compose(&self.position, self.orientation, &self.scale);
 	}
 }
-
-impl Default for Transform2D {
-	fn default() -> Self {
-		Self::new()
-	}
-}

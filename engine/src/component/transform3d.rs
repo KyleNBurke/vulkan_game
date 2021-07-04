@@ -1,16 +1,22 @@
-use crate::math::{vector3, Vector3, quaternion, Quaternion, matrix4, Matrix4};
+use crate::math::{matrix4, Matrix4, Quaternion, Vector3, quaternion, vector3};
 
 pub struct Transform3D {
+	pub(crate) parent_entity: Option<usize>,
+	pub(crate) child_entities: Vec<usize>,
+	pub(crate) dirty: bool,
 	pub position: Vector3,
 	pub orientation: Quaternion,
 	pub scale: Vector3,
-	local_matrix: Matrix4,
+	pub(crate) local_matrix: Matrix4,
 	pub(crate) global_matrix: Matrix4
 }
 
 impl Transform3D {
 	pub fn new() -> Self {
 		Self {
+			parent_entity: None,
+			child_entities: Vec::new(),
+			dirty: false,
 			position: vector3::ZERO,
 			orientation: quaternion::ZERO,
 			scale: Vector3::from_scalar(1.0),
@@ -64,11 +70,5 @@ impl Transform3D {
 
 	pub fn rotate_z(&mut self, angle: f32) {
 		self.rotate_on_axis(&vector3::UNIT_Z, angle);
-	}
-}
-
-impl Default for Transform3D {
-	fn default() -> Self {
-		Self::new()
 	}
 }

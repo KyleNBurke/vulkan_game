@@ -1,6 +1,6 @@
 use std::{mem::size_of_val, ptr::copy_nonoverlapping};
 use ash::{vk, version::DeviceV1_0};
-use crate::{vulkan::{Buffer, Context}, pool::{Pool, Handle}, geometry3d::{Geometry3D, SubmissionInfo}, mesh::{Material}};
+use crate::{component::mesh::Material, geometry3d::{Geometry3D, SubmissionInfo}, pool::{Pool, Handle}, vulkan::{Buffer, Context}};
 use super::MATERIALS_COUNT;
 
 mod creation;

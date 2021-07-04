@@ -1,14 +1,14 @@
 use std::time::{Instant, Duration};
-use engine::{glfw, Renderer, Camera, Scene, graph::{Node, Object}, Font, Text};
+use engine::glfw;
 
-mod state_manager;
-use state_manager::{GameResources, EngineResources, StateManager, State, StateAction};
-
-mod states;
-use states::{FrameMetricsState, GameplayState};
+mod component;
+mod system;
 
 mod camera_controller;
-use camera_controller::CameraController;
+pub use camera_controller::CameraController;
+
+mod game;
+use game::Game;
 
 const MAX_FRAME_TIME: f64 = 1.0 / 10.0;
 const MAX_UPDATES_PER_FRAME: u32 = 5;
@@ -20,34 +20,7 @@ fn main() {
 	window.set_framebuffer_size_polling(true);
 	window.set_key_polling(true);
 
-	let mut renderer = Renderer::new(&glfw, &window);
-
-	let mut scene = Scene::new();
-
-	let (extent_width, extent_height) = renderer.get_swapchain_extent();
-	let camera = Camera::new(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
-	let mut camera_node = Node::new(Object::Camera(camera));
-	camera_node.transform.position.y = 4.0;
-	scene.camera_handle = scene.graph.add(camera_node);
-
-	let font = Font::new("game/res/roboto.ttf", 14);
-	let roboto_14 = scene.fonts.add(font);
-	renderer.submit_fonts(&mut scene.fonts);
-
-	let mut resources = EngineResources {
-		window,
-		renderer,
-		game_resources: GameResources {
-			roboto_14
-		},
-		scene
-	};
-	
-	let mut state_manager = StateManager::new();
-	let frame_metrics_state = Box::new(FrameMetricsState::new(&mut resources));
-	let gameplay_state = Box::new(GameplayState::new());
-	state_manager.push(&mut resources, frame_metrics_state);
-	state_manager.push(&mut resources, gameplay_state);
+	let mut game = Game::new(&glfw, &window);
 
 	let duration_zero = Duration::new(0, 0);
 	let max_duration = Duration::from_secs_f64(MAX_FRAME_TIME);
@@ -59,7 +32,7 @@ fn main() {
 	let mut height = 0;
 	let mut surface_changed = false;
 
-	while !resources.window.should_close() {
+	while !window.should_close() {
 		resized = false;
 		glfw.poll_events();
 
@@ -79,11 +52,11 @@ fn main() {
 						minimized = false;
 					}
 				},
-				glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => resources.window.set_should_close(true),
+				glfw::WindowEvent::Key(glfw::Key::Escape, _, glfw::Action::Press, _) => window.set_should_close(true),
 				_ => ()
 			}
 
-			state_manager.handle_event(&event, &mut resources);
+			game.handle_event(&event, &mut window);
 		}
 
 		if minimized {
@@ -92,9 +65,7 @@ fn main() {
 		}
 
 		if resized || surface_changed {
-			let (extent_width, extent_height) = resources.renderer.resize(width, height);
-			let camera = resources.scene.graph.borrow_object_mut(resources.scene.camera_handle).as_camera_mut();
-			camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
+			game.handle_resize(width, height);
 		}
 
 		let frame_end = Instant::now();
@@ -105,12 +76,12 @@ fn main() {
 		while duration > duration_zero && updates <= MAX_UPDATES_PER_FRAME {
 			let duration_capped = duration.min(max_duration);
 			
-			state_manager.update(&mut resources, &duration_capped);
+			game.update(&window, &duration_capped);
 			
 			duration -= duration_capped;
 			updates += 1;
 		}
 
-		surface_changed = resources.renderer.render(&mut resources.scene);
+		surface_changed = game.render();
 	}
 }

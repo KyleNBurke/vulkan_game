@@ -1,12 +1,12 @@
 use std::time::Duration;
-use engine::pool::Handle;
-use crate::{EngineResources, State, StateAction, Text};
+
+use engine::component::TextComponentList;
 
 const UPDATE_INTERVAL_SECONDS: f32 = 0.5;
 const MAX_SAMPLED_FRAMES: usize = 100;
 
-pub struct FrameMetricsState {
-	label: Handle,
+pub struct FrameMetricsSystem {
+	label_entity: usize,
 	update_interval: Duration,
 	duration: Duration,
 	fps_sampled_frames: usize,
@@ -15,15 +15,10 @@ pub struct FrameMetricsState {
 	current_frame: usize
 }
 
-impl FrameMetricsState {
-	pub fn new(resources: &mut EngineResources) -> Self {
-		let mut label_text = Text::new(resources.game_resources.roboto_14, String::new());
-		label_text.transform.position.set(10.0, 20.0);
-		label_text.transform.update_matrix();
-		let label = resources.scene.text.add(label_text);
-
+impl FrameMetricsSystem {
+	pub fn new(label_entity: usize) -> Self {
 		Self {
-			label,
+			label_entity,
 			update_interval: Duration::from_secs_f32(UPDATE_INTERVAL_SECONDS),
 			duration: Duration::new(0, 0),
 			fps_sampled_frames: 0,
@@ -32,17 +27,15 @@ impl FrameMetricsState {
 			current_frame: 0
 		}
 	}
-}
 
-impl State for FrameMetricsState {
-	fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) -> StateAction {
+	pub fn update(&mut self, text_component_list: &mut TextComponentList, delta_time: &Duration) {
 		self.fps_sampled_frames += 1;
 
-		self.frame_times[self.current_frame] = frame_time.as_micros() as u32;
+		self.frame_times[self.current_frame] = delta_time.as_micros() as u32;
 		self.current_frame = (self.current_frame + 1) % MAX_SAMPLED_FRAMES;
 		self.frame_time_sampled_frames = (self.frame_time_sampled_frames + 1).min(MAX_SAMPLED_FRAMES);
 
-		self.duration += *frame_time;
+		self.duration += *delta_time;
 
 		if self.duration >= self.update_interval && self.frame_time_sampled_frames == MAX_SAMPLED_FRAMES {
 			let mut total = 0;
@@ -51,7 +44,7 @@ impl State for FrameMetricsState {
 			for frame in &self.frame_times {
 				total += *frame;
 
-				if frame > &max {
+				if *frame > max {
 					max = *frame;
 				}
 			}
@@ -61,12 +54,10 @@ impl State for FrameMetricsState {
 			let max = max as f32 / 1000.0;
 
 			let string = format!("{:.1}fps {:.1}ms avg {:.1}ms max", fps, average, max);
-			resources.scene.text.borrow_mut(self.label).set_string(string);
+			text_component_list.borrow_mut(self.label_entity).string = string;
 			
 			self.duration = Duration::new(0, 0);
 			self.fps_sampled_frames = 0;
 		}
-
-		StateAction::None
 	}
 }

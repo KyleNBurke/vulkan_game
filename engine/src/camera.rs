@@ -1,7 +1,8 @@
-use crate::math::{matrix4, Matrix4};
+use crate::{component::Transform3D, math::{matrix4, Matrix4}};
 
 pub struct Camera {
-	pub projection_matrix: Matrix4
+	pub projection_matrix: Matrix4,
+	pub transform: Transform3D
 }
 
 impl Camera {
@@ -10,7 +11,13 @@ impl Camera {
 		projection_matrix.make_perspective(aspect, fov, near, far);
 
 		Self {
-			projection_matrix
+			projection_matrix,
+			transform: Transform3D::new()
 		}
+	}
+
+	pub fn update(&mut self) {
+		self.transform.update_local_matrix();
+		self.transform.global_matrix = self.transform.local_matrix;
 	}
 }

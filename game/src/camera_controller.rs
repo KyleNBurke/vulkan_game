@@ -1,9 +1,5 @@
 use std::time::Duration;
-use engine::{
-	glfw,
-	math::{vector3, Euler, Order},
-};
-use crate::EngineResources;
+use engine::{Camera, glfw, math::{vector3, Euler, Order}};
 
 const TRANSLATION_SPEED: f32 = 2.5;
 const ROTATION_SPEED: f32 = 0.003;
@@ -16,10 +12,12 @@ pub struct CameraController {
 }
 
 impl CameraController {
-	pub fn new() -> Self {
+	pub fn new(window: &glfw::Window) -> Self {
+		let (mouse_pos_x, mouse_pos_y) = window.get_cursor_pos();
+
 		Self {
-			prev_mouse_pos_x: 0.0,
-			prev_mouse_pos_y: 0.0,
+			prev_mouse_pos_x: mouse_pos_x as f32,
+			prev_mouse_pos_y: mouse_pos_y as f32,
 			euler: Euler::new(0.0, 0.0, 0.0, Order::Yxz)
 		}
 	}
@@ -31,8 +29,7 @@ impl CameraController {
 		self.prev_mouse_pos_y = mouse_pos_y as f32;
 	}
 
-	pub fn update(&mut self, resources: &mut EngineResources, frame_time: &Duration) {
-		let window = &resources.window;
+	pub fn update(&mut self, window: &glfw::Window, camera: &mut Camera, delta_time: &Duration) {
 		let mut translation_direction = vector3::ZERO;
 
 		if window.get_key(glfw::Key::W) == glfw::Action::Press {
@@ -67,7 +64,7 @@ impl CameraController {
 		let mouse_pos_diff_x = mouse_pos_x - self.prev_mouse_pos_x;
 		let mouse_pos_diff_y = mouse_pos_y - self.prev_mouse_pos_y;
 
-		let transform = resources.scene.graph.borrow_transform_mut(resources.scene.camera_handle);
+		let transform = &mut camera.transform;
 		self.euler.set_from_quaternion(&transform.orientation);
 		self.euler.y -= mouse_pos_diff_x * ROTATION_SPEED;
 		self.euler.x += mouse_pos_diff_y * ROTATION_SPEED;
@@ -77,6 +74,7 @@ impl CameraController {
 		self.prev_mouse_pos_x = mouse_pos_x;
 		self.prev_mouse_pos_y = mouse_pos_y;
 
-		transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * frame_time.as_secs_f32());
+		transform.translate_on_axis(translation_direction, TRANSLATION_SPEED * delta_time.as_secs_f32());
+		camera.update();
 	}
 }

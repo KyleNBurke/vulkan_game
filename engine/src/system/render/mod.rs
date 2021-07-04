@@ -1,6 +1,14 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
+use crate::{
+	Camera,
+	component::{ComponentList, Light, Mesh, TextComponentList, Transform2D, Transform3DComponentList, mesh::Material},
+	Font,
+	Geometry3D,
+	math::{vector3, Vector3},
+	pool::{Pool, Handle},
+	vulkan::{Context, Buffer}
+};
 use ash::{vk, version::DeviceV1_0, extensions::khr};
-use crate::{Font, Geometry3D, mesh::Material, Scene, Text, math::{vector3, Vector3}, pool::{Pool, Handle}, vulkan::{Context, Buffer}, graph::{Node, Object}};
 
 mod creation;
 use creation::*;
@@ -17,7 +25,9 @@ const MATERIALS_COUNT: usize = 4;
 const MAX_POINT_LIGHTS: usize = 5;
 const MAX_FONTS: usize = 10;
 
-pub struct Renderer {
+
+pub struct RenderSystem {
+	pub entities: Vec<usize>,
 	context: Context,
 	render_pass: vk::RenderPass,
 	swapchain: Swapchain,
@@ -205,7 +215,7 @@ impl InFlightFrame {
 	}
 }
 
-impl Renderer {
+impl RenderSystem {
 	pub fn new(glfw: &glfw::Glfw, window: &glfw::Window) -> Self {
 		let context = Context::new(glfw, window);
 		let render_pass = create_render_pass(&context);
@@ -220,6 +230,7 @@ impl Renderer {
 		let text_renderer = TextResources::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
 
 		Self {
+			entities: Vec::new(),
 			context,
 			render_pass,
 			swapchain,
@@ -275,7 +286,7 @@ impl Renderer {
 		println!("Fonts submitted");
 	}
 
-	pub fn render(&mut self, scene: &mut Scene) -> bool {
+	pub fn render(&mut self, camera: &Camera, light_components: &ComponentList<Light>, geometries: &Pool<Geometry3D>, mesh_components: &ComponentList<Mesh>, transform3d_components: &Transform3DComponentList, fonts: &Pool<Font>, text_components: &TextComponentList, transform2d_components: &ComponentList<Transform2D>) -> bool {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		
@@ -310,14 +321,12 @@ impl Renderer {
 		let frame_data_buffer_ptr = unsafe { logical_device.map_memory(in_flight_frame.frame_data_buffer.memory, 0, vk::WHOLE_SIZE, vk::MemoryMapFlags::empty()) }.unwrap();
 		
 		// Copy camera data into frame data buffer
-		let camera = scene.graph.borrow_object(scene.camera_handle).as_camera();
-		
 		let projection_matrix = &camera.projection_matrix.elements;
 		let projection_matrix_dst_ptr = frame_data_buffer_ptr as *mut [f32; 4];
 		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
 
-		let camera_transform = scene.graph.borrow_transform(scene.camera_handle);
-		let mut inverse_view_matrix = camera_transform.global_matrix;
+		let mut inverse_view_matrix = camera.transform.global_matrix;
+		// inverse_view_matrix.elements[2][3] = -5.0; // TEMPORARY
 		inverse_view_matrix.invert();
 		unsafe {
 			let inverse_view_matrix_dst_ptr = frame_data_buffer_ptr.add(16 * 4) as *mut [f32; 4];
@@ -336,99 +345,84 @@ impl Renderer {
 			copied: bool
 		}
 
-		struct InstanceGroup<'a> {
+		struct InstanceGroup {
 			geometry_info_index: usize,
 			material: Material,
-			nodes: Vec<&'a Node>
+			instances: Vec<usize>
 		}
 
 		let mut geometry_infos: Vec<GeometryInfo> = vec![];
 		let mut instance_groups: Vec<InstanceGroup> = vec![];
-		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; scene.geometries.capacity()];
+		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.capacity()];
 		let mut index_arrays_size = 0;
 		let mut attribute_arrays_size = 0;
 		let mut material_counts = [0; MATERIALS_COUNT];
 
-		let mut total_ambient_light_color = vector3::ZERO;
-		let mut total_ambient_light_intensity = 0.0;
-		let mut point_lights: Vec<&Node> = vec![];
+		let total_ambient_light_color = vector3::ZERO;
+		let total_ambient_light_intensity = 0.0;
+		let mut point_light_entities: Vec<usize> = vec![];
 
-		for node in scene.graph.iter() {
-			match &node.object {
-				Object::AmbientLight(ambient_light) => {
-					total_ambient_light_color += &ambient_light.color;
-					total_ambient_light_intensity += ambient_light.intensity;
-				},
-				Object::PointLight(_) => {
-					point_lights.push(node);
-				},
-				Object::Mesh(mesh) => {
-					let geometry_index = mesh.geometry_handle.index();
-					let material_index = mesh.material as usize + 1;
-					
-					if map[geometry_index][0].is_none() {
-						let geometry = scene.geometries.borrow(mesh.geometry_handle);
-
-						geometry_infos.push(GeometryInfo {
-							geometry,
-							index_array_relative_offset: index_arrays_size,
-							attribute_array_relative_offset: attribute_arrays_size,
-							copied: false
-						});
-
-						map[geometry_index][0] = Some(geometry_infos.len() - 1);
-						index_arrays_size += size_of_val(geometry.indices());
-						attribute_arrays_size += size_of_val(geometry.attributes());
-					}
-
-					if let Some(instance_group_index) = map[geometry_index][material_index] {
-						instance_groups[instance_group_index].nodes.push(node);
-					}
-					else {
-						instance_groups.push(InstanceGroup {
-							geometry_info_index: map[geometry_index][0].unwrap(),
-							material: mesh.material,
-							nodes: vec![node]
-						});
-
-						map[geometry_index][material_index] = Some(instance_groups.len() - 1);
-					}
-
-					material_counts[mesh.material as usize] += 1;
-				},
-				_ => ()
-			}
-		}
-
-		struct TextInfo<'a> {
-			text: &'a Text,
+		struct TextInfo { // better name?
+			entity: usize,
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize
 		}
 
-		let mut text_infos: Vec<TextInfo> = Vec::with_capacity(scene.text.occupied_record_count());
+		let mut text_infos: Vec<TextInfo> = Vec::new(); //Vec::with_capacity(scene.text.occupied_record_count());
 
-		for text in scene.text.iter_mut() {
-			if text.get_string().is_empty() {
-				continue;
+		for entity in &self.entities {
+			if let Some(_) = light_components.try_borrow(*entity) {
+				point_light_entities.push(*entity);
 			}
 
-			if text.generate {
-				let font = scene.fonts.borrow(text.font);
-				text.generate(&font);
+			if let Some(mesh) = mesh_components.try_borrow(*entity) {
+				let geometry_index = mesh.geometry_handle.index();
+				let material_index = mesh.material as usize + 1;
+				
+				if map[geometry_index][0].is_none() {
+					let geometry = geometries.borrow(mesh.geometry_handle);
+
+					geometry_infos.push(GeometryInfo {
+						geometry,
+						index_array_relative_offset: index_arrays_size,
+						attribute_array_relative_offset: attribute_arrays_size,
+						copied: false
+					});
+
+					map[geometry_index][0] = Some(geometry_infos.len() - 1);
+					index_arrays_size += size_of_val(geometry.indices());
+					attribute_arrays_size += size_of_val(geometry.attributes());
+				}
+
+				if let Some(instance_group_index) = map[geometry_index][material_index] {
+					instance_groups[instance_group_index].instances.push(*entity);
+				}
+				else {
+					instance_groups.push(InstanceGroup {
+						geometry_info_index: map[geometry_index][0].unwrap(),
+						material: mesh.material,
+						instances: vec![*entity]
+					});
+
+					map[geometry_index][material_index] = Some(instance_groups.len() - 1);
+				}
+
+				material_counts[mesh.material as usize] += 1;
 			}
 
-			let vertex_indices_size = size_of_val(text.get_vertex_indices());
-			let vertex_attributes_size = size_of_val(text.get_vertex_attributes());
+			if let Some(text) = text_components.try_borrow(*entity) {
+				let vertex_indices_size = size_of_val(text.indices());
+				let vertex_attributes_size = size_of_val(text.attributes());
 
-			text_infos.push(TextInfo {
-				text,
-				index_array_relative_offset: index_arrays_size,
-				attribute_array_relative_offset: attribute_arrays_size
-			});
+				text_infos.push(TextInfo {
+					entity: *entity,
+					index_array_relative_offset: index_arrays_size,
+					attribute_array_relative_offset: attribute_arrays_size
+				});
 
-			index_arrays_size += vertex_indices_size;
-			attribute_arrays_size += vertex_attributes_size;
+				index_arrays_size += vertex_indices_size;
+				attribute_arrays_size += vertex_attributes_size;
+			}
 		}
 
 		// Copy light data into frame data buffer
@@ -443,12 +437,12 @@ impl Renderer {
 		let color_base_offest = 40 * 4;
 		let stride = 8 * 4;
 
-		for point_light_node in point_lights {
-			let point_light = point_light_node.object.as_point_light();
+		for entity in point_light_entities {
+			let point_light = light_components.borrow(entity).as_point_light();
 			let intensified_color = point_light.color * point_light.intensity;
 
 			unsafe {
-				let position = point_light_node.transform.global_matrix.extract_position();
+				let position = transform3d_components.borrow(entity).global_matrix.extract_position();
 				let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
 				copy_nonoverlapping(&position as *const Vector3, position_dst_ptr, 1);
 
@@ -679,48 +673,52 @@ impl Renderer {
 
 			match instance_group.material {
 				Material::Line => {
-					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let offset = line_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(transform_ptr, instance_data_dst_ptr, 4);
 						}
 					}
 
 					secondary_command_buffer = line_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Basic => {
-					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let offset = basic_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(transform_ptr, instance_data_dst_ptr, 4);
 						}
 					}
 
 					secondary_command_buffer = basic_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Normal => {
-					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = normal_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(transform_ptr, instance_data_dst_ptr, 4);
 						}
 					}
 
 					secondary_command_buffer = normal_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Lambert => {
-					for (instance_index, instance) in instance_group.nodes.iter().enumerate() {
+					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = lambert_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
 							let instance_data_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-							copy_nonoverlapping(instance.transform.global_matrix.elements.as_ptr(), instance_data_dst_ptr, 4);
+							copy_nonoverlapping(transform_ptr, instance_data_dst_ptr, 4);
 						}
 					}
 
@@ -732,10 +730,10 @@ impl Renderer {
 			unsafe {
 				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
-				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices().len() as u32, instance_group.nodes.len() as u32, 0, 0, *instance_group_index as u32);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices().len() as u32, instance_group.instances.len() as u32, 0, 0, *instance_group_index as u32);
 			}
 
-			*instance_group_index += instance_group.nodes.len();
+			*instance_group_index += instance_group.instances.len();
 		}
 
 		// End command buffers and add to submission list if there are meshes to draw
@@ -791,27 +789,28 @@ impl Renderer {
 				&[]);
 		}
 
-		// Copy data into buffer and record draw commands
+		// Copy text data into buffer and record draw commands
 		for (index, text_info) in text_infos.iter().enumerate() {
-			let text = text_info.text;
-			let font = scene.fonts.borrow(text.font);
-			let submission_info = font.submission_info.as_ref().unwrap();
+			let text = text_components.borrow(text_info.entity);
+			let font = fonts.borrow(text.font);
+			let submission_info = font.submission_info.as_ref().unwrap(); // error message
 			assert!(submission_info.generation == self.text_resources.submission_generation);
 
 			let instance_data_offset = text_instance_data_resources.array_offset + 4 * 16 * index;
 			let index_array_offset = index_arrays_offset + text_info.index_array_relative_offset;
 			let attribute_array_offset = attribute_arrays_offset + text_info.attribute_array_relative_offset;
 
-			let indices = text.get_vertex_indices();
-			let attributes = text.get_vertex_attributes();
+			let indices = text.indices();
+			let attributes = text.attributes();
 
-			let mut matrix = self.text_resources.projection_matrix;
-			matrix *= &text.transform.matrix;
+			let projection_matrix = &self.text_resources.projection_matrix;
+			let transform_matrix = &transform2d_components.borrow(text_info.entity).matrix;
+			let final_matrix = projection_matrix * transform_matrix;
 
 			unsafe {
 				// Copy data
-				let matrix_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
-				copy_nonoverlapping(matrix.to_padded_array().as_ptr(), matrix_dst_ptr, 3);
+				let final_matrix_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset) as *mut [f32; 4];
+				copy_nonoverlapping(final_matrix.to_padded_array().as_ptr(), final_matrix_dst_ptr, 3);
 
 				let atlas_index_dst_ptr = instance_data_buffer_ptr.add(instance_data_offset + 12 * 4) as *mut i32;
 				copy_nonoverlapping(&(submission_info.index as i32), atlas_index_dst_ptr, 1);
@@ -919,7 +918,7 @@ impl Renderer {
 	}
 }
 
-impl Drop for Renderer {
+impl Drop for RenderSystem {
 	fn drop(&mut self) {
 		let logical_device = &self.context.logical_device;
 
