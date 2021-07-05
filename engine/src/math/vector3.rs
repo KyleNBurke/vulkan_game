@@ -99,6 +99,18 @@ impl Vector3 {
 		self.y = iy * q.w + iw * -q.y + iz * -q.x - ix * -q.z;
 		self.z = iz * q.w + iw * -q.z + ix * -q.y - iy * -q.x;
 	}
+	
+	pub fn min(&mut self, other: &Self) {
+		self.x = self.x.min(other.x);
+		self.y = self.y.min(other.y);
+		self.z = self.z.min(other.z);
+	}
+
+	pub fn max(&mut self, other: &Self) {
+		self.x = self.x.max(other.x);
+		self.y = self.y.max(other.y);
+		self.z = self.z.max(other.z);
+	}
 }
 
 impl_op_ex!(+ |a: &Vector3, b: &Vector3| -> Vector3 {
@@ -329,6 +341,20 @@ mod tests {
 		q.set_from_axis_angle(&Vector3::new(0.0, 1.0, 0.0), FRAC_PI_2);
 		v.apply_quaternion(&q);
 		assert_approx_eq(&v, &Vector3 { x: 1.0, y: 0.0, z: 0.0 }, 1e-6);
+	}
+
+	#[test]
+	fn min() {
+		let mut a = Vector3::new(1.0, -4.2, 0.0);
+		a.min(&Vector3::new(-1.0, 2.0, 0.0));
+		assert_eq!(a, Vector3 { x: -1.0, y: -4.2, z: 0.0 });
+	}
+
+	#[test]
+	fn max() {
+		let mut a = Vector3::new(1.0, -4.2, 0.0);
+		a.max(&Vector3::new(-1.0, 2.0, 0.0));
+		assert_eq!(a, Vector3 { x: 1.0, y: 2.0, z: 0.0 });
 	}
 
 	#[test]
