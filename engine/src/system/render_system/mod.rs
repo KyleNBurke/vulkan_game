@@ -410,6 +410,10 @@ impl RenderSystem {
 			}
 
 			if let Some(text) = text_components.try_borrow(*entity) {
+				if text.string.is_empty() {
+					continue;
+				}
+
 				let vertex_indices_size = size_of_val(text.indices());
 				let vertex_attributes_size = size_of_val(text.attributes());
 
