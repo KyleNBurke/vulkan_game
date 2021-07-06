@@ -6,7 +6,7 @@ use super::MAX_FONTS;
 mod creation;
 use creation::*;
 
-pub struct TextResources {
+pub struct TextRenderSystem {
 	sampler_descriptor_set_layout: vk::DescriptorSetLayout,
 	atlases_descriptor_set_layout: vk::DescriptorSetLayout,
 	pub pipeline_layout: vk::PipelineLayout,
@@ -27,7 +27,7 @@ struct Atlas {
 	image_view: vk::ImageView
 }
 
-impl TextResources {
+impl TextRenderSystem {
 	pub fn new(logical_device: &ash::Device, instance_data_descriptor_set_layout: vk::DescriptorSetLayout, extent: vk::Extent2D, render_pass: vk::RenderPass, descriptor_pool: vk::DescriptorPool) -> Self {
 		let sampler_descriptor_set_layout = create_sampler_descriptor_set_layout(logical_device);
 		let atlases_descriptor_set_layout = create_atlases_descriptor_set_layout(logical_device);

@@ -6,7 +6,7 @@ use super::MATERIALS_COUNT;
 mod creation;
 use creation::*;
 
-pub struct MeshResources {
+pub struct MeshRenderSystem {
 	pub pipeline_layout: vk::PipelineLayout,
 	pub line_pipeline: vk::Pipeline,
 	pub basic_pipeline: vk::Pipeline,
@@ -37,7 +37,7 @@ pub struct StaticInstanceGroup {
 	pub first_instance: usize
 }
 
-impl MeshResources {
+impl MeshRenderSystem {
 	pub fn new(
 		logical_device: &ash::Device,
 		frame_data_descriptor_set_layout: vk::DescriptorSetLayout,

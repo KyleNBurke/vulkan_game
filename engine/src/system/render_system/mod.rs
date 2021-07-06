@@ -13,18 +13,17 @@ use ash::{vk, version::DeviceV1_0, extensions::khr};
 mod creation;
 use creation::*;
 
-mod mesh_resources;
-use mesh_resources::*;
+mod mesh_render_system;
+use mesh_render_system::*;
 
-mod text_resources;
-use text_resources::*;
+mod text_render_system;
+use text_render_system::*;
 
 const IN_FLIGHT_FRAMES_COUNT: usize = 2;
 const FRAME_DATA_MEMORY_SIZE: usize = 76 * 4;
 const MATERIALS_COUNT: usize = 4;
 const MAX_POINT_LIGHTS: usize = 5;
 const MAX_FONTS: usize = 10;
-
 
 pub struct RenderSystem {
 	pub entities: Vec<usize>,
@@ -37,8 +36,8 @@ pub struct RenderSystem {
 	instance_data_descriptor_set_layout: vk::DescriptorSetLayout,
 	in_flight_frames: [InFlightFrame; IN_FLIGHT_FRAMES_COUNT],
 	current_in_flight_frame_index: usize,
-	mesh_resources: MeshResources,
-	text_resources: TextResources
+	mesh_resources: MeshRenderSystem,
+	text_resources: TextRenderSystem
 }
 
 struct Swapchain {
@@ -226,8 +225,8 @@ impl RenderSystem {
 		let frame_data_descriptor_set_layout = create_frame_data_descriptor_set_layout(&context.logical_device);
 		let instance_data_descriptor_set_layout = create_instance_data_descriptor_set_layout(&context.logical_device);
 		let in_flight_frames = create_in_flight_frames(&context, descriptor_pool, command_pool, frame_data_descriptor_set_layout, instance_data_descriptor_set_layout);
-		let mesh_resources = MeshResources::new(&context.logical_device, frame_data_descriptor_set_layout, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
-		let text_renderer = TextResources::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
+		let mesh_resources = MeshRenderSystem::new(&context.logical_device, frame_data_descriptor_set_layout, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
+		let text_renderer = TextRenderSystem::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
 
 		Self {
 			entities: Vec::new(),
