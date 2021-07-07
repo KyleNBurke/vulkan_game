@@ -1,6 +1,7 @@
 use crate::math::{vector2, Vector2, matrix3, Matrix3};
 
 pub struct Transform2D {
+	pub(crate) dirty: bool,
 	pub position: Vector2,
 	pub orientation: f32,
 	pub scale: Vector2,
@@ -10,6 +11,7 @@ pub struct Transform2D {
 impl Transform2D {
 	pub fn new() -> Self {
 		Self {
+			dirty: false,
 			position: vector2::ZERO,
 			orientation: 0.0,
 			scale: Vector2::from_scalar(1.0),

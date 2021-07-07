@@ -4,7 +4,7 @@ use engine::{
 	EntityManager,
 	Font,
 	Geometry3D,
-	component::{ComponentList, Light, Mesh, MeshBoundsHelper, Text, TextComponentList, Transform2D, Transform3D, Transform3DComponentList, mesh::Material},
+	component::{ComponentList, Light, Mesh, MeshBoundsHelper, Text, TextComponentList, Transform2D, Transform2DComponentList, Transform3D, Transform3DComponentList, mesh::Material},
 	glfw::{self, Glfw},
 	math::{Vector3, box3, vector3},
 	pool::Pool,
@@ -23,7 +23,7 @@ pub struct Game {
 	physics_system: PhysicsSystem,
 	mesh_bounds_helper_system: MeshBoundsHelperSystem,
 	text_components: TextComponentList,
-	transform2d_components: ComponentList<Transform2D>,
+	transform2d_components: Transform2DComponentList,
 	light_components: ComponentList<Light>,
 	mesh_components: ComponentList<Mesh>,
 	transform3d_components: Transform3DComponentList,
@@ -44,7 +44,7 @@ impl Game {
 		let mut entity_manager = EntityManager::new();
 
 		let mut text_components = TextComponentList::new();
-		let mut transform2d_components = ComponentList::<Transform2D>::new();
+		let mut transform2d_components = Transform2DComponentList::new();
 		let light_components = ComponentList::<Light>::new();
 		let mut mesh_components = ComponentList::<Mesh>::new();
 		let mut transform3d_components = Transform3DComponentList::new();
@@ -54,17 +54,16 @@ impl Game {
 		let mut physics_system = PhysicsSystem::new();
 		let mut mesh_bounds_helper_system = MeshBoundsHelperSystem::new();
 
-		let label_entitiy = entity_manager.create();
+		let label_entity = entity_manager.create();
 		let font_handle = fonts.add(Font::new("game/res/roboto.ttf", 14));
 		render_system.submit_fonts(&mut fonts);
-		text_components.add(label_entitiy, Text::new(font_handle, String::from("...")));
+		text_components.add(label_entity, Text::new(font_handle, String::from("...")));
 		let mut transform = Transform2D::new();
 		transform.position.set(10.0, 20.0);
-		transform.update_matrix();
-		transform2d_components.add(label_entitiy, transform);
-		render_system.entities.push(label_entitiy);
+		transform2d_components.add(label_entity, transform);
+		render_system.entities.push(label_entity);
 
-		let frame_metrics_system = FrameMetricsSystem::new(label_entitiy);
+		let frame_metrics_system = FrameMetricsSystem::new(label_entity);
 
 		let box_1_bounds_helper = entity_manager.create();
 		transform3d_components.add(box_1_bounds_helper, Transform3D::new());
@@ -86,7 +85,6 @@ impl Game {
 		render_system.entities.push(box_1);
 		physics_system.entities.push(box_1);
 		mesh_bounds_helper_system.entities.push(box_1);
-
 
 		let plane = entity_manager.create();
 		let mut transform = Transform3D::new();
@@ -149,6 +147,7 @@ impl Game {
 		self.mesh_bounds_helper_system.update(&self.transform3d_components, &self.mesh_components, &mut self.geometries, &self.mesh_bounds_helper_components);
 		
 		self.text_components.generate_dirties(&self.fonts);
+		self.transform2d_components.check_for_dirties();
 		self.transform3d_components.check_for_dirties();
 	}
 

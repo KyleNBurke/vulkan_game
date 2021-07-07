@@ -1,7 +1,7 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use crate::{
 	Camera,
-	component::{ComponentList, Light, Mesh, TextComponentList, Transform2D, Transform3DComponentList, mesh::Material},
+	component::{ComponentList, Light, Mesh, TextComponentList, Transform2DComponentList, Transform3DComponentList, mesh::Material},
 	Font,
 	Geometry3D,
 	math::{vector3, Vector3},
@@ -285,7 +285,7 @@ impl RenderSystem {
 		println!("Fonts submitted");
 	}
 
-	pub fn render(&mut self, camera: &Camera, light_components: &ComponentList<Light>, geometries: &Pool<Geometry3D>, mesh_components: &ComponentList<Mesh>, transform3d_components: &Transform3DComponentList, fonts: &Pool<Font>, text_components: &TextComponentList, transform2d_components: &ComponentList<Transform2D>) -> bool {
+	pub fn render(&mut self, camera: &Camera, light_components: &ComponentList<Light>, geometries: &Pool<Geometry3D>, mesh_components: &ComponentList<Mesh>, transform3d_components: &Transform3DComponentList, fonts: &Pool<Font>, text_components: &TextComponentList, transform2d_components: &Transform2DComponentList) -> bool {
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		

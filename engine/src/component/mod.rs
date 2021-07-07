@@ -10,6 +10,9 @@ pub use transform3d_component_list::Transform3DComponentList;
 pub mod transform2d;
 pub use transform2d::Transform2D;
 
+pub mod transform2d_component_list;
+pub use transform2d_component_list::Transform2DComponentList;
+
 pub mod light;
 pub use light::Light;
 
