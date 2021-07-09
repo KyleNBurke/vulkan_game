@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{convert::TryInto, time::Duration};
 use engine::{
 	Camera,
 	EntityManager,
@@ -36,7 +36,8 @@ impl Game {
 		let mut render_system = RenderSystem::new(glfw, window);
 		let (extent_width, extent_height) = render_system.get_swapchain_extent();
 		let mut camera = Camera::new(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
-		camera.transform.position.z = -4.0;
+		camera.transform.position.set(-5.0, 3.0, -5.0);
+		camera.transform.rotate_y(0.5);
 		camera.update();
 
 		let mut geometries = Pool::<Geometry3D>::new();
@@ -132,7 +133,7 @@ impl Game {
 	}
 
 	pub fn handle_resize(&mut self, width: i32, height: i32) {
-		let (extent_width, extent_height) = self.render_system.resize(width, height);
+		let (extent_width, extent_height) = self.render_system.recreate_swapchain(width, height);
 		self.camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 	}
 

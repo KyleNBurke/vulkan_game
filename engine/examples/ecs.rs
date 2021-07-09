@@ -68,7 +68,7 @@ fn main() {
 		}
 
 		if resized || surface_changed {
-			let (extent_width, extent_height) = render_system.resize(width, height);
+			let (extent_width, extent_height) = render_system.recreate_swapchain(width, height);
 			camera.projection_matrix.make_perspective(extent_width as f32 / extent_height as f32, 75.0, 0.1, 50.0);
 		}
 		

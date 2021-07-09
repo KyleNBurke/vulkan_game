@@ -73,7 +73,7 @@ impl MeshRenderSystem {
 		}
 	}
 
-	pub fn resize(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
+	pub fn handle_swapchain_recreation(&mut self, logical_device: &ash::Device, extent: vk::Extent2D, render_pass: vk::RenderPass) {
 		unsafe {
 			logical_device.destroy_pipeline(self.lambert_pipeline, None);
 			logical_device.destroy_pipeline(self.normal_pipeline, None);

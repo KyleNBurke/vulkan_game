@@ -249,7 +249,7 @@ impl RenderSystem {
 		(extent.width, extent.height)
 	}
 
-	pub fn resize(&mut self, framebuffer_width: i32, framebuffer_height: i32) -> (u32, u32) {
+	pub fn recreate_swapchain(&mut self, framebuffer_width: i32, framebuffer_height: i32) -> (u32, u32) {
 		let logical_device = &self.context.logical_device;
 
 		unsafe {
@@ -267,9 +267,9 @@ impl RenderSystem {
 		}
 
 		self.swapchain = create_swapchain(&self.context, framebuffer_width as u32, framebuffer_height as u32, self.render_pass);
-		self.mesh_resources.resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
-		self.text_resources.resize(&self.context.logical_device, self.swapchain.extent, self.render_pass);
-		println!("Renderer resized");
+		self.mesh_resources.handle_swapchain_recreation(&self.context.logical_device, self.swapchain.extent, self.render_pass);
+		self.text_resources.handle_swapchain_recreation(&self.context.logical_device, self.swapchain.extent, self.render_pass);
+		println!("Swapchain recreated");
 
 		let extent = &self.swapchain.extent;
 		(extent.width, extent.height)
@@ -285,7 +285,16 @@ impl RenderSystem {
 		println!("Fonts submitted");
 	}
 
-	pub fn render(&mut self, camera: &Camera, light_components: &ComponentList<Light>, geometries: &Pool<Geometry3D>, mesh_components: &ComponentList<Mesh>, transform3d_components: &Transform3DComponentList, fonts: &Pool<Font>, text_components: &TextComponentList, transform2d_components: &Transform2DComponentList) -> bool {
+	pub fn render(&mut self,
+		camera: &Camera,
+		light_components: &ComponentList<Light>,
+		geometries: &Pool<Geometry3D>,
+		mesh_components: &ComponentList<Mesh>,
+		transform3d_components: &Transform3DComponentList,
+		fonts: &Pool<Font>,
+		text_components: &TextComponentList,
+		transform2d_components: &Transform2DComponentList) -> bool
+	{
 		let logical_device = &self.context.logical_device;
 		let in_flight_frame = &mut self.in_flight_frames[self.current_in_flight_frame_index];
 		
@@ -325,7 +334,6 @@ impl RenderSystem {
 		unsafe { copy_nonoverlapping(projection_matrix.as_ptr(), projection_matrix_dst_ptr, 4) };
 
 		let mut inverse_view_matrix = camera.transform.global_matrix;
-		// inverse_view_matrix.elements[2][3] = -5.0; // TEMPORARY
 		inverse_view_matrix.invert();
 		unsafe {
 			let inverse_view_matrix_dst_ptr = frame_data_buffer_ptr.add(16 * 4) as *mut [f32; 4];
