@@ -145,7 +145,7 @@ impl Game {
 		}
 
 		self.physics_system.update(&mut self.transform3d_components, &mut self.rigid_body_components);
-		self.mesh_bounds_helper_system.update(&self.transform3d_components, &self.mesh_components, &mut self.geometries, &self.mesh_bounds_helper_components);
+		self.mesh_bounds_helper_system.update(&mut self.transform3d_components, &self.mesh_components, &mut self.geometries, &self.mesh_bounds_helper_components);
 		
 		self.text_components.generate_dirties(&self.fonts);
 		self.transform2d_components.check_for_dirties();

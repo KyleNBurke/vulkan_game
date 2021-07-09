@@ -464,7 +464,7 @@ impl RenderSystem {
 			point_light_count += 1;
 		}
 
-		assert!(point_light_count <= MAX_POINT_LIGHTS, "Only {} point lights allowed", MAX_POINT_LIGHTS);
+		assert!(point_light_count <= MAX_POINT_LIGHTS, "Cannot render scene because {} point lights is more than the limit {}", point_light_count, MAX_POINT_LIGHTS);
 		unsafe {
 			let point_light_count_dst_ptr = frame_data_buffer_ptr.add(35 * 4) as *mut u32;
 			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);

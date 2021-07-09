@@ -11,9 +11,11 @@ impl MeshBoundsHelperSystem {
 		}
 	}
 
-	pub fn update(&self, transform_components: &Transform3DComponentList, mesh_components: &ComponentList<Mesh>, geometries: &mut Pool<Geometry3D>, mesh_bounds_helper_components: &ComponentList<MeshBoundsHelper>) {
+	pub fn update(&self, transform_components: &mut Transform3DComponentList, mesh_components: &ComponentList<Mesh>, geometries: &mut Pool<Geometry3D>, mesh_bounds_helper_components: &ComponentList<MeshBoundsHelper>) {
 		for entity in &self.entities {
-			let global_matrix = transform_components.borrow(*entity).global_matrix();
+			let transform = transform_components.borrow(*entity);
+			let transform_position = transform.position;
+			let global_matrix = transform.global_matrix().truncate();
 			let mesh = mesh_components.borrow(*entity);
 			let geometry = geometries.borrow(mesh.geometry_handle);
 			let bounding_box_vertices = geometry.bounding_box().as_vertices();
@@ -22,21 +24,21 @@ impl MeshBoundsHelperSystem {
 			let mut max = Vector3::from_scalar(f32::NEG_INFINITY);
 			
 			for vertex in &bounding_box_vertices {
-				let transformed_vertex = global_matrix * vertex.expand(1.0);
+				let transformed_vertex = global_matrix * vertex;
 
-				min.x = min.x.min(transformed_vertex.x);
-				min.y = min.y.min(transformed_vertex.y);
-				min.z = min.z.min(transformed_vertex.z);
-
-				max.x = max.x.max(transformed_vertex.x);
-				max.y = max.y.max(transformed_vertex.y);
-				max.z = max.z.max(transformed_vertex.z);
+				min.min(&transformed_vertex);
+				max.max(&transformed_vertex);
 			}
 
 			let bounds_entity = mesh_bounds_helper_components.borrow(*entity).bounds_entity;
+			
 			let bounds_mesh = mesh_components.borrow(bounds_entity);
 			let bounds_geo = geometries.borrow_mut(bounds_mesh.geometry_handle);
 			bounds_geo.make_box_helper(&Box3::new(min, max));
+
+			let bounds_transform = transform_components.borrow_mut(bounds_entity);
+			bounds_transform.position = transform_position;
+			transform_components.update(bounds_entity);
 		}
 	}
 }
