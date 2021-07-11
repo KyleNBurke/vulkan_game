@@ -1,11 +1,11 @@
 use crate::entity_manager::MAX_ENTITY_COUNT;
 
-pub struct ComponentList<T> {
-	components: Vec<(usize, T)>,
+pub struct MultiComponentList<T> {
+	components: Vec<(Vec<usize>, T)>,
 	entity_to_index_map: [Option<usize>; MAX_ENTITY_COUNT]
 }
 
-impl<T> ComponentList<T> {
+impl<T> MultiComponentList<T> {
 	pub fn new() -> Self {
 		Self {
 			components: Vec::new(),
@@ -13,21 +13,37 @@ impl<T> ComponentList<T> {
 		}
 	}
 
-	pub fn add(&mut self, entity: usize, component: T) {
-		assert!(self.entity_to_index_map[entity].is_none(), "Cannot add component to entity {} because it already has this component type", entity);
-		self.components.push((entity, component));
-		let index = self.components.len() - 1;
-		self.entity_to_index_map[entity] = Some(index);
+	pub fn add(&mut self, component: T) -> usize {
+		self.components.push((Vec::new(), component));
+		self.components.len() - 1
 	}
 
-	pub fn remove(&mut self, entity: usize) {
-		let index_option = self.entity_to_index_map[entity];
-		assert!(index_option.is_some(), "Cannot remove component from entity {} because it does not have this component type", entity);
-		let index = index_option.unwrap();
-		self.entity_to_index_map[entity] = None;
+	pub fn remove(&mut self, index: usize) {
+		let entities = &self.components[index].0;
+		for entity in entities {
+			self.entity_to_index_map[*entity] = None;
+		}
+
 		self.components.swap_remove(index);
-		let (swapped_entity, _) = self.components[index];
-		self.entity_to_index_map[swapped_entity] = Some(index);
+
+		let (swapped_entities, _) = &self.components[index];
+		for entity in swapped_entities {
+			self.entity_to_index_map[*entity] = Some(index);
+		}
+	}
+
+	pub fn assign(&mut self, entity: usize, index: usize) {
+		self.entity_to_index_map[entity] = Some(index);
+		self.components[index].0.push(entity);
+	}
+
+	pub fn unassign(&mut self, entity: usize) {
+		let index = self.entity_to_index_map[entity];
+		assert!(index.is_some(), "Cannot unassign component from entity {} because it does not have this component type", entity);
+		let (entities, _) = &mut self.components[index.unwrap()];
+		let entity_index = entities.iter().position(|e| *e == entity).unwrap();
+		entities.swap_remove(entity_index);
+		self.entity_to_index_map[entity] = None;
 	}
 
 	pub fn borrow(&self, entity: usize) -> &T {
@@ -52,7 +68,7 @@ impl<T> ComponentList<T> {
 		Some(&mut self.components[index].1)
 	}
 
-	pub fn iter(&self) -> impl Iterator<Item = &(usize, T)> {
+	pub fn iter(&self) -> impl Iterator<Item = &(Vec<usize>, T)> {
 		self.components.iter()
 	}
 }

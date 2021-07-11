@@ -1,6 +1,9 @@
 pub mod component_list;
 pub use component_list::ComponentList;
 
+pub mod multi_component_list;
+pub use multi_component_list::MultiComponentList;
+
 pub mod transform3d;
 pub use transform3d::Transform3D;
 

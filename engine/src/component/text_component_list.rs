@@ -42,6 +42,10 @@ impl TextComponentList {
 		self.component_list.try_borrow_mut(entity)
 	}
 
+	pub fn iter(&self) -> impl Iterator<Item = &(usize, Text)> {
+		self.component_list.iter()
+	}
+
 	pub fn generate_dirties(&mut self, fonts: &Pool<Font>) {
 		while let Some(entity) = self.dirty_list.pop() {
 			let text = self.component_list.borrow_mut(entity);

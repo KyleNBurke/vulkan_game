@@ -1,10 +1,10 @@
-use std::{convert::TryInto, time::Duration};
+use std::time::Duration;
 use engine::{
 	Camera,
 	EntityManager,
 	Font,
 	Geometry3D,
-	component::{ComponentList, Light, Mesh, MeshBoundsHelper, Text, TextComponentList, Transform2D, Transform2DComponentList, Transform3D, Transform3DComponentList, mesh::Material},
+	component::{ComponentList, MultiComponentList, Light, Mesh, MeshBoundsHelper, Text, TextComponentList, Transform2D, Transform2DComponentList, Transform3D, Transform3DComponentList, mesh::Material},
 	glfw::{self, Glfw},
 	math::{Vector3, box3, vector3},
 	pool::Pool,
@@ -25,7 +25,7 @@ pub struct Game {
 	text_components: TextComponentList,
 	transform2d_components: Transform2DComponentList,
 	light_components: ComponentList<Light>,
-	mesh_components: ComponentList<Mesh>,
+	mesh_components: MultiComponentList<Mesh>,
 	transform3d_components: Transform3DComponentList,
 	rigid_body_components: ComponentList<RigidBody>,
 	mesh_bounds_helper_components: ComponentList<MeshBoundsHelper>
@@ -47,7 +47,7 @@ impl Game {
 		let mut text_components = TextComponentList::new();
 		let mut transform2d_components = Transform2DComponentList::new();
 		let light_components = ComponentList::<Light>::new();
-		let mut mesh_components = ComponentList::<Mesh>::new();
+		let mut mesh_components = MultiComponentList::<Mesh>::new();
 		let mut transform3d_components = Transform3DComponentList::new();
 		let mut rigid_body_components = ComponentList::<RigidBody>::new();
 		let mut mesh_bounds_helper_components = ComponentList::<MeshBoundsHelper>::new();
@@ -62,15 +62,14 @@ impl Game {
 		let mut transform = Transform2D::new();
 		transform.position.set(10.0, 20.0);
 		transform2d_components.add(label_entity, transform);
-		render_system.entities.push(label_entity);
 
 		let frame_metrics_system = FrameMetricsSystem::new(label_entity);
 
 		let box_1_bounds_helper = entity_manager.create();
 		transform3d_components.add(box_1_bounds_helper, Transform3D::new());
 		let geometry_handle = geometries.add(Geometry3D::create_box_helper(&box3::DEFAULT_SQUARE));
-		mesh_components.add(box_1_bounds_helper, Mesh { geometry_handle, material: Material::Line });
-		render_system.entities.push(box_1_bounds_helper);
+		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Line });
+		mesh_components.assign(box_1_bounds_helper, index);
 
 		let box_1 = entity_manager.create();
 		let mut transform = Transform3D::new();
@@ -80,10 +79,10 @@ impl Game {
 		transform.scale.set_from_scalar(0.5);
 		transform3d_components.add(box_1, transform);
 		let geometry_handle = geometries.add(Geometry3D::create_box());
-		mesh_components.add(box_1, Mesh { geometry_handle, material: Material::Normal });
+		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Normal });
+		mesh_components.assign(box_1, index);
 		rigid_body_components.add(box_1, RigidBody { velocity: vector3::ZERO, acceleration: Vector3::new(0.0, -0.00001, 0.0) });
 		mesh_bounds_helper_components.add(box_1, MeshBoundsHelper { bounds_entity: box_1_bounds_helper });
-		render_system.entities.push(box_1);
 		physics_system.entities.push(box_1);
 		mesh_bounds_helper_system.entities.push(box_1);
 
@@ -92,8 +91,8 @@ impl Game {
 		transform.scale.set_from_scalar(10.0);
 		transform3d_components.add(plane, transform);
 		let geometry_handle = geometries.add(Geometry3D::create_plane());
-		mesh_components.add(plane, Mesh { geometry_handle, material: Material::Normal });
-		render_system.entities.push(plane);
+		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Normal });
+		mesh_components.assign(plane, index);
 
 		Self {
 			camera,

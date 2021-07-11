@@ -1,7 +1,7 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use crate::{
 	Camera,
-	component::{ComponentList, Light, Mesh, TextComponentList, Transform2DComponentList, Transform3DComponentList, mesh::Material},
+	component::{ComponentList, MultiComponentList, Light, Mesh, TextComponentList, Transform2DComponentList, Transform3DComponentList, mesh::Material, Text},
 	Font,
 	Geometry3D,
 	math::{vector3, Vector3},
@@ -26,7 +26,6 @@ const MAX_POINT_LIGHTS: usize = 5;
 const MAX_FONTS: usize = 10;
 
 pub struct RenderSystem {
-	pub entities: Vec<usize>,
 	context: Context,
 	render_pass: vk::RenderPass,
 	swapchain: Swapchain,
@@ -229,7 +228,6 @@ impl RenderSystem {
 		let text_renderer = TextRenderSystem::new(&context.logical_device, instance_data_descriptor_set_layout, swapchain.extent, render_pass, descriptor_pool);
 
 		Self {
-			entities: Vec::new(),
 			context,
 			render_pass,
 			swapchain,
@@ -289,7 +287,7 @@ impl RenderSystem {
 		camera: &Camera,
 		light_components: &ComponentList<Light>,
 		geometries: &Pool<Geometry3D>,
-		mesh_components: &ComponentList<Mesh>,
+		mesh_components: &MultiComponentList<Mesh>,
 		transform3d_components: &Transform3DComponentList,
 		fonts: &Pool<Font>,
 		text_components: &TextComponentList,
@@ -340,134 +338,52 @@ impl RenderSystem {
 			copy_nonoverlapping(inverse_view_matrix.elements.as_ptr(), inverse_view_matrix_dst_ptr, 4);
 		}
 
-		// Iterate over meshes to
-		// - Update transformation matrix
-		// - Split nodes into separate lists
-		// - Group meshes together which share the same geometry and material
-		// - Calculate the offsets and size of the data
-		struct GeometryInfo<'a> {
-			geometry: &'a Geometry3D,
-			index_array_relative_offset: usize,
-			attribute_array_relative_offset: usize,
-			copied: bool
-		}
-
-		struct InstanceGroup {
-			geometry_info_index: usize,
-			material: Material,
-			instances: Vec<usize>
-		}
-
-		let mut geometry_infos: Vec<GeometryInfo> = vec![];
-		let mut instance_groups: Vec<InstanceGroup> = vec![];
-		let mut map: Vec<[Option<usize>; MATERIALS_COUNT + 1]> = vec![[None; MATERIALS_COUNT + 1]; geometries.capacity()];
-		let mut index_arrays_size = 0;
-		let mut attribute_arrays_size = 0;
-		let mut material_counts = [0; MATERIALS_COUNT];
-
-		let total_ambient_light_color = vector3::ZERO;
-		let total_ambient_light_intensity = 0.0;
-		let mut point_light_entities: Vec<usize> = vec![];
-
-		struct TextInfo { // better name?
-			entity: usize,
-			index_array_relative_offset: usize,
-			attribute_array_relative_offset: usize
-		}
-
-		let mut text_infos: Vec<TextInfo> = Vec::new(); //Vec::with_capacity(scene.text.occupied_record_count());
-
-		for entity in &self.entities {
-			if let Some(_) = light_components.try_borrow(*entity) {
-				point_light_entities.push(*entity);
-			}
-
-			if let Some(mesh) = mesh_components.try_borrow(*entity) {
-				let geometry_index = mesh.geometry_handle.index();
-				let material_index = mesh.material as usize + 1;
-				
-				if map[geometry_index][0].is_none() {
-					let geometry = geometries.borrow(mesh.geometry_handle);
-
-					geometry_infos.push(GeometryInfo {
-						geometry,
-						index_array_relative_offset: index_arrays_size,
-						attribute_array_relative_offset: attribute_arrays_size,
-						copied: false
-					});
-
-					map[geometry_index][0] = Some(geometry_infos.len() - 1);
-					index_arrays_size += size_of_val(geometry.indices());
-					attribute_arrays_size += size_of_val(geometry.attributes());
-				}
-
-				if let Some(instance_group_index) = map[geometry_index][material_index] {
-					instance_groups[instance_group_index].instances.push(*entity);
-				}
-				else {
-					instance_groups.push(InstanceGroup {
-						geometry_info_index: map[geometry_index][0].unwrap(),
-						material: mesh.material,
-						instances: vec![*entity]
-					});
-
-					map[geometry_index][material_index] = Some(instance_groups.len() - 1);
-				}
-
-				material_counts[mesh.material as usize] += 1;
-			}
-
-			if let Some(text) = text_components.try_borrow(*entity) {
-				if text.string.is_empty() {
-					continue;
-				}
-
-				let vertex_indices_size = size_of_val(text.indices());
-				let vertex_attributes_size = size_of_val(text.attributes());
-
-				text_infos.push(TextInfo {
-					entity: *entity,
-					index_array_relative_offset: index_arrays_size,
-					attribute_array_relative_offset: attribute_arrays_size
-				});
-
-				index_arrays_size += vertex_indices_size;
-				attribute_arrays_size += vertex_attributes_size;
-			}
-		}
-
-		// Copy light data into frame data buffer
-		let total_ambient_light_intensified_color = total_ambient_light_color * total_ambient_light_intensity;
-		unsafe {
-			let ambient_light_dst_ptr = frame_data_buffer_ptr.add(32 * 4) as *mut Vector3;
-			copy_nonoverlapping(&total_ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
-		}
+		// Iterate over lights to
+		// - Calculate the total ambient light color and intensity
+		// - Copy the point light data into the frame data buffer
+		let mut total_ambient_light_color = vector3::ZERO;
+		let mut total_ambient_light_intensity = 0.0;
 
 		let mut point_light_count = 0;
 		let position_base_offest = 36 * 4;
 		let color_base_offest = 40 * 4;
 		let stride = 8 * 4;
 
-		for entity in point_light_entities {
-			let point_light = light_components.borrow(entity).as_point_light();
-			let intensified_color = point_light.color * point_light.intensity;
+		for (entity, light) in light_components.iter() {
+			match light {
+				Light::AmbientLight(ambient_light) => {
+					total_ambient_light_color += ambient_light.color;
+					total_ambient_light_intensity += ambient_light.intensity;
+				},
+				Light::PointLight(point_light) => {
+					let intensified_color = point_light.color * point_light.intensity;
+					let position = transform3d_components.borrow(*entity).global_matrix.extract_position();
 
-			unsafe {
-				let position = transform3d_components.borrow(entity).global_matrix.extract_position();
-				let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&position as *const Vector3, position_dst_ptr, 1);
+					unsafe {
+						let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
+						copy_nonoverlapping(&position as *const Vector3, position_dst_ptr, 1);
 
-				let color_dst_ptr = frame_data_buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
-				copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+						let color_dst_ptr = frame_data_buffer_ptr.add(color_base_offest + stride * point_light_count) as *mut Vector3;
+						copy_nonoverlapping(&intensified_color as *const Vector3, color_dst_ptr, 1);
+					}
+
+					point_light_count += 1;
+				}
 			}
-
-			point_light_count += 1;
 		}
 
+		// Copy point light count into frame data buffer
 		assert!(point_light_count <= MAX_POINT_LIGHTS, "Cannot render scene because {} point lights is more than the limit {}", point_light_count, MAX_POINT_LIGHTS);
 		unsafe {
 			let point_light_count_dst_ptr = frame_data_buffer_ptr.add(35 * 4) as *mut u32;
 			copy_nonoverlapping(&(point_light_count as u32) as *const u32, point_light_count_dst_ptr, 1);
+		}
+
+		// Copy total intensified ambient light color into frame data buffer
+		let total_ambient_light_intensified_color = total_ambient_light_color * total_ambient_light_intensity;
+		unsafe {
+			let ambient_light_dst_ptr = frame_data_buffer_ptr.add(32 * 4) as *mut Vector3;
+			copy_nonoverlapping(&total_ambient_light_intensified_color as *const Vector3, ambient_light_dst_ptr, 1);
 		}
 
 		// Flush and unmap frame data buffer
@@ -479,6 +395,64 @@ impl RenderSystem {
 		unsafe {		
 			logical_device.flush_mapped_memory_ranges(&[range.build()]).unwrap();
 			logical_device.unmap_memory(in_flight_frame.frame_data_buffer.memory);
+		}
+
+		// Iterate over meshes to
+		// - Calculate the offsets and size of the data
+		// - Count the number of entities of each material to render
+		struct InstanceGroupInfo<'a> {
+			tuple: &'a (Vec<usize>, Mesh),
+			index_array_relative_offset: usize,
+			attribute_array_relative_offset: usize
+		}
+
+		let mut instance_group_infos: Vec<InstanceGroupInfo> = Vec::new();
+		let mut index_arrays_size = 0;
+		let mut attribute_arrays_size = 0;
+		let mut material_counts = [0; MATERIALS_COUNT];
+
+		for tuple in mesh_components.iter() {
+			instance_group_infos.push(InstanceGroupInfo {
+				tuple,
+				index_array_relative_offset: index_arrays_size,
+				attribute_array_relative_offset: attribute_arrays_size
+			});
+			
+			let (instances, mesh) = tuple;
+			let geometry = geometries.borrow(mesh.geometry_handle);
+
+			index_arrays_size += size_of_val(geometry.indices());
+			attribute_arrays_size += size_of_val(geometry.attributes());
+			material_counts[mesh.material as usize] += instances.len();
+		}
+
+		// Iterate over text to
+		struct TextInfo<'a> {
+			tuple: &'a (usize, Text),
+			index_array_relative_offset: usize,
+			attribute_array_relative_offset: usize
+		}
+
+		let mut text_infos: Vec<TextInfo> = Vec::new();
+
+		for tuple in text_components.iter() {
+			let (_, text) = tuple;
+
+			if text.string.is_empty() {
+				continue;
+			}
+
+			let vertex_indices_size = size_of_val(text.indices());
+			let vertex_attributes_size = size_of_val(text.attributes());
+
+			text_infos.push(TextInfo {
+				tuple,
+				index_array_relative_offset: index_arrays_size,
+				attribute_array_relative_offset: attribute_arrays_size
+			});
+
+			index_arrays_size += vertex_indices_size;
+			attribute_arrays_size += vertex_attributes_size;
 		}
 
 		// Calculate offsets
@@ -656,35 +630,31 @@ impl RenderSystem {
 
 		let mut instance_group_indices = [0; MATERIALS_COUNT];
 
-		for instance_group in &instance_groups {
-			let geometry_info = &mut geometry_infos[instance_group.geometry_info_index];
-			let index_array_offset = index_arrays_offset + geometry_info.index_array_relative_offset;
-			let attribute_array_offset = attribute_arrays_offset + geometry_info.attribute_array_relative_offset;
-			let geometry = geometry_info.geometry;
+		for instance_group in &instance_group_infos {
+			let index_array_offset = index_arrays_offset + instance_group.index_array_relative_offset;
+			let attribute_array_offset = attribute_arrays_offset + instance_group.attribute_array_relative_offset;
+			let (instances, mesh) = instance_group.tuple;
+			let geometry = geometries.borrow(mesh.geometry_handle);
 
 			// Copy geometry data
-			if !geometry_info.copied {
-				let indices = geometry.indices();
-				let attributes = geometry.attributes();
+			let indices = geometry.indices();
+			let attributes = geometry.attributes();
 
-				unsafe {
-					let index_array_dst_ptr = instance_data_buffer_ptr.add(index_array_offset) as *mut u16;
-					copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
+			unsafe {
+				let index_array_dst_ptr = instance_data_buffer_ptr.add(index_array_offset) as *mut u16;
+				copy_nonoverlapping(indices.as_ptr(), index_array_dst_ptr, indices.len());
 
-					let attribute_array_dst_ptr = instance_data_buffer_ptr.add(attribute_array_offset) as *mut f32;
-					copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
-				}
-
-				geometry_info.copied = true;
+				let attribute_array_dst_ptr = instance_data_buffer_ptr.add(attribute_array_offset) as *mut f32;
+				copy_nonoverlapping(attributes.as_ptr(), attribute_array_dst_ptr, attributes.len());
 			}
 
 			// Copy instance data
-			let instance_group_index = &mut instance_group_indices[instance_group.material as usize];
+			let instance_group_index = &mut instance_group_indices[mesh.material as usize];
 			let secondary_command_buffer;
 
-			match instance_group.material {
+			match mesh.material {
 				Material::Line => {
-					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+					for (instance_index, instance) in instances.iter().enumerate() {
 						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let offset = line_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
@@ -697,7 +667,7 @@ impl RenderSystem {
 					secondary_command_buffer = line_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Basic => {
-					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+					for (instance_index, instance) in instances.iter().enumerate() {
 						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let offset = basic_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
@@ -710,7 +680,7 @@ impl RenderSystem {
 					secondary_command_buffer = basic_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Normal => {
-					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+					for (instance_index, instance) in instances.iter().enumerate() {
 						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = normal_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
@@ -723,7 +693,7 @@ impl RenderSystem {
 					secondary_command_buffer = normal_instance_data_resources.secondary_command_buffer;
 				},
 				Material::Lambert => {
-					for (instance_index, instance) in instance_group.instances.iter().enumerate() {
+					for (instance_index, instance) in instances.iter().enumerate() {
 						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = lambert_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
@@ -741,10 +711,10 @@ impl RenderSystem {
 			unsafe {
 				logical_device.cmd_bind_index_buffer(secondary_command_buffer, in_flight_frame.instance_data_buffer.handle, index_array_offset as u64, vk::IndexType::UINT16);
 				logical_device.cmd_bind_vertex_buffers(secondary_command_buffer, 0, &[in_flight_frame.instance_data_buffer.handle], &[attribute_array_offset as u64]);
-				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices().len() as u32, instance_group.instances.len() as u32, 0, 0, *instance_group_index as u32);
+				logical_device.cmd_draw_indexed(secondary_command_buffer, geometry.indices().len() as u32, instances.len() as u32, 0, 0, *instance_group_index as u32);
 			}
 
-			*instance_group_index += instance_group.instances.len();
+			*instance_group_index += instances.len();
 		}
 
 		// End command buffers and add to submission list if there are meshes to draw
@@ -802,7 +772,7 @@ impl RenderSystem {
 
 		// Copy text data into buffer and record draw commands
 		for (index, text_info) in text_infos.iter().enumerate() {
-			let text = text_components.borrow(text_info.entity);
+			let (entity, text) = text_info.tuple;
 			let font = fonts.borrow(text.font);
 			let submission_info = font.submission_info.as_ref().unwrap(); // error message
 			assert!(submission_info.generation == self.text_resources.submission_generation);
@@ -815,7 +785,7 @@ impl RenderSystem {
 			let attributes = text.attributes();
 
 			let projection_matrix = &self.text_resources.projection_matrix;
-			let transform_matrix = &transform2d_components.borrow(text_info.entity).matrix;
+			let transform_matrix = &transform2d_components.borrow(*entity).matrix;
 			let final_matrix = projection_matrix * transform_matrix;
 
 			unsafe {

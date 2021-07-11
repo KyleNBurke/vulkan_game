@@ -1,4 +1,4 @@
-pub const MAX_ENTITY_COUNT: usize = 10;
+pub const MAX_ENTITY_COUNT: usize = 500;
 
 pub struct EntityManager {
 	free_entities: Vec<usize>,

@@ -1,4 +1,4 @@
-use crate::{Geometry3D, component::{ComponentList, Mesh, MeshBoundsHelper, Transform3DComponentList}, math::{Box3, Vector3}, pool::Pool};
+use crate::{Geometry3D, component::{ComponentList, MultiComponentList, Mesh, MeshBoundsHelper, Transform3DComponentList}, math::{Box3, Vector3}, pool::Pool};
 
 pub struct MeshBoundsHelperSystem {
 	pub entities: Vec<usize>
@@ -11,7 +11,7 @@ impl MeshBoundsHelperSystem {
 		}
 	}
 
-	pub fn update(&self, transform_components: &mut Transform3DComponentList, mesh_components: &ComponentList<Mesh>, geometries: &mut Pool<Geometry3D>, mesh_bounds_helper_components: &ComponentList<MeshBoundsHelper>) {
+	pub fn update(&self, transform_components: &mut Transform3DComponentList, mesh_components: &MultiComponentList<Mesh>, geometries: &mut Pool<Geometry3D>, mesh_bounds_helper_components: &ComponentList<MeshBoundsHelper>) {
 		for entity in &self.entities {
 			let transform = transform_components.borrow(*entity);
 			let transform_position = transform.position;
