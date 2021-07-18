@@ -58,18 +58,18 @@ impl Game {
 		let label_entity = entity_manager.create();
 		let font_handle = fonts.add(Font::new("game/res/roboto.ttf", 14));
 		render_system.submit_fonts(&mut fonts);
-		text_components.add(label_entity, Text::new(font_handle, String::from("...")));
+		text_components.add(&mut entity_manager, label_entity, Text::new(font_handle, String::from("...")));
 		let mut transform = Transform2D::new();
 		transform.position.set(10.0, 20.0);
-		transform2d_components.add(label_entity, transform);
+		transform2d_components.add(&mut entity_manager, label_entity, transform);
 
 		let frame_metrics_system = FrameMetricsSystem::new(label_entity);
 
 		let box_1_bounds_helper = entity_manager.create();
-		transform3d_components.add(box_1_bounds_helper, Transform3D::new());
+		transform3d_components.add(&mut entity_manager, box_1_bounds_helper, Transform3D::new());
 		let geometry_handle = geometries.add(Geometry3D::create_box_helper(&box3::DEFAULT_SQUARE));
 		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Line });
-		mesh_components.assign(box_1_bounds_helper, index);
+		mesh_components.assign(&mut entity_manager, box_1_bounds_helper, index);
 
 		let box_1 = entity_manager.create();
 		let mut transform = Transform3D::new();
@@ -77,22 +77,22 @@ impl Game {
 		transform.rotate_x(0.5);
 		transform.rotate_z(0.3);
 		transform.scale.set_from_scalar(0.5);
-		transform3d_components.add(box_1, transform);
+		transform3d_components.add(&mut entity_manager, box_1, transform);
 		let geometry_handle = geometries.add(Geometry3D::create_box());
 		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Normal });
-		mesh_components.assign(box_1, index);
-		rigid_body_components.add(box_1, RigidBody { velocity: vector3::ZERO, acceleration: Vector3::new(0.0, -0.00001, 0.0) });
-		mesh_bounds_helper_components.add(box_1, MeshBoundsHelper { bounds_entity: box_1_bounds_helper });
+		mesh_components.assign(&mut entity_manager, box_1, index);
+		rigid_body_components.add(&mut entity_manager, box_1, RigidBody { velocity: vector3::ZERO, acceleration: Vector3::new(0.0, -0.00001, 0.0) });
+		mesh_bounds_helper_components.add(&mut entity_manager, box_1, MeshBoundsHelper { bounds_entity: box_1_bounds_helper });
 		physics_system.entities.push(box_1);
 		mesh_bounds_helper_system.entities.push(box_1);
 
 		let plane = entity_manager.create();
 		let mut transform = Transform3D::new();
 		transform.scale.set_from_scalar(10.0);
-		transform3d_components.add(plane, transform);
+		transform3d_components.add(&mut entity_manager, plane, transform);
 		let geometry_handle = geometries.add(Geometry3D::create_plane());
 		let index = mesh_components.add(Mesh { geometry_handle, material: Material::Normal });
-		mesh_components.assign(plane, index);
+		mesh_components.assign(&mut entity_manager, plane, index);
 
 		Self {
 			camera,

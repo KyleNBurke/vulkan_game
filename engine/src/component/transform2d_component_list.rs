@@ -1,4 +1,4 @@
-use crate::Entity;
+use crate::{EntityManager, Entity};
 use super::{ComponentList, Transform2D};
 
 pub struct Transform2DComponentList {
@@ -14,19 +14,19 @@ impl Transform2DComponentList {
 		}
 	}
 
-	pub fn add(&mut self, entity: Entity, mut transform: Transform2D) {
+	pub fn add(&mut self, entity_manager: &mut EntityManager, entity: Entity, mut transform: Transform2D) {
 		transform.update_matrix();
-		self.component_list.add(entity, transform);
+		self.component_list.add(entity_manager, entity, transform);
 	}
 
-	pub fn remove(&mut self, entity: &Entity) {
+	pub fn remove(&mut self, entity_manager: &mut EntityManager, entity: &Entity) {
 		let transform = self.component_list.borrow(entity);
 
 		if transform.dirty {
 			self.dirty_count -= 1;
 		}
 
-		self.component_list.remove(entity);
+		self.component_list.remove(entity_manager, entity);
 	}
 
 	pub fn borrow(&self, entity: &Entity) -> &Transform2D {

@@ -1,4 +1,4 @@
-use crate::{Entity, Font, pool::Pool};
+use crate::{EntityManager, Entity, Font, pool::Pool};
 use super::{ComponentList, Text};
 
 pub struct TextComponentList {
@@ -14,13 +14,13 @@ impl TextComponentList {
 		}
 	}
 
-	pub fn add(&mut self, entity: Entity, text: Text) {
+	pub fn add(&mut self, entity_manager: &mut EntityManager, entity: Entity, text: Text) {
 		self.dirty_list.push(entity);
-		self.component_list.add(entity, text);
+		self.component_list.add(entity_manager, entity, text);
 	}
 
-	pub fn remove(&mut self, entity: &Entity) {
-		self.component_list.remove(entity);
+	pub fn remove(&mut self, entity_manager: &mut EntityManager, entity: &Entity) {
+		self.component_list.remove(entity_manager, entity);
 	}
 
 	pub fn borrow(&self, entity: &Entity) -> &Text {

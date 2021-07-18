@@ -1,4 +1,4 @@
-use crate::{Entity, entity_manager::MAX_ENTITY_COUNT};
+use crate::{EntityManager, Entity, entity_manager::MAX_ENTITY_COUNT};
 
 pub struct MultiComponentList<T> {
 	components: Vec<(Vec<Entity>, T)>,
@@ -18,10 +18,11 @@ impl<T> MultiComponentList<T> {
 		self.components.len() - 1
 	}
 
-	pub fn remove(&mut self, component_index: usize) {
+	pub fn remove(&mut self, entity_manager: &mut EntityManager, component_index: usize) {
 		let (entities, _) = &self.components[component_index];
 		for entity in entities {
 			self.entity_to_index_map[entity.index] = None;
+			entity_manager.decrement_component_count(entity.index);
 		}
 
 		self.components.swap_remove(component_index);
@@ -32,14 +33,16 @@ impl<T> MultiComponentList<T> {
 		}
 	}
 
-	pub fn assign(&mut self, entity: Entity, component_index: usize) {
+	pub fn assign(&mut self, entity_manager: &mut EntityManager, entity: Entity, component_index: usize) {
+		assert!(self.entity_to_index_map[entity.index].is_none(), "Cannot assign component to entity {} because it already has this component type", entity);
 		let (saved_entities, _) = &mut self.components[component_index];
 		saved_entities.push(entity);
 		let saved_entity_index = saved_entities.len() - 1;
 		self.entity_to_index_map[entity.index] = Some((component_index, saved_entity_index));
+		entity_manager.increment_component_count(entity.index);
 	}
 
-	pub fn unassign(&mut self, entity: &Entity) {
+	pub fn unassign(&mut self, entity_manager: &mut EntityManager, entity: &Entity) {
 		let component_index_option = self.entity_to_index_map[entity.index];
 		assert!(component_index_option.is_some(), "Cannot unassign component from entity {} because it does not have this component type", entity);
 		let (component_index, saved_entity_index) = component_index_option.unwrap();
@@ -49,6 +52,7 @@ impl<T> MultiComponentList<T> {
 		let swapped_entity = saved_entities[saved_entity_index];
 		self.entity_to_index_map[swapped_entity.index] = Some((component_index, saved_entity_index));
 		self.entity_to_index_map[entity.index] = None;
+		entity_manager.decrement_component_count(entity.index);
 	}
 
 	pub fn borrow(&self, entity: &Entity) -> &T {

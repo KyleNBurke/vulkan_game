@@ -1,4 +1,4 @@
-use crate::Entity;
+use crate::{EntityManager, Entity};
 use super::{ComponentList, Transform3D};
 
 pub struct Transform3DComponentList {
@@ -14,22 +14,22 @@ impl Transform3DComponentList {
 		}
 	}
 
-	pub fn add(&mut self, entity: Entity, mut transform: Transform3D) {
+	pub fn add(&mut self, entity_manager: &mut EntityManager, entity: Entity, mut transform: Transform3D) {
 		transform.update_local_matrix();
 		transform.global_matrix = transform.local_matrix;
-		self.component_list.add(entity, transform);
+		self.component_list.add(entity_manager, entity, transform);
 	}
 
-	pub fn add_child(&mut self, parent_entity: Entity, child_entity: Entity, mut child_transform: Transform3D) {
+	pub fn add_child(&mut self, entity_manager: &mut EntityManager, parent_entity: Entity, child_entity: Entity, mut child_transform: Transform3D) {
 		child_transform.update_local_matrix();
 		let parent_transform = self.component_list.borrow_mut(&parent_entity);
 		child_transform.global_matrix = parent_transform.global_matrix * child_transform.local_matrix;
 		parent_transform.child_entities.push(child_entity);
 		child_transform.parent_entity = Some(parent_entity);
-		self.component_list.add(child_entity, child_transform);
+		self.component_list.add(entity_manager, child_entity, child_transform);
 	}
 
-	pub fn remove(&mut self, entity: Entity) {
+	pub fn remove(&mut self, entity_manager: &mut EntityManager, entity: Entity) {
 		let transform = self.component_list.borrow(&entity);
 
 		if let Some(parent_entity) = transform.parent_entity {
@@ -48,7 +48,7 @@ impl Transform3DComponentList {
 				self.dirty_count -= 1;
 			}
 
-			self.component_list.remove(&entity);
+			self.component_list.remove(entity_manager, &entity);
 		}
 	}
 
