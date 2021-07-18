@@ -13,6 +13,9 @@ pub use camera::Camera;
 pub mod font;
 pub use font::Font;
 
+pub mod entity;
+pub use entity::Entity;
+
 pub mod entity_manager;
 pub use entity_manager::EntityManager;
 

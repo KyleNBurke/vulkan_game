@@ -1,8 +1,8 @@
-use crate::math::{matrix4, Matrix4, Quaternion, Vector3, quaternion, vector3};
+use crate::{Entity, math::{matrix4, Matrix4, Quaternion, Vector3, quaternion, vector3}};
 
 pub struct Transform3D {
-	pub(crate) parent_entity: Option<usize>,
-	pub(crate) child_entities: Vec<usize>,
+	pub(crate) parent_entity: Option<Entity>,
+	pub(crate) child_entities: Vec<Entity>,
 	pub(crate) dirty: bool,
 	pub position: Vector3,
 	pub orientation: Quaternion,

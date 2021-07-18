@@ -1,7 +1,7 @@
-use crate::entity_manager::MAX_ENTITY_COUNT;
+use crate::{Entity, entity_manager::MAX_ENTITY_COUNT};
 
 pub struct ComponentList<T> {
-	components: Vec<(usize, T)>,
+	components: Vec<(Entity, T)>,
 	entity_to_index_map: [Option<usize>; MAX_ENTITY_COUNT]
 }
 
@@ -13,46 +13,62 @@ impl<T> ComponentList<T> {
 		}
 	}
 
-	pub fn add(&mut self, entity: usize, component: T) {
-		assert!(self.entity_to_index_map[entity].is_none(), "Cannot add component to entity {} because it already has this component type", entity);
+	pub fn add(&mut self, entity: Entity, component: T) {
+		assert!(self.entity_to_index_map[entity.index].is_none(), "Cannot add component to entity {} because it already has this component type", entity);
 		self.components.push((entity, component));
-		let index = self.components.len() - 1;
-		self.entity_to_index_map[entity] = Some(index);
+		let component_index = self.components.len() - 1;
+		self.entity_to_index_map[entity.index] = Some(component_index);
 	}
 
-	pub fn remove(&mut self, entity: usize) {
-		let index_option = self.entity_to_index_map[entity];
-		assert!(index_option.is_some(), "Cannot remove component from entity {} because it does not have this component type", entity);
-		let index = index_option.unwrap();
-		self.entity_to_index_map[entity] = None;
-		self.components.swap_remove(index);
-		let (swapped_entity, _) = self.components[index];
-		self.entity_to_index_map[swapped_entity] = Some(index);
+	pub fn remove(&mut self, entity: &Entity) {
+		let component_index_option = self.entity_to_index_map[entity.index];
+		assert!(component_index_option.is_some(), "Cannot remove component from entity {} because it does not have this component type", entity);
+		let component_index = component_index_option.unwrap();
+		self.entity_to_index_map[entity.index] = None;
+		self.components.swap_remove(component_index);
+		let (swapped_entity, _) = self.components[component_index];
+		self.entity_to_index_map[swapped_entity.index] = Some(component_index);
 	}
 
-	pub fn borrow(&self, entity: usize) -> &T {
-		let index = self.entity_to_index_map[entity];
-		assert!(index.is_some(), "Cannot borrow component from entity {} because it does not have this component type", entity);
-		&self.components[index.unwrap()].1
+	pub fn borrow(&self, entity: &Entity) -> &T {
+		let component_index_option = self.entity_to_index_map[entity.index];
+		assert!(component_index_option.is_some(), "Cannot borrow component from entity {} because it does not have this component type", entity);
+		let (saved_entity, component) = &self.components[component_index_option.unwrap()];
+		assert_eq!(entity.generation, saved_entity.generation, "Cannot borrow component from entity {} because it's generation does not match", entity);
+		component
 	}
 
-	pub fn borrow_mut(&mut self, entity: usize) -> &mut T {
-		let index = self.entity_to_index_map[entity];
-		assert!(index.is_some(), "Cannot mutably borrow component from entity {} because it does not have this component type", entity);
-		&mut self.components[index.unwrap()].1
+	pub fn borrow_mut(&mut self, entity: &Entity) -> &mut T {
+		let component_index_option = self.entity_to_index_map[entity.index];
+		assert!(component_index_option.is_some(), "Cannot mutably borrow component from entity {} because it does not have this component type", entity);
+		let (saved_entity, component) = &mut self.components[component_index_option.unwrap()];
+		assert_eq!(entity.generation, saved_entity.generation, "Cannot mutably borrow component from entity {} because it's generation does not match", entity);
+		component
 	}
 
-	pub fn try_borrow(&self, entity: usize) -> Option<&T> {
-		let index = self.entity_to_index_map[entity]?;
-		Some(&self.components[index].1)
+	pub fn try_borrow(&self, entity: &Entity) -> Option<&T> {
+		let index = self.entity_to_index_map[entity.index]?;
+		let (saved_entity, component) = &self.components[index];
+		if entity.generation == saved_entity.generation {
+			Some(component)
+		}
+		else {
+			None
+		}
 	}
 
-	pub fn try_borrow_mut(&mut self, entity: usize) -> Option<&mut T> {
-		let index = self.entity_to_index_map[entity]?;
-		Some(&mut self.components[index].1)
+	pub fn try_borrow_mut(&mut self, entity: &Entity) -> Option<&mut T> {
+		let index = self.entity_to_index_map[entity.index]?;
+		let (saved_entity, component) = &mut self.components[index];
+		if entity.generation == saved_entity.generation {
+			Some(component)
+		}
+		else {
+			None
+		}
 	}
 
-	pub fn iter(&self) -> impl Iterator<Item = &(usize, T)> {
+	pub fn iter(&self) -> impl Iterator<Item = &(Entity, T)> {
 		self.components.iter()
 	}
 }

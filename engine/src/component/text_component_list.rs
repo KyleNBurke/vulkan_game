@@ -1,10 +1,9 @@
-use crate::{Font, pool::Pool};
-
+use crate::{Entity, Font, pool::Pool};
 use super::{ComponentList, Text};
 
 pub struct TextComponentList {
 	component_list: ComponentList<Text>,
-	dirty_list: Vec<usize>
+	dirty_list: Vec<Entity>
 }
 
 impl TextComponentList {
@@ -15,40 +14,40 @@ impl TextComponentList {
 		}
 	}
 
-	pub fn add(&mut self, entity: usize, text: Text) {
+	pub fn add(&mut self, entity: Entity, text: Text) {
 		self.dirty_list.push(entity);
 		self.component_list.add(entity, text);
 	}
 
-	pub fn remove(&mut self, entity: usize) {
+	pub fn remove(&mut self, entity: &Entity) {
 		self.component_list.remove(entity);
 	}
 
-	pub fn borrow(&self, entity: usize) -> &Text {
+	pub fn borrow(&self, entity: &Entity) -> &Text {
 		self.component_list.borrow(entity)
 	}
 
-	pub fn borrow_mut(&mut self, entity: usize) -> &mut Text {
+	pub fn borrow_mut(&mut self, entity: Entity) -> &mut Text {
 		self.dirty_list.push(entity);
-		self.component_list.borrow_mut(entity)
+		self.component_list.borrow_mut(&entity)
 	}
 
-	pub fn try_borrow(&self, entity: usize) -> Option<&Text> {
+	pub fn try_borrow(&self, entity: &Entity) -> Option<&Text> {
 		self.component_list.try_borrow(entity)
 	}
 
-	pub fn try_borrow_mut(&mut self, entity: usize) -> Option<&mut Text> {
+	pub fn try_borrow_mut(&mut self, entity: Entity) -> Option<&mut Text> {
 		self.dirty_list.push(entity);
-		self.component_list.try_borrow_mut(entity)
+		self.component_list.try_borrow_mut(&entity)
 	}
 
-	pub fn iter(&self) -> impl Iterator<Item = &(usize, Text)> {
+	pub fn iter(&self) -> impl Iterator<Item = &(Entity, Text)> {
 		self.component_list.iter()
 	}
 
 	pub fn generate_dirties(&mut self, fonts: &Pool<Font>) {
 		while let Some(entity) = self.dirty_list.pop() {
-			let text = self.component_list.borrow_mut(entity);
+			let text = self.component_list.borrow_mut(&entity);
 			let font = fonts.borrow(text.font);
 
 			text.indices.clear();

@@ -1,7 +1,9 @@
+use crate::Entity;
+
 pub const MAX_ENTITY_COUNT: usize = 500;
 
 pub struct EntityManager {
-	free_entities: Vec<usize>,
+	free_entities: Vec<Entity>,
 	alive_entity_count: usize
 }
 
@@ -13,7 +15,7 @@ impl EntityManager {
 		}
 	}
 
-	pub fn create(&mut self) -> usize {
+	pub fn create(&mut self) -> Entity {
 		assert!(self.alive_entity_count != MAX_ENTITY_COUNT, "Cannot create entity because the limit of {} has been reached", MAX_ENTITY_COUNT);
 		self.alive_entity_count += 1;
 		
@@ -21,11 +23,12 @@ impl EntityManager {
 			entity
 		}
 		else {
-			self.alive_entity_count - 1
+			Entity::new(self.alive_entity_count - 1, 0)
 		}
 	}
 
-	pub fn destroy(&mut self, entity: usize) {
+	pub fn destroy(&mut self, mut entity: Entity) {
+		entity.generation += 1;
 		self.free_entities.push(entity);
 		self.alive_entity_count -= 1;
 	}

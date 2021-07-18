@@ -1,12 +1,12 @@
 use std::time::Duration;
 
-use engine::component::TextComponentList;
+use engine::{Entity, component::TextComponentList};
 
 const UPDATE_INTERVAL_SECONDS: f32 = 0.5;
 const MAX_SAMPLED_FRAMES: usize = 100;
 
 pub struct FrameMetricsSystem {
-	label_entity: usize,
+	label_entity: Entity,
 	update_interval: Duration,
 	duration: Duration,
 	fps_sampled_frames: usize,
@@ -16,7 +16,7 @@ pub struct FrameMetricsSystem {
 }
 
 impl FrameMetricsSystem {
-	pub fn new(label_entity: usize) -> Self {
+	pub fn new(label_entity: Entity) -> Self {
 		Self {
 			label_entity,
 			update_interval: Duration::from_secs_f32(UPDATE_INTERVAL_SECONDS),

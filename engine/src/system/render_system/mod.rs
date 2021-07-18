@@ -1,6 +1,7 @@
 use std::{cmp::max, fs::File, mem::size_of_val, ptr::copy_nonoverlapping};
 use crate::{
 	Camera,
+	Entity,
 	component::{ComponentList, MultiComponentList, Light, Mesh, TextComponentList, Transform2DComponentList, Transform3DComponentList, mesh::Material, Text},
 	Font,
 	Geometry3D,
@@ -357,7 +358,7 @@ impl RenderSystem {
 				},
 				Light::PointLight(point_light) => {
 					let intensified_color = point_light.color * point_light.intensity;
-					let position = transform3d_components.borrow(*entity).global_matrix.extract_position();
+					let position = transform3d_components.borrow(entity).global_matrix.extract_position();
 
 					unsafe {
 						let position_dst_ptr = frame_data_buffer_ptr.add(position_base_offest + stride * point_light_count) as *mut Vector3;
@@ -401,7 +402,7 @@ impl RenderSystem {
 		// - Calculate the offsets and size of the data
 		// - Count the number of entities of each material to render
 		struct InstanceGroupInfo<'a> {
-			tuple: &'a (Vec<usize>, Mesh),
+			tuple: &'a (Vec<Entity>, Mesh),
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize
 		}
@@ -428,7 +429,7 @@ impl RenderSystem {
 
 		// Iterate over text to
 		struct TextInfo<'a> {
-			tuple: &'a (usize, Text),
+			tuple: &'a (Entity, Text),
 			index_array_relative_offset: usize,
 			attribute_array_relative_offset: usize
 		}
@@ -655,7 +656,7 @@ impl RenderSystem {
 			match mesh.material {
 				Material::Line => {
 					for (instance_index, instance) in instances.iter().enumerate() {
-						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
+						let transform_ptr = transform3d_components.borrow(instance).global_matrix.elements.as_ptr();
 						let offset = line_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -668,7 +669,7 @@ impl RenderSystem {
 				},
 				Material::Basic => {
 					for (instance_index, instance) in instances.iter().enumerate() {
-						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
+						let transform_ptr = transform3d_components.borrow(instance).global_matrix.elements.as_ptr();
 						let offset = basic_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -681,7 +682,7 @@ impl RenderSystem {
 				},
 				Material::Normal => {
 					for (instance_index, instance) in instances.iter().enumerate() {
-						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
+						let transform_ptr = transform3d_components.borrow(instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = normal_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -694,7 +695,7 @@ impl RenderSystem {
 				},
 				Material::Lambert => {
 					for (instance_index, instance) in instances.iter().enumerate() {
-						let transform_ptr = transform3d_components.borrow(*instance).global_matrix.elements.as_ptr();
+						let transform_ptr = transform3d_components.borrow(instance).global_matrix.elements.as_ptr();
 						let instance_data_offset = lambert_instance_data_resources.array_offset + 4 * 16 * (*instance_group_index + instance_index);
 
 						unsafe {
@@ -785,7 +786,7 @@ impl RenderSystem {
 			let attributes = text.attributes();
 
 			let projection_matrix = &self.text_resources.projection_matrix;
-			let transform_matrix = &transform2d_components.borrow(*entity).matrix;
+			let transform_matrix = &transform2d_components.borrow(entity).matrix;
 			let final_matrix = projection_matrix * transform_matrix;
 
 			unsafe {

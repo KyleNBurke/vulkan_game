@@ -1,7 +1,7 @@
-use crate::{Geometry3D, component::{ComponentList, MultiComponentList, Mesh, MeshBoundsHelper, Transform3DComponentList}, math::{Box3, Vector3}, pool::Pool};
+use crate::{Entity, Geometry3D, component::{ComponentList, MultiComponentList, Mesh, MeshBoundsHelper, Transform3DComponentList}, math::{Box3, Vector3}, pool::Pool};
 
 pub struct MeshBoundsHelperSystem {
-	pub entities: Vec<usize>
+	pub entities: Vec<Entity>
 }
 
 impl MeshBoundsHelperSystem {
@@ -13,10 +13,10 @@ impl MeshBoundsHelperSystem {
 
 	pub fn update(&self, transform_components: &mut Transform3DComponentList, mesh_components: &MultiComponentList<Mesh>, geometries: &mut Pool<Geometry3D>, mesh_bounds_helper_components: &ComponentList<MeshBoundsHelper>) {
 		for entity in &self.entities {
-			let transform = transform_components.borrow(*entity);
+			let transform = transform_components.borrow(entity);
 			let transform_position = transform.position;
 			let global_matrix = transform.global_matrix().truncate();
-			let mesh = mesh_components.borrow(*entity);
+			let mesh = mesh_components.borrow(entity);
 			let geometry = geometries.borrow(mesh.geometry_handle);
 			let bounding_box_vertices = geometry.bounding_box().as_vertices();
 
@@ -30,13 +30,13 @@ impl MeshBoundsHelperSystem {
 				max.max(&transformed_vertex);
 			}
 
-			let bounds_entity = mesh_bounds_helper_components.borrow(*entity).bounds_entity;
+			let bounds_entity = mesh_bounds_helper_components.borrow(entity).bounds_entity;
 			
-			let bounds_mesh = mesh_components.borrow(bounds_entity);
+			let bounds_mesh = mesh_components.borrow(&bounds_entity);
 			let bounds_geo = geometries.borrow_mut(bounds_mesh.geometry_handle);
 			bounds_geo.make_box_helper(&Box3::new(min, max));
 
-			let bounds_transform = transform_components.borrow_mut(bounds_entity);
+			let bounds_transform = transform_components.borrow_mut(&bounds_entity);
 			bounds_transform.position = transform_position;
 			transform_components.update(bounds_entity);
 		}
